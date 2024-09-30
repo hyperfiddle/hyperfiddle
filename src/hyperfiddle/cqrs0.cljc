@@ -83,7 +83,7 @@
                          dirty-form dirty-form-guess])))
 
          (e/When debug
-           (dom/pre (dom/props {:style {:min-height "4em"}})
+           (dom/pre #_(dom/props {:style {:min-height "4em"}})
              (dom/text (pprint-str dirty-form :margin 80)))))))))
 
 (defmacro Form! [fields1 & kwargs]
