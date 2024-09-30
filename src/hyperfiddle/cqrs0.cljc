@@ -43,11 +43,10 @@
 (e/defn Form!*
   ([#_field-edits ; aggregate form state - implies circuit controls, i.e. no control dirty state
     [ts kvs guess :as edits] ; concurrent edits are what give us dirty tracking
-    & {:keys [debug commit discard show-buttons auto-submit]
-       :or {debug false
-            show-buttons true}}]
+    & {:keys [debug commit discard show-buttons auto-submit edit-merge]
+       :or {debug false show-buttons true edit-merge merge}}]
    (e/client
-     (let [dirty-form (not-empty (apply merge (e/as-vec kvs))) ; collect fields into form, retain until commit/discard
+     (let [dirty-form (not-empty (apply edit-merge (e/as-vec kvs))) ; collect fields into form, retain until commit/discard
            ;dirty-form-guess (apply merge (e/as-vec guess)) ; todo collisions
            form-t (let [ts (e/as-vec ts) #_(map first field-edits)]
                     (fn token
