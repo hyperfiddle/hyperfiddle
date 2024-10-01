@@ -84,30 +84,27 @@
           (if waiting? [t (edit-monoid k ((fn [] (-> e .-target .-checked parse))))] (e/amb))))
       (e/When label (dom/label (dom/props {:for id}) (dom/text label))))))
 
-(e/defn Button! [directive & {:keys [label disabled id token] :as props
-                              :or {id (random-uuid)}}]
+(e/defn Button!
+  "Transactional button with busy state. Disables when busy."
+  [directive & {:keys [label disabled id] :as props
+                :or {id (random-uuid)}}]
   (dom/button (dom/text label) ; (if err "retry" label)
     (dom/props (-> props (dissoc :label :disabled) (assoc :id id)))
-    (let [[t err] (e/RetryToken (dom/On "click" identity nil))]
-      #_(prn 'Button! directive t err)
-      (dom/props {:disabled (or disabled (some? t))}) ; todo compile kw args
-      #_(when waiting? (dom/props {:aria-busy true}))
-      (when (some? err) (dom/props {:aria-invalid true})) ; bug - error not removed (glitch)
-      (if t [t directive] (e/amb))))) ; injected tokens do not resubmit until user interacts again
+    (let [x (dom/On "click" (constantly directive) nil)
+          [t err] (e/RetryToken x)] ; genesis
+      (dom/props {:disabled (or disabled (some? t))})
+      (dom/props {:aria-busy (some? t)})
+      (dom/props {:aria-invalid (some? err)})
+      (if t [t x] (e/amb))))) ; None or Single
 
-(e/defn InputSubmitCreate!
-  "optimistic, cancel & retry are forwarded to optimistic list item's InputSubmit!
-buffers (dirty), commit, discard bundled as enter/esc"
-  [& {:keys [maxlength type parse] :as props
-      :or {maxlength 100 type "text" parse identity}}]
-  (e/client
-    (dom/input (dom/props (-> props (dissoc :parse) (assoc :maxLength maxlength :type type)))
-      (letfn [(read! [node] (not-empty (subs (.-value node) 0 maxlength)))
-              (read-clear! [node] (when-some [v (read! node)] (set! (.-value node) "") v))
-              (submit! [e] (let [k (.-key e)]
-                             (cond
-                               (= "Enter" k) (parse (read-clear! (.-target e)))
-                               (= "Escape" k) (do (set! (.-value dom/node) "") nil)
-                               () nil)))]
-        #_(PendingMonitor) ; the optimistic list item is responsible for pending/retry affordances
-        (dom/On-all "keydown" submit!)))))
+(e/defn ButtonGenesis!
+  "Spawns a new tempid/token for each click. You must monitor the spawned tempid
+in an associated optimistic collection view!"
+  [directive & {:keys [label disabled id] :as props
+                :or {id (random-uuid)}}]
+  (dom/button (dom/text label) ; (if err "retry" label)
+    (dom/props (-> props (dissoc :label :disabled) (assoc :id id)))
+    (dom/props {:disabled (or disabled #_(some? t))})
+    #_(dom/props {:aria-busy (some? t)})
+    #_(dom/props {:aria-invalid (some? err)})
+    (dom/On-all "click" (constantly directive) nil)))
