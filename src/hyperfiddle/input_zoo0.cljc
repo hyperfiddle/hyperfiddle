@@ -107,7 +107,7 @@ in an associated optimistic collection view!"
     (dom/props {:disabled (or disabled #_(some? t))})
     #_(dom/props {:aria-busy (some? t)})
     #_(dom/props {:aria-invalid (some? err)})
-    (dom/On-all "click" (constantly directive) nil)))
+    (dom/On-all "click" (fn [] (doto directive (prn `ButtonGenesis!))))))
 
 (e/defn InputSubmitCreate!
   "optimistic, cancel & retry are forwarded to optimistic list item's InputSubmit!

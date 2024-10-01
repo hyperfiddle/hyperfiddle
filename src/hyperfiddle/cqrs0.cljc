@@ -45,8 +45,8 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
   [directive & {:keys [disabled show-button label #_auto-submit] :as props}] ; auto-submit unsupported
   (e/amb
     #_(e/When show-button) (ButtonGenesis! directive :disabled disabled :label label)
-    (dom/On-all "submit" #(do (.preventDefault %) (.stopPropagation %)
-                            (when-not disabled directive)) nil)))
+    #_(dom/On-all "submit" #(do (.preventDefault %) (.stopPropagation %)
+                            (when-not disabled (doto directive (prn 'FormSubmitGenesis!-submit)))))))
 
 (e/defn Form!*
   ([#_field-edits ; aggregate form state - implies circuit controls, i.e. no control dirty state
@@ -80,14 +80,17 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
                           (nth discard 0) ; command
                           (nth discard 1)] ; prediction
                          (case (discard!) (e/amb))) ; otherwise discard now and swallow cmd, we're done
-             ::commit (let [[dirty-form dirty-form-guess] (if commit (commit dirty-form btn-t ; tempid
+             ::commit (let [[dirty-form dirty-form-guess] (if commit (commit (e/snapshot dirty-form) btn-t ; tempid
                                                                        #_dirty-form-guess) ; guess and form would be =
                                                             [dirty-form #_{e dirty-form}])] ; no entity id, only user can guess
-                        (when genesis (form-t)) ; clear form, ready for next submit
-                        [(fn token
-                           ([] (btn-t) (when-not genesis (form-t))) ; commit ok, reset controlled form
-                           ([err] (btn-t err) #_(form-t err))) ; leave dirty fields dirty, activates retry button
-                         dirty-form dirty-form-guess])))
+                        (case genesis
+                          true (do (form-t) ; abandon entity and clear form, ready for next submit -- triggers second commit, hacked w/ snapshot
+                                 [btn-t ; this is a q, transfer to list item
+                                  dirty-form dirty-form-guess])
+                          false [(fn token
+                                   ([] (btn-t) (when-not genesis (form-t))) ; commit ok, reset controlled form
+                                   ([err] (btn-t err) #_(form-t err))) ; leave dirty fields dirty, activates retry button
+                                 dirty-form dirty-form-guess]))))
 
          (e/When debug
            (dom/pre #_(dom/props {:style {:min-height "4em"}})
@@ -115,14 +118,14 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
 (e/defn PendingController [kf sort-key forms xs]
   (let [!pending (atom {}) ; [id -> guess]
         ps (val (e/diff-by key (e/watch !pending)))]
-    (e/for [[t cmd guess] forms #_(Service forms)]
+    (e/for [[t cmd guess :as form] forms #_(Service forms)]
       #_(prn 'PendingController t cmds predictions)
       (assert (= 1 (count guess)))
       (let [[tempid guess] (first guess)]
         #_(prn 'pending-cmds cmds)
         (case guess
           ::retract nil ; todo
-          (swap! !pending assoc tempid (assoc guess ::pending tempid #_t)))
+          (swap! !pending assoc tempid (assoc guess ::pending form)))
         (e/on-unmount #(swap! !pending dissoc tempid))
         (e/amb)))
     (Reconcile-records kf sort-key xs ps)))
