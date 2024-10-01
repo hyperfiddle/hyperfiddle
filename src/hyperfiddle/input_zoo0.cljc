@@ -108,3 +108,20 @@ in an associated optimistic collection view!"
     #_(dom/props {:aria-busy (some? t)})
     #_(dom/props {:aria-invalid (some? err)})
     (dom/On-all "click" (constantly directive) nil)))
+
+(e/defn InputSubmitCreate!
+  "optimistic, cancel & retry are forwarded to optimistic list item's InputSubmit!
+buffers (dirty), commit, discard bundled as enter/esc"
+  [& {:keys [maxlength type parse] :as props
+      :or {maxlength 100 type "text" parse identity}}]
+  (e/client
+    (dom/input (dom/props (-> props (dissoc :parse) (assoc :maxLength maxlength :type type)))
+      (letfn [(read! [node] (not-empty (subs (.-value node) 0 maxlength)))
+              (read-clear! [node] (when-some [v (read! node)] (set! (.-value node) "") v))
+              (submit! [e] (let [k (.-key e)]
+                             (cond
+                               (= "Enter" k) (parse (read-clear! (.-target e)))
+                               (= "Escape" k) (do (set! (.-value dom/node) "") nil)
+                               () nil)))]
+        #_(PendingMonitor) ; the optimistic list item is responsible for pending/retry affordances
+        (dom/On-all "keydown" submit!)))))
