@@ -11,10 +11,16 @@
 ; stage - monitor edits and accumulate them
 ; button - batch all edits into single token, chained with upstream tokens
 
-#?(:cljs (defn- blur-active-form-input! [form]
+#?(:cljs (defn- active-form-input [form]
            (when-let [focused-input (.-activeElement js/document)]
              (when (.contains form focused-input)
-               (.blur focused-input)))))
+               focused-input))))
+
+#?(:cljs (defn- blur-active-form-input! [form] (some-> (active-form-input form) (.blur))))
+
+#?(:cljs (defn- reset-active-form-input! [form]
+           (when-let [input (active-form-input form)]
+             (set! (.-value input) ""))))
 
 (e/defn FormDiscard! ; dom/node must be a form
   [directive & {:keys [disabled show-button label] :as props}]
@@ -86,7 +92,8 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
                                                                        #_dirty-form-guess) ; guess and form would be =
                                                             [dirty-form #_{e dirty-form}]) ; no entity id, only user can guess
                             t (case genesis
-                                true (do (form-t) ; abandon entity and clear form, ready for next submit -- triggers second commit, hacked w/ snapshot
+                                true (do (e/snapshot (form-t)) ; abandon entity and clear form, ready for next submit -- snapshot to avoid clearing concurrent edits
+                                         (reset-active-form-input! dom/node) ; yuck - move elsewhere
                                        btn-t) ; this is a q, transfer to list item
                                 false (fn token
                                         ([] (btn-t) (when-not genesis (form-t))) ; commit ok, reset controlled form
