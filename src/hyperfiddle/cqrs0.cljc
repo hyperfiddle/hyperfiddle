@@ -121,14 +121,14 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
   (let [!pending (atom {}) ; [id -> guess]
         ps (val (e/diff-by key (e/watch !pending)))]
     (e/for [[t cmd guess :as form] forms #_(Service forms)]
-      #_(prn 'PendingController t cmds predictions)
-      (assert (= 1 (count guess)))
+      (prn 'PendingController cmd guess)
+      (assert (<= (count guess) 1))
       (let [[tempid guess] (first guess)]
-        #_(prn 'pending-cmds cmds)
         (case guess
+          nil nil ; guess is optional
           ::retract nil ; todo
-          (swap! !pending assoc tempid (assoc guess ::pending form)))
-        (e/on-unmount #(swap! !pending dissoc tempid))
+          (do (swap! !pending assoc tempid (assoc guess ::pending form))
+            (e/on-unmount #(swap! !pending dissoc tempid))))
         (e/amb)))
     (Reconcile-records kf sort-key xs ps)))
 
