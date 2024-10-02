@@ -23,12 +23,12 @@
              (set! (.-value input) ""))))
 
 (e/defn FormDiscard! ; dom/node must be a form
-  [directive & {:keys [disabled show-button label] :as props}]
+  [directive & {:keys [disabled show-button label form] :as props}]
   (e/client
     (dom/On "keyup" #(when (= "Escape" (.-key %)) (.stopPropagation %)
                        (.reset dom/node) nil) nil) ; proxy Esc to form's "reset" event
     (e/amb
-      #_(e/When show-button) (Button! directive :disabled disabled :label label) ; todo fix
+      #_(e/When show-button) (Button! directive :disabled disabled :label label :form form) ; todo fix
       (let [e (dom/On "reset" #(do (.log js/console %) (.preventDefault %)
                                  (blur-active-form-input! (.-target %)) %) nil)
             [t err] (e/RetryToken e)]
@@ -38,7 +38,7 @@
   [directive & {:keys [disabled show-button label auto-submit form] :as props}]
   (e/client
     (e/amb
-      #_(e/When show-button) (Button! directive :disabled disabled :label label)
+      #_(e/When show-button) (Button! directive :disabled disabled :label label :form form)
       #_(let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %)
                                   (when-not disabled %)) nil)
             [t err] (e/RetryToken (if auto-submit form e))]
