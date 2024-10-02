@@ -62,17 +62,17 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
                       #_([err] (doseq [t ts] (t err ::keep))))) ; we could route errors to dirty fields, but it clears dirty state
            dirty-count (e/Count edits)
            clean? (zero? dirty-count)
-           [tempids _ :as cs] (e/call (if genesis FormSubmitGenesis! FormSubmit!)
+           [tempids _ :as ?cs] (e/call (if genesis FormSubmitGenesis! FormSubmit!)
                                 ::commit :label "commit"  :disabled clean?
                                 :auto-submit (when auto-submit dirty-form)
                                 :show-button show-buttons )
-           [dt _ :as d] (FormDiscard! ::discard :disabled clean? :label "discard" :show-button show-buttons)
+           [dt _ :as ?d] (FormDiscard! ::discard :disabled clean? :label "discard" :show-button show-buttons)
            discard! (if (e/Some? tempids) ; refering to tempids JOINs this value to nothing when clicking discard before commit.
                       (fn [] (when-not genesis (tempids)) (dt) (form-t))
                       (fn [] (dt) (form-t)))] ; reset controlled form and both buttons, cancelling any in-flight commit
        (e/When debug (dom/span (dom/text " " dirty-count " dirty")))
        (e/amb
-         (e/for [[btn-t cmd] (e/amb cs d)]
+         (e/for [[btn-t cmd] (e/amb ?cs ?d)]
            (case cmd ; does order of burning matter?
              ::discard (if discard ; user wants to run an effect on discard (todomvc item special case, genesis discard is always local!)
                          [(fn token ; emit discard and stay busy (lag!)
