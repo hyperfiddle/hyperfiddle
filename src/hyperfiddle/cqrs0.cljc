@@ -51,8 +51,8 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
 (e/defn Form!*
   ([#_field-edits ; aggregate form state - implies circuit controls, i.e. no control dirty state
     [ts kvs guess :as edits] ; concurrent edits are what give us dirty tracking
-    & {:keys [debug commit discard show-buttons auto-submit edit-merge genesis]
-       :or {debug false show-buttons true edit-merge merge genesis false}}]
+    & {:keys [debug commit discard show-buttons auto-submit edit-merge genesis name edit-monoid]
+       :or {debug false show-buttons true edit-merge merge genesis false edit-monoid hash-map}}]
    (e/client
      (let [dirty-form (not-empty (apply edit-merge (e/as-vec kvs))) ; collect fields into form, retain until commit/discard
            ;dirty-form-guess (apply merge (e/as-vec guess)) ; todo collisions
@@ -83,15 +83,16 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
                          (case (discard!) (e/amb))) ; otherwise discard now and swallow cmd, we're done
              ::commit (let [[dirty-form dirty-form-guess] (if commit (commit (e/snapshot dirty-form) btn-t ; tempid
                                                                        #_dirty-form-guess) ; guess and form would be =
-                                                            [dirty-form #_{e dirty-form}])] ; no entity id, only user can guess
-                        (case genesis
-                          true (do (form-t) ; abandon entity and clear form, ready for next submit -- triggers second commit, hacked w/ snapshot
-                                 [btn-t ; this is a q, transfer to list item
-                                  dirty-form dirty-form-guess])
-                          false [(fn token
-                                   ([] (btn-t) (when-not genesis (form-t))) ; commit ok, reset controlled form
-                                   ([err] (btn-t err) #_(form-t err))) ; leave dirty fields dirty, activates retry button
-                                 dirty-form dirty-form-guess]))))
+                                                            [dirty-form #_{e dirty-form}]) ; no entity id, only user can guess
+                            t (case genesis
+                                true (do (form-t) ; abandon entity and clear form, ready for next submit -- triggers second commit, hacked w/ snapshot
+                                       btn-t) ; this is a q, transfer to list item
+                                false (fn token
+                                        ([] (btn-t) (when-not genesis (form-t))) ; commit ok, reset controlled form
+                                        ([err] (btn-t err) #_(form-t err))))] ; leave dirty fields dirty, activates retry button
+                        [t
+                         (if name (edit-monoid name dirty-form) dirty-form) ; nested forms as fields in larger forms
+                         dirty-form-guess])))
 
          (e/When debug
            (dom/pre #_(dom/props {:style {:min-height "4em"}})
