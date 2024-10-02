@@ -86,16 +86,17 @@
 
 (e/defn Button!
   "Transactional button with busy state. Disables when busy."
-  [directive & {:keys [label disabled id] :as props
-                :or {id (random-uuid)}}]
+  [directive & {:keys [label disabled id type] :as props
+                :or {id (random-uuid)
+                     type :button}}] ; default type in form is submit
   (dom/button (dom/text label) ; (if err "retry" label)
-    (dom/props (-> props (dissoc :label :disabled) (assoc :id id)))
-    (let [x (dom/On "click" (constantly directive) nil)
+    (dom/props (-> props (dissoc :label :disabled) (assoc :id id :type type)))
+    (let [x (dom/On "click" identity nil) ; (constantly directive) forbidden - would work skip subsequent clicks
           [t err] (e/RetryToken x)] ; genesis
       (dom/props {:disabled (or disabled (some? t))})
       (dom/props {:aria-busy (some? t)})
       (dom/props {:aria-invalid (some? err)})
-      (if t [t x] (e/amb))))) ; None or Single
+      (if t [t directive] (e/amb))))) ; None or Single
 
 (e/defn ButtonGenesis!
   "Spawns a new tempid/token for each click. You must monitor the spawned tempid
