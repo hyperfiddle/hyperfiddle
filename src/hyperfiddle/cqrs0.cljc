@@ -35,13 +35,13 @@
         (if t [t directive] (e/amb))))))
 
 (e/defn FormSubmit!
-  [directive & {:keys [disabled show-button label auto-submit] :as props}]
+  [directive & {:keys [disabled show-button label auto-submit form] :as props}]
   (e/client
     (e/amb
       #_(e/When show-button) (Button! directive :disabled disabled :label label)
-      (let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %)
+      #_(let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %)
                                   (when-not disabled %)) nil)
-            [t err] (e/RetryToken (or e auto-submit))]
+            [t err] (e/RetryToken (if auto-submit form e))]
         (dom/props {:aria-invalid (some? err)})
         (if t [t directive] (e/amb)))))) ; None or Single
 
@@ -55,56 +55,70 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
     (dom/On-all "submit" #(do (.preventDefault %) (.stopPropagation %)
                             (when-not disabled (doto directive (prn 'FormSubmitGenesis!-submit)))))))
 
+
+(defn invert-fields-to-form [edit-merge edits]
+  (let [ts (map second edits)
+        kvs (map first edits)
+        dirty-form (not-empty (apply edit-merge kvs)) ; collect fields into form, retain until commit/discard
+        #_#_dirty-form-guess (apply merge (e/as-vec guess)) ; todo collisions
+        form-t (fn token ; fresh if ts changes (should fields be disabled when commit pending?)
+                 ([] (doseq [t ts] (t)))
+                 #_([err] (doseq [t ts] (t err ::keep)))) ; we could route errors to dirty fields, but it clears dirty state
+        ]
+    [form-t dirty-form]))
+
+(defn call [f] (f))
+
 (e/defn Form!*
   ([#_field-edits ; aggregate form state - implies circuit controls, i.e. no control dirty state
-    [ts kvs guess :as edits] ; concurrent edits are what give us dirty tracking
+    edits ; concurrent edits are what give us dirty tracking
     & {:keys [debug commit discard show-buttons auto-submit edit-merge genesis name edit-monoid]
        :or {debug false show-buttons true edit-merge merge genesis false edit-monoid hash-map}}]
    (e/client
-     (let [dirty-form (not-empty (apply edit-merge (e/as-vec kvs))) ; collect fields into form, retain until commit/discard
-           ;dirty-form-guess (apply merge (e/as-vec guess)) ; todo collisions
-           form-t (let [ts (e/as-vec ts) #_(map first field-edits)]
-                    (fn token ; fresh if ts changes (should fields be disabled when commit pending?)
-                      ([] (doseq [t ts] (t)))
-                      #_([err] (doseq [t ts] (t err ::keep))))) ; we could route errors to dirty fields, but it clears dirty state
-           dirty-count (e/Count edits)
+     (let [dirty-count (e/Count edits)
            clean? (zero? dirty-count)
+           [form-t form-v :as form] (invert-fields-to-form edit-merge (e/as-vec edits))
            [tempids _ :as ?cs] (e/call (if genesis FormSubmitGenesis! FormSubmit!)
-                                ::commit :label "commit"  :disabled clean?
-                                :auto-submit (when auto-submit dirty-form)
-                                :show-button show-buttons )
-           [dt _ :as ?d] (FormDiscard! ::discard :disabled clean? :label "discard" :show-button show-buttons)
-           discard! (if (e/Some? tempids) ; refering to tempids JOINs this value to nothing when clicking discard before commit.
-                      (fn [] (when-not genesis (tempids)) (dt) (form-t))
-                      (fn [] (dt) (form-t)))] ; reset controlled form and both buttons, cancelling any in-flight commit
+                                 ::commit :label "commit"  :disabled clean?
+                                 :form form
+                                 :auto-submit auto-submit ; (when auto-submit dirty-form)
+                                 :show-button show-buttons)
+           [_ _ :as ?d] (FormDiscard! ::discard :form form :disabled clean? :label "discard" :show-button show-buttons)]
        (e/When debug (dom/span (dom/text " " dirty-count " dirty")))
        (e/amb
-         (e/for [[btn-t cmd] (e/amb ?cs ?d)]
+         (e/for [[btn-q [cmd form-v]] (e/amb ?cs ?d)]
            (case cmd ; does order of burning matter?
-             ::discard (if discard ; user wants to run an effect on discard (todomvc item special case, genesis discard is always local!)
-                         [(fn token ; emit discard and stay busy (lag!)
-                            ([] (discard!)) ; user says discard ok
-                            ([err] (btn-t err))) ; user rejected discard
-                          (nth discard 0) ; command
-                          (nth discard 1)] ; prediction
-                         (case (discard!) (e/amb))) ; otherwise discard now and swallow cmd, we're done
-             ::commit (let [[dirty-form dirty-form-guess] (if commit (commit (e/snapshot dirty-form) btn-t ; tempid
-                                                                       #_dirty-form-guess) ; guess and form would be =
-                                                            [dirty-form #_{e dirty-form}]) ; no entity id, only user can guess
+             ::discard (let [the-commit (first (e/as-vec tempids)) clear-the-commit #(some-> the-commit call)]
+                         (case genesis
+                           true (if-not discard ; user wants to run an effect on discard (todomvc item special case, genesis discard is always local!)
+                                  (case (btn-q) (e/amb)) ; discard now and swallow cmd, we're done
+                                  [btn-q ; its a t
+                                   (nth discard 0) ; command
+                                   (nth discard 1)]) ; prediction
+
+                           ; reset form and BOTH buttons, cancelling any in-flight commit
+                           false (if-not discard ; user wants to run an effect on discard (todomvc item special case, genesis discard is always local!)
+                                   (case (do (btn-q) (clear-the-commit) (e/amb))) ; discard now and swallow cmd, we're done
+                                   [(fn token
+                                      ([] (btn-q) (clear-the-commit))
+                                      ([err] (btn-q err)))
+                                    (nth discard 0) ; command
+                                    (nth discard 1)])))
+             ::commit (let [form-v form-v ; dirty subset
+                            tempid btn-q
+                            [form-v guess] (if commit
+                                             (commit form-v tempid #_dirty-form-guess) ; guess and form would be =
+                                             [form-v #_{e dirty-form}]) ; no entity id, only user can guess
                             t (case genesis
-                                true (do (e/snapshot (form-t)) ; abandon entity and clear form, ready for next submit -- snapshot to avoid clearing concurrent edits
-                                         (reset-active-form-input! dom/node) ; yuck - move elsewhere
-                                       btn-t) ; this is a q, transfer to list item
-                                false (fn token
-                                        ([] (btn-t) (when-not genesis (form-t))) ; commit ok, reset controlled form
-                                        ([err] (btn-t err) #_(form-t err))))] ; leave dirty fields dirty, activates retry button
+                                true (do (reset-active-form-input! dom/node) btn-q) ; this is a q, transfer to list item
+                                false btn-q)] ; this is a t
                         [t
-                         (if name (edit-monoid name dirty-form) dirty-form) ; nested forms as fields in larger forms
-                         dirty-form-guess])))
+                         (if name (edit-monoid name form-v) form-v) ; nested forms as fields in larger forms
+                         guess])))
 
          (e/When debug
            (dom/pre #_(dom/props {:style {:min-height "4em"}})
-             (dom/text (pprint-str dirty-form :margin 80)))))))))
+             (dom/text (pprint-str form-v :margin 80)))))))))
 
 (defmacro Form! [fields1 & kwargs]
   `(dom/form ; for form "reset" event

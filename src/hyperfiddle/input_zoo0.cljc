@@ -55,7 +55,7 @@
             waiting? (some? t)
             error? (some? err)
             dirty? (or editing? waiting? error?)]
-        (when-not dirty? (set! (.-value dom/node) v))
+        (when-not dirty? (set! (.-value dom/node) v)) ; todo - submit must reset input while focused
         (when error? (dom/props {:aria-invalid true}))
         (when waiting? (dom/props {:aria-busy true}))
         (if waiting? [t (edit-monoid k ((fn [] (-> e .-target .-value (subs 0 maxlength) parse))))] (e/amb))))))
@@ -86,30 +86,42 @@
 
 (e/defn Button!
   "Transactional button with busy state. Disables when busy."
-  [directive & {:keys [label disabled id type] :as props
-                :or {id (random-uuid)
-                     type :button}}] ; default type in form is submit
+  [directive & {:keys [label disabled type form] :as props
+                :or {type :button}}] ; default type in form is submit
   (dom/button (dom/text label) ; (if err "retry" label)
-    (dom/props (-> props (dissoc :label :disabled) (assoc :id id :type type)))
+    (dom/props (-> props (dissoc :label :disabled) (assoc :type type)))
     (let [x (dom/On "click" identity nil) ; (constantly directive) forbidden - would work skip subsequent clicks
-          [t err] (e/RetryToken x)] ; genesis
-      (dom/props {:disabled (or disabled (some? t))})
-      (dom/props {:aria-busy (some? t)})
+          [btn-t err] (e/RetryToken x)] ; genesis
+      (dom/props {:disabled (or disabled (some? btn-t))})
+      (dom/props {:aria-busy (some? btn-t)})
       (dom/props {:aria-invalid (some? err)})
-      (if t [t directive] (e/amb))))) ; None or Single
+      (if btn-t
+        (let [[form-t form-v] form]
+          [(fn token
+             ([] (btn-t) (when form-t (form-t))) ; reset controlled form and both buttons, cancelling any in-flight commit
+             ([err] (btn-t err) #_(form-t err))) ; redirect error to button ("retry"), leave uncommitted form dirty
+           (if form-t [directive form-v] directive)]) ; compat
+        (e/amb))))) ; None or Single
 
 (e/defn ButtonGenesis!
   "Spawns a new tempid/token for each click. You must monitor the spawned tempid
 in an associated optimistic collection view!"
-  [directive & {:keys [label disabled id type] :as props
-                :or {id (random-uuid)
-                     type :button}}] ; default type in form is submit
+  [directive & {:keys [label disabled type form] :as props
+                :or {type :button}}] ; default type in form is submit
   (dom/button (dom/text label) ; (if err "retry" label)
-    (dom/props (-> props (dissoc :label :disabled) (assoc :id id :type type)))
+    (dom/props (-> props (dissoc :label :disabled) (assoc :type type)))
     (dom/props {:disabled (or disabled #_(some? t))})
     #_(dom/props {:aria-busy (some? t)})
     #_(dom/props {:aria-invalid (some? err)})
-    (dom/On-all "click" (fn [] (doto directive (prn `ButtonGenesis!))))))
+    (e/for [[btn-q e] (dom/On-all "click" identity)]
+      (let [[form-t form-v] form]
+        [(atom (fn token ; proxy genesis
+                 ([] (@btn-q) #_(form-t))
+                 ([err] '... #_(@btn-q err))))
+
+          ; abandon entity and clear form, ready for next submit -- snapshot to avoid clearing concurrent edits
+         [directive ((fn [form-v] (form-t) form-v) ; snapshot THEN reset form, returning snapshot (detached from form)
+                     (e/snapshot form-v))]]))))
 
 (e/defn InputSubmitCreate!
   "optimistic, cancel & retry are forwarded to optimistic list item's InputSubmit!
