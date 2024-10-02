@@ -101,10 +101,11 @@
 (e/defn ButtonGenesis!
   "Spawns a new tempid/token for each click. You must monitor the spawned tempid
 in an associated optimistic collection view!"
-  [directive & {:keys [label disabled id] :as props
-                :or {id (random-uuid)}}]
+  [directive & {:keys [label disabled id type] :as props
+                :or {id (random-uuid)
+                     type :button}}] ; default type in form is submit
   (dom/button (dom/text label) ; (if err "retry" label)
-    (dom/props (-> props (dissoc :label :disabled) (assoc :id id)))
+    (dom/props (-> props (dissoc :label :disabled) (assoc :id id :type type)))
     (dom/props {:disabled (or disabled #_(some? t))})
     #_(dom/props {:aria-busy (some? t)})
     #_(dom/props {:aria-invalid (some? err)})

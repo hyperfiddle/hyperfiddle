@@ -44,8 +44,9 @@
 lifecycle (e.g. for errors) in an associated optimistic collection view!"
   [directive & {:keys [disabled show-button label #_auto-submit] :as props}] ; auto-submit unsupported
   (e/amb
-    #_(e/When show-button) (ButtonGenesis! directive :disabled disabled :label label)
-    #_(dom/On-all "submit" #(do (.preventDefault %) (.stopPropagation %)
+    #_(e/When show-button) (ButtonGenesis! directive :disabled disabled :label label) ; button will intercept submit events to act as submit!
+    ; But, button may hidden, so no default submit, so we need to explicitly handle this also
+    (dom/On-all "submit" #(do (.preventDefault %) (.stopPropagation %)
                             (when-not disabled (doto directive (prn 'FormSubmitGenesis!-submit)))))))
 
 (e/defn Form!*
