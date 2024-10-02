@@ -57,8 +57,8 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
 
 
 (defn invert-fields-to-form [edit-merge edits]
-  (let [ts (map second edits)
-        kvs (map first edits)
+  (let [ts (map first edits)
+        kvs (map second edits)
         dirty-form (not-empty (apply edit-merge kvs)) ; collect fields into form, retain until commit/discard
         #_#_dirty-form-guess (apply merge (e/as-vec guess)) ; todo collisions
         form-t (fn token ; fresh if ts changes (should fields be disabled when commit pending?)
@@ -66,6 +66,10 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
                  #_([err] (doseq [t ts] (t err ::keep)))) ; we could route errors to dirty fields, but it clears dirty state
         ]
     [form-t dirty-form]))
+
+(comment
+  (invert-fields-to-form merge [[#() {:a "a"}] [#() {:b "b"}]])
+  := [_ {:a "a", :b "b"}])
 
 (defn call [f] (f))
 
