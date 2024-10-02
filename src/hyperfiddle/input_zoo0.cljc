@@ -115,9 +115,9 @@ in an associated optimistic collection view!"
     #_(dom/props {:aria-invalid (some? err)})
     (e/for [[btn-q e] (dom/On-all "click" identity)]
       (let [[form-t form-v] form]
-        [(atom (fn token ; proxy genesis
-                 ([] (@btn-q) #_(form-t))
-                 ([err] '... #_(@btn-q err))))
+        [(fn token ; proxy genesis
+           ([] (btn-q) #_(form-t))
+           ([err] '... #_(btn-q err)))
 
           ; abandon entity and clear form, ready for next submit -- snapshot to avoid clearing concurrent edits
          [directive ((fn [form-v] (form-t) form-v) ; snapshot THEN reset form, returning snapshot (detached from form)
