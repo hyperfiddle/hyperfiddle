@@ -67,8 +67,9 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
                                 :auto-submit (when auto-submit dirty-form)
                                 :show-button show-buttons )
            [dt _ :as d] (FormDiscard! ::discard :disabled clean? :label "discard" :show-button show-buttons)
-           discard! (fn [] (when-not genesis (tempids)) (dt) (form-t))] ; reset controlled form and both buttons, cancelling any in-flight commit
-
+           discard! (if (e/Some? tempids) ; refering to tempids JOINs this value to nothing when clicking discard before commit.
+                      (fn [] (when-not genesis (tempids)) (dt) (form-t))
+                      (fn [] (dt) (form-t)))] ; reset controlled form and both buttons, cancelling any in-flight commit
        (e/When debug (dom/span (dom/text " " dirty-count " dirty")))
        (e/amb
          (e/for [[btn-t cmd] (e/amb cs d)]
