@@ -37,13 +37,29 @@
 (e/defn FormSubmit!
   [directive & {:keys [disabled show-button label auto-submit form] :as props}]
   (e/client
-    (e/amb
-      #_(e/When show-button) (Button! directive :disabled disabled :label label :form form)
-      #_(let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %)
-                                  (when-not disabled %)) nil)
-            [t err] (e/RetryToken (if auto-submit form e))]
-        (dom/props {:aria-invalid (some? err)})
-        (if t [t directive] (e/amb)))))) ; None or Single
+    (let [[t err] (e/amb
+                    (if auto-submit (e/RetryToken form) (e/amb))
+                    (if true #_show-button
+                        (dom/button ; Use Button! if possible
+                          (dom/text label) ; (if err "retry" label)
+                          (dom/props (-> props (dissoc :label :disabled) (assoc :type :submit)))
+                          (let [x (dom/On "click" identity nil) ; (constantly directive) forbidden - would work skip subsequent clicks
+                                [btn-t err :as token] (e/RetryToken x)] ; genesis
+                            (dom/props {:disabled (or disabled (some? btn-t))})
+                            (dom/props {:aria-busy (some? btn-t)})
+                            (dom/props {:aria-invalid (some? err)})
+                            token))
+                        (let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not disabled %)) nil)
+                              [t err :as token] (e/RetryToken e)]
+                          (dom/props {:aria-invalid (some? err)})
+                          token)))]
+      (if t
+        (let [[form-t form-v] form]
+          [(fn token
+             ([] (t) (when form-t (form-t))) ; reset controlled form and both buttons, cancelling any in-flight commit
+             ([err] (t err) #_(form-t err))) ; redirect error to button ("retry"), leave uncommitted form dirty
+           (if form-t [directive form-v] directive)]) ; compat
+        (e/amb)))))
 
 (e/defn FormSubmitGenesis!
   "Spawns a new tempid/token for each submit. You must monitor the spawned entity's
@@ -57,17 +73,20 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
 
 
 (defn invert-fields-to-form [edit-merge edits]
-  (let [ts (map first edits)
-        kvs (map second edits)
-        dirty-form (not-empty (apply edit-merge kvs)) ; collect fields into form, retain until commit/discard
-        #_#_dirty-form-guess (apply merge (e/as-vec guess)) ; todo collisions
-        form-t (fn token ; fresh if ts changes (should fields be disabled when commit pending?)
-                 ([] (doseq [t ts] (t)))
-                 #_([err] (doseq [t ts] (t err ::keep)))) ; we could route errors to dirty fields, but it clears dirty state
-        ]
-    [form-t dirty-form]))
+  (when (seq edits)
+    (let [ts (map first edits)
+          kvs (map second edits)
+          dirty-form (not-empty (apply edit-merge kvs)) ; collect fields into form, retain until commit/discard
+          #_#_dirty-form-guess (apply merge (e/as-vec guess)) ; todo collisions
+          form-t (fn token ; fresh if ts changes (should fields be disabled when commit pending?)
+                   ([] (doseq [t ts] (t)))
+                   #_([err] (doseq [t ts] (t err ::keep)))) ; we could route errors to dirty fields, but it clears dirty state
+          ]
+      [form-t dirty-form])))
 
 (comment
+
+  (invert-fields-to-form merge [])
   (invert-fields-to-form merge [[#() {:a "a"}] [#() {:b "b"}]])
   := [_ {:a "a", :b "b"}])
 
