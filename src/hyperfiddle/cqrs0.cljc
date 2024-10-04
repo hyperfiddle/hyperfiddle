@@ -43,14 +43,20 @@
 (e/defn FormSubmit! ; dom/node must be a form
   [directive & {:keys [disabled show-button label auto-submit form] :as props}]
   (e/client
-    (let [[t err] (e/amb
-                    (if auto-submit (e/RetryToken form) (e/amb))
-                    (if show-button
-                      (e/apply Button! directive (mapcat identity (-> props (dissoc :disabled) (assoc :type :submit)))) ; genesis ; ugly way to apply props
-                      (let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not disabled %)) nil)
-                            [t err :as token] (e/RetryToken e)]
-                        (dom/props {:aria-invalid (some? err)})
-                        token)))]
+    (let [[t err] (e/amb (e/When show-button (e/apply Button! directive (mapcat identity (assoc props :type :submit)))) ; genesis ; ugly way to apply props
+                         (if auto-submit
+                           (e/RetryToken form)
+                           (e/When (not show-button) ; show-buttons will render an <input type=submit> auto handling Enter
+                             (do
+                               (dom/On "keypress" (fn [e] (let [target (.-target e)] ; submit form on enter
+                                                            (when (and (= "Enter" (.-key e)) (= "INPUT" (.-nodeName target)))
+                                                              (.stopPropagation e)
+                                                              (.requestSubmit (.-form target)) ; fire submit event
+                                                              nil))) nil)
+                               (let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not disabled %)) nil)
+                                     [t err :as token] (e/RetryToken e)]
+                                 (dom/props {:aria-invalid (some? err)})
+                                 token)))))]
       (if t ; TODO unify with FormSubmit! and Button!
         (let [[form-t form-v] form]
           [(fn token
