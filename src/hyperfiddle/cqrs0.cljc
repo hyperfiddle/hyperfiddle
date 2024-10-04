@@ -175,7 +175,7 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
         (e/amb)))
     (Reconcile-records kf sort-key xs ps)))
 
-(def *effects* {})
+(def effects* {})
 
 (defmacro try-ok [& body]
   `(try ~@body ::ok ; sentinel
@@ -191,7 +191,7 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
       #_(case (e/Sleep delay form) (if die [::die]))
       ;(prn 'Service form 'now!) (e/server (prn 'Service form 'now!))
       (let [[effect & args] form
-            Effect (*effects* effect (e/fn default [& args] (doto ::effect-not-found (prn effect))))
+            Effect (effects* effect (e/fn default [& args] (doto ::effect-not-found (prn effect))))
             res #_[t form guess db] (e/Apply Effect args)] ; effect handlers span client and server
         ;(prn 'Service form 'result res) (e/server (prn 'Service form 'result res))
         (prn 'final-res res)
