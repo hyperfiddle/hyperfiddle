@@ -179,6 +179,10 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
 
 (def *effects* {})
 
+(defmacro try-ok [& body]
+  `(try ~@body ::ok ; sentinel
+     (catch Exception e# (doto ::fail (prn e#)))))
+
 (e/defn Service
   [forms
    & {:keys [delay die] ; don't delay or die todomvc, client-only commands are impacted
