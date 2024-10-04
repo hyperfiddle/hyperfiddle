@@ -25,35 +25,33 @@
 (e/defn FormDiscard! ; dom/node must be a form
   [directive & {:keys [disabled show-button label form] :as props}]
   (e/client
-    (dom/On "keyup" #(when (= "Escape" (.-key %)) (.stopPropagation %)
-                       (.reset dom/node) nil) nil) ; proxy Esc to form's "reset" event
-    (e/amb
-      (e/When show-button (Button! directive :disabled disabled :label label :form form))
-      (let [e (dom/On "reset" #(do (.log js/console %) (.preventDefault %)
-                                 (blur-active-form-input! (.-target %)) %) nil)
-            [t err] (e/RetryToken e)]
-        (if t [t directive] (e/amb))))))
+    (dom/On "keyup" #(when (= "Escape" (.-key %)) (.stopPropagation %) (.reset dom/node) nil) nil)
+    (e/When show-button
+      (let [[t err] (e/apply Button! directive (mapcat identity (-> props (dissoc :disabled) (assoc :type :reset))))]
+        (e/When t (t))))
+    (let [[t err] (e/RetryToken (dom/On "reset" #(do (.log js/console %) (.preventDefault %)(.stopPropagation %)
+                                                     (blur-active-form-input! (.-target %)) %) nil))]
+      (if t ; TODO unify with FormSubmit! and Button!
+        (let [[form-t form-v] form]
+          (prn "click discard" form)
+          [(fn token
+             ([] (t) (when form-t (form-t))) ; reset controlled form and both buttons, cancelling any in-flight commit
+             ([err] (t err) #_(form-t err))) ; redirect error to button ("retry"), leave uncommitted form dirty
+           (if form-t [directive form-v] [directive])]) ; compat
+        (e/amb)))))
 
-(e/defn FormSubmit!
+(e/defn FormSubmit! ; dom/node must be a form
   [directive & {:keys [disabled show-button label auto-submit form] :as props}]
   (e/client
     (let [[t err] (e/amb
                     (if auto-submit (e/RetryToken form) (e/amb))
                     (if show-button
-                        (dom/button ; Use Button! if possible
-                          (dom/text label) ; (if err "retry" label)
-                          (dom/props (-> props (dissoc :label :disabled) (assoc :type :submit)))
-                          (let [x (dom/On "click" identity nil) ; (constantly directive) forbidden - would work skip subsequent clicks
-                                [btn-t err :as token] (e/RetryToken x)] ; genesis
-                            (dom/props {:disabled (or disabled (some? btn-t))})
-                            (dom/props {:aria-busy (some? btn-t)})
-                            (dom/props {:aria-invalid (some? err)})
-                            token))
-                        (let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not disabled %)) nil)
-                              [t err :as token] (e/RetryToken e)]
-                          (dom/props {:aria-invalid (some? err)})
-                          token)))]
-      (if t
+                      (e/apply Button! directive (mapcat identity (-> props (dissoc :disabled) (assoc :type :submit)))) ; genesis ; ugly way to apply props
+                      (let [e (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not disabled %)) nil)
+                            [t err :as token] (e/RetryToken e)]
+                        (dom/props {:aria-invalid (some? err)})
+                        token)))]
+      (if t ; TODO unify with FormSubmit! and Button!
         (let [[form-t form-v] form]
           [(fn token
              ([] (t) (when form-t (form-t))) ; reset controlled form and both buttons, cancelling any in-flight commit
