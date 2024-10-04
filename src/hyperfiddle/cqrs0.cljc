@@ -43,20 +43,22 @@
 (e/defn FormSubmit! ; dom/node must be a form
   [directive & {:keys [disabled show-button label auto-submit form] :as props}]
   (e/client
-    (let [[t err] (e/amb (e/When show-button (e/apply Button! directive (mapcat identity (assoc props :type :submit)))) ; genesis ; ugly way to apply props
-                         (let [submit-event (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not (or auto-submit disabled) %)) nil)] 
-                           submit-event ; force signal
-                           (if auto-submit
-                             (e/RetryToken form)
-                             (e/When (not show-button) ; show-buttons will render an <input type=submit> auto handling Enter
-                               (do (dom/On "keypress" (fn [e] (let [target (.-target e)] ; submit form on enter
-                                                                (when (and (= "Enter" (.-key e)) (= "INPUT" (.-nodeName target)))
-                                                                  (.stopPropagation e)
-                                                                  (.requestSubmit (.-form target)) ; fire submit event
-                                                                  nil))) nil)
-                                   (let [[t err :as token] (e/RetryToken submit-event)]
-                                     (dom/props {:aria-invalid (some? err)})
-                                     token))))))]
+    (let [[t err] (e/amb
+                    ;; FIXME pressing Enter while an autosubmit commit is running will trigger a double submit and hang the app
+                    (e/When show-button (e/apply Button! directive (mapcat identity (assoc props :type :submit)))) ; genesis ; ugly way to apply props
+                    (let [submit-event (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not (or auto-submit disabled) %)) nil)]
+                      submit-event ; force signal
+                      (if auto-submit
+                        (e/RetryToken form)
+                        (e/When (not show-button) ; show-buttons will render an <button type=submit> auto handling Enter
+                          (do (dom/On "keypress" (fn [e] (let [target (.-target e)] ; submit form on enter
+                                                           (when (and (= "Enter" (.-key e)) (= "INPUT" (.-nodeName target)))
+                                                             (.stopPropagation e)
+                                                             (.requestSubmit (.-form target)) ; fire submit event
+                                                             nil))) nil)
+                              (let [[t err :as token] (e/RetryToken submit-event)]
+                                (dom/props {:aria-invalid (some? err)})
+                                token))))))]
       (if t ; TODO unify with FormSubmit! and Button!
         (let [[form-t form-v] form]
           [(fn token
