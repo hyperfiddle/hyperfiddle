@@ -45,7 +45,7 @@
   (e/client
     (let [[t err] (e/amb
                     ;; FIXME pressing Enter while an autosubmit commit is running will trigger a double submit and hang the app
-                    (e/When show-button (e/apply Button! directive (mapcat identity (assoc props :type :submit)))) ; genesis ; ugly way to apply props
+                    (e/When show-button (e/apply Button! directive (mapcat identity (assoc props :type :submit)))) ; genesis ; (e/apply Button directive props) didn't work - props is a map
                     (let [submit-event (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not (or auto-submit disabled) %)) nil)]
                       submit-event ; force signal
                       (if auto-submit
