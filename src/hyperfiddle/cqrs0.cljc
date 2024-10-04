@@ -28,7 +28,7 @@
     (dom/On "keyup" #(when (= "Escape" (.-key %)) (.stopPropagation %)
                        (.reset dom/node) nil) nil) ; proxy Esc to form's "reset" event
     (e/amb
-      #_(e/When show-button) (Button! directive :disabled disabled :label label :form form) ; todo fix
+      (e/When show-button (Button! directive :disabled disabled :label label :form form))
       (let [e (dom/On "reset" #(do (.log js/console %) (.preventDefault %)
                                  (blur-active-form-input! (.-target %)) %) nil)
             [t err] (e/RetryToken e)]
@@ -39,7 +39,7 @@
   (e/client
     (let [[t err] (e/amb
                     (if auto-submit (e/RetryToken form) (e/amb))
-                    (if true #_show-button
+                    (if show-button
                         (dom/button ; Use Button! if possible
                           (dom/text label) ; (if err "retry" label)
                           (dom/props (-> props (dissoc :label :disabled) (assoc :type :submit)))
@@ -66,7 +66,7 @@
 lifecycle (e.g. for errors) in an associated optimistic collection view!"
   [directive & {:keys [disabled show-button label form #_auto-submit] :as props}] ; auto-submit unsupported
   (e/amb
-    #_(e/When show-button) (ButtonGenesis! directive :disabled disabled :label label :form form) ; button will intercept submit events to act as submit!
+    (e/When show-button (ButtonGenesis! directive :disabled disabled :label label :form form)) ; button will intercept submit events to act as submit!
     ; But, button may hidden, so no default submit, so we need to explicitly handle this also
     (dom/On-all "submit" #(do (.preventDefault %) (.stopPropagation %)
                             (when-not disabled (doto directive (prn 'FormSubmitGenesis!-submit)))))))
