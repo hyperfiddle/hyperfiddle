@@ -107,7 +107,6 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
                                  :auto-submit auto-submit ; (when auto-submit dirty-form)
                                  :show-button show-buttons)
            [_ _ :as ?d] (FormDiscard! ::discard :form form :disabled clean? :label "discard" :show-button show-buttons)]
-       (e/When debug (dom/span (dom/text " " dirty-count " dirty")))
        (e/amb
          (e/for [[btn-q [cmd form-v]] (e/amb ?cs ?d)]
            (case cmd ; does order of burning matter?
@@ -140,6 +139,7 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
                          guess])))
 
          (e/When debug
+           (dom/span (dom/text " " dirty-count " dirty"))
            (dom/pre #_(dom/props {:style {:min-height "4em"}})
              (dom/text (pprint-str form-v :margin 80)))))))))
 
