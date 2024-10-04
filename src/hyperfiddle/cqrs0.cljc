@@ -27,7 +27,7 @@
   (e/client
     (dom/On "keyup" #(when (= "Escape" (.-key %)) (.stopPropagation %) (.reset dom/node) nil) nil)
     (e/When show-button
-      (let [[t err] (e/apply Button! directive (mapcat identity (-> props (dissoc :disabled) (assoc :type :reset))))]
+      (let [[t err] (e/apply Button! directive (mapcat identity (assoc props :type :reset)))]
         (e/When t (t))))
     (let [[t err] (e/RetryToken (dom/On "reset" #(do (.log js/console %) (.preventDefault %)(.stopPropagation %)
                                                      (blur-active-form-input! (.-target %)) %) nil))]
