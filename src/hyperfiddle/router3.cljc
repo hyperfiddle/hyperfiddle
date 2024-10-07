@@ -75,11 +75,12 @@
   "
   [key]
   (lens
-    (fn [value] (get value key))
+    (fn [value] ((if (seq? value) nth get) value key nil))
     (fn [value f]
       (cond
         (map? value)    (update value key f)
         (vector? value) (update (pad key value) key f)
+        (seq? value)    (seq (update (pad key value) key f))
         (nil? value)    (if (nat-int? key)
                           (update (pad key []) key f)
                           {key (f nil)})
@@ -110,6 +111,17 @@
   (set (path-lens [:foo :bar]) :baz {:foo :bar}) := {:foo {:bar :baz}}
   (set (path-lens [:foo 0]) :bar {:foo :bar})    := {:foo [:bar]}
   (set (path-lens [:foo 1]) :baz {:foo :bar})    := {:foo [:bar :baz]}
+  (set (path-lens [0]) `Bar `(Foo)) := `(Bar)
+  (set (path-lens [1]) :arg1 `(Foo)) := `(Foo :arg1)
+  (set (path-lens [2]) :arg2 `(Foo)) := `(Foo nil :arg2)
+  (set (path-lens [1 :key]) :value `(Foo)) := `(Foo {:key :value})
+  (set (path-lens [1 0]) :value0 `(Foo)) := `(Foo [:value0])
+  (set (path-lens [1 1]) :value1 `(Foo)) := `(Foo [nil :value1])
+  (set (path-lens [1 1]) :value1 `(Foo [:value0])) := `(Foo [:value0 :value1])
+
+  (view (path-lens [0]) `(Foo 1)) := `Foo
+  (view (path-lens [1]) `(Foo 1)) := 1
+  (view (path-lens [2]) `(Foo 1)) := nil
   )
 
 ;;; Relative and absolute paths
@@ -169,18 +181,26 @@
     (and (map? route) (empty? route)) ()
 
     (and (map? route) (= 1 (count route)))
-    (let [k (key (first route))]
-      (concat (if k [k] []) (simplify (val (first route)))))
+    (let [k (key (first route))
+          head (if k [k] [])
+          child-route (simplify (val (first route)))]
+      (if ((some-fn seq? vector?) child-route)
+        (concat head child-route)
+        (list k child-route)))
 
-    :else (list route)))
+    (map? route) route
+
+    ((some-fn seq? vector? set?) route) route
+    :else (vector route)))
 
 (tests
   "base case"
   (simplify nil) := ()
   (simplify {nil nil}) := ()
   (simplify {})  := ()
-  (simplify [])  := '([])
-  (simplify #{}) := '(#{})
+  (simplify ())  := ()
+  (simplify [])  := '[]
+  (simplify #{}) := '#{}
 
   "single branch tree"
   (simplify '{page nil})                  := '(page)
@@ -188,7 +208,7 @@
   (simplify '{page {subpage subsubpage}}) := '(page subpage subsubpage)
 
   "branching at the root"
-  (simplify '{foo 1, bar 2}) := '({foo 1, bar 2})
+  (simplify '{foo 1, bar 2}) := '{foo 1, bar 2}
 
   "branching at level x"
   (simplify '{pages {1 foo, 2 bar}}) := '(pages {1 foo, 2 bar})
@@ -279,24 +299,24 @@
 ;;; URL encoding
 
 (defn encode* [route] (sexpr/encode (not-empty (simplify route))))
-(defn decode* [path] (normalize (sexpr/decode path)))
+(defn decode* [path] (sexpr/decode path))
 
 (tests
   (decode* (encode* nil)) := nil
   (decode* (encode* {}))  := nil
-  (decode* (encode* []))  := {[] nil}
-  (decode* (encode* #{})) := {#{} nil}
+  (decode* (encode* []))  := nil
+  (decode* (encode* #{})) := nil
 
-  (decode* (encode* '{page nil}))              := '{page nil}
-  (decode* (encode* '{page subpage}))          := '{page {subpage nil}}
-  (decode* (encode* '{page {subpage subsubpage}})) := '{page {subpage {subsubpage nil}}}
-  (decode* (encode* '{foo 1, bar 2}))          := '{foo {1 nil}, bar {2 nil}}
-  (decode* (encode* '{pages {1 foo, 2 bar}}))  := '{pages {1 {foo nil}, 2 {bar nil}}}
-  (decode* (encode* '{revisions {diff {left-sha  1234,
-                                       right-sha 4321}}}))
+  (normalize (decode* (encode* '{page nil})))              := '{page nil}
+  (normalize (decode* (encode* '{page subpage})))          := '{page {subpage nil}}
+  (normalize (decode* (encode* '{page {subpage subsubpage}}))) := '{page {subpage {subsubpage nil}}}
+  (normalize (decode* (encode* '{foo 1, bar 2})))          := '{foo {1 nil}, bar {2 nil}}
+  (normalize (decode* (encode* '{pages {1 foo, 2 bar}})))  := '{pages {1 {foo nil}, 2 {bar nil}}}
+  (normalize (decode* (encode* '{revisions {diff {left-sha  1234,
+                                                  right-sha 4321}}})))
   := '{revisions {diff {left-sha  {1234 nil},
                         right-sha {4321 nil}}}}
-  (decode* (encode* '{hfql {(f x) y (g x) z}})) := '{hfql {(f x) {y nil} (g x) {z nil}}}
+  (normalize (decode* (encode* '{hfql {(f x) y (g x) z}}))) := '{hfql {(f x) {y nil} (g x) {z nil}}}
   )
 
 ;;; Electric
@@ -441,8 +461,7 @@
 
 (e/defn Link [path Body]
   (e/client
-    (let [[path' value] (split-link-path path)
-          value (normalize-route-value value)]
+    (let [[path' value] (split-link-path path)]
       (dom/a
         (e/input (link-click-handler dom/node (into hyperfiddle.router3/path path)))
         (dom/props {::dom/href (encode ($ Route-for path' value))})
