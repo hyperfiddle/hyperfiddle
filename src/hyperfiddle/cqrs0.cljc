@@ -170,7 +170,8 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
   (e/client
     (let [as! (e/as-vec as) ; todo differential reconciliation
           bs! (e/as-vec bs)]
-      (->> (merge ; todo deep merge partial predictions
+      (js/console.log "Reconcile" {:as as! :bs bs!})
+      (->> (merge-with (fn [a b] (or a b)) ; FIXME WIP this is only valid for create-new ; todo deep merge partial prediction (incl. edits)
              (index-by stable-kf as!)
              (index-by stable-kf bs!))
         vals
@@ -180,7 +181,7 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
 
 (declare Service)
 
-(e/defn PendingController [kf sort-key forms xs]
+(e/defn PendingController [stable-kf sort-key forms xs]
   (let [!pending (atom {}) ; [id -> guess]
         ps (val (e/diff-by key (e/watch !pending)))]
     (e/for [[t cmd guess :as form] forms #_(Service forms)]
@@ -191,9 +192,10 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
           nil nil ; guess is optional
           ::retract nil ; todo
           (do (swap! !pending assoc tempid (assoc guess ::pending form))
-            (e/on-unmount #(swap! !pending dissoc tempid))))
+              #_(e/on-unmount #(swap! !pending dissoc tempid)) ; FIXME hangs tab with infinite loop
+              ))
         (e/amb)))
-    (Reconcile-records kf sort-key xs ps)))
+    (Reconcile-records stable-kf sort-key xs ps)))
 
 (def effects* {})
 
@@ -212,10 +214,11 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
       ;(prn 'Service form 'now!) (e/server (prn 'Service form 'now!))
       (let [[effect & args] form
             Effect (effects* effect (e/fn default [& args] (doto ::effect-not-found (prn effect))))
-            res #_[t form guess db] (e/Apply Effect args)] ; effect handlers span client and server
+            [status & extras :as res] #_[t form guess db] (e/Apply Effect args)] ; effect handlers span client and server
         ;(prn 'Service form 'result res) (e/server (prn 'Service form 'result res))
         (prn 'final-res res)
-        (case res
+        (case status
           nil (prn 'res-was-nil-stop!)
           ::ok (t) ; sentinel, any unrecognized value is an error
-          (t ::rejected)))))) ; feed error back into control for retry affordance
+          (t ::rejected)) ; feed error back into control for retry affordance
+        res))))
