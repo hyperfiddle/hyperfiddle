@@ -114,14 +114,14 @@ in an associated optimistic collection view!"
     #_(dom/props {:aria-busy (some? t)})
     #_(dom/props {:aria-invalid (some? err)})
     (e/for [[btn-q e] (dom/On-all "click" identity)]
-      (let [[form-t form-v] form]
+      (let [[form-t form-v] (e/snapshot form)] ; snapshot to detach form before any reference to form, or spending the form token would loop into this branch and cause a crash.
+        (form-t) ; immediately detach form
         [(fn token ; proxy genesis
            ([] (btn-q) #_(form-t))
            ([err] '... #_(btn-q err)))
 
           ; abandon entity and clear form, ready for next submit -- snapshot to avoid clearing concurrent edits
-         [directive ((fn [form-v] (form-t) form-v) ; snapshot THEN reset form, returning snapshot (detached from form)
-                     (e/snapshot form-v))]]))))
+         [directive form-v]]))))
 
 (e/defn InputSubmitCreate!
   "optimistic, cancel & retry are forwarded to optimistic list item's InputSubmit!

@@ -27,9 +27,10 @@
   (e/client
     (dom/On "keyup" #(when (= "Escape" (.-key %)) (.stopPropagation %) (.reset dom/node) nil) nil)
     (e/When show-button
-      (let [[t err] (e/apply Button! directive (mapcat identity (assoc props :type :reset)))]
-        (e/When t (t))))
-    (let [[t err] (e/RetryToken (dom/On "reset" #(do (.log js/console %) (.preventDefault %)(.stopPropagation %)
+      (let [[t err] (e/apply Button! directive (mapcat identity (-> props (dissoc :form) ; if we don't dissoc form, both the button and FormDiscard will try to burn the token and we get an NPE - seems like the `when true` bug.
+                                                                  (assoc :type :reset))))]
+        (t))) ; always safe to call, Button returns [t err] or (e/amb)
+    (let [[t err] (e/RetryToken (dom/On "reset" #(do #_(.log js/console %) (.preventDefault %)(.stopPropagation %)
                                                      (blur-active-form-input! (.-target %)) %) nil))]
       (if t ; TODO unify with FormSubmit! and Button!
         (let [[form-t form-v] form]
@@ -72,10 +73,20 @@
 lifecycle (e.g. for errors) in an associated optimistic collection view!"
   [directive & {:keys [disabled show-button label form #_auto-submit] :as props}] ; auto-submit unsupported
   (e/amb
+    ;; TODO unify ButtonGenesis! and Button!
     (e/When show-button (ButtonGenesis! directive :disabled disabled :label label :form form)) ; button will intercept submit events to act as submit!
     ; But, button may hidden, so no default submit, so we need to explicitly handle this also
-    (dom/On-all "submit" #(do (.preventDefault %) (.stopPropagation %)
-                            (when-not disabled (doto directive (prn 'FormSubmitGenesis!-submit)))))))
+    (e/for [[btn-q _e] (dom/On-all "submit" #(do (.preventDefault %) (.stopPropagation %)
+                                                 (when-not disabled (doto % (js/console.log 'FormSubmitGenesis!-submit)))))]
+      (e/on-unmount #(prn "unmount genesis branch"))
+      ;; TODO logic duplicated in ButtonGenesis!
+      (let [[form-t form-v] (e/snapshot form)] ; snapshot to detach form before any reference to form, or spending the form token would loop into this branch and cause a crash.
+        (form-t) ; immediately detach form
+        [(fn token ; proxy genesis
+           ([] (btn-q) #_(form-t))
+           ([err] '... #_(btn-q err)))
+         ;; abandon entity and clear form, ready for next submit -- snapshot to avoid clearing concurrent edits
+         [directive form-v]]))))
 
 
 (defn invert-fields-to-form [edit-merge edits]
