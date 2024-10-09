@@ -127,7 +127,8 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
        (e/amb
          (e/for [[btn-q [cmd form-v]] (e/amb ?cs ?d)]
            (case cmd ; does order of burning matter?
-             ::discard (let [the-commit (first (e/as-vec tempids)) clear-the-commit #(some-> the-commit call)]
+             ::discard (let [clear-commits ; clear all concurrent commits, though there should only ever be up to 1.
+                             (partial #(run! call %) (e/as-vec tempids))] ; FIXME bug workaround - ensure commits are burnt all at once, calling `(tempids)` should work but crashes the app for now.
                          (case genesis
                            true (if-not discard ; user wants to run an effect on discard (todomvc item special case, genesis discard is always local!)
                                   (case (btn-q) (e/amb)) ; discard now and swallow cmd, we're done
@@ -137,9 +138,9 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
 
                            ; reset form and BOTH buttons, cancelling any in-flight commit
                            false (if-not discard ; user wants to run an effect on discard (todomvc item special case, genesis discard is always local!)
-                                   (case (do (btn-q) (clear-the-commit) (e/amb))) ; discard now and swallow cmd, we're done
+                                   (case (do (btn-q) (clear-commits) (e/amb))) ; discard now and swallow cmd, we're done
                                    [(fn token
-                                      ([] (btn-q) (clear-the-commit))
+                                      ([] (btn-q) (clear-commits))
                                       ([err] (btn-q err)))
                                     (nth discard 0) ; command
                                     (nth discard 1)])))
