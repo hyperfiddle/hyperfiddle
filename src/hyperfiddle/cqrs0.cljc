@@ -193,7 +193,7 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
           nil nil ; guess is optional
           ::retract nil ; todo
           (do (swap! !pending assoc tempid (assoc guess ::pending form))
-              #_(e/on-unmount #(swap! !pending dissoc tempid)) ; FIXME hangs tab with infinite loop
+              (e/on-unmount #(swap! !pending dissoc tempid)) ; FIXME hangs tab with infinite loop
               ))
         (e/amb)))
     (Reconcile-records stable-kf sort-key xs ps)))
