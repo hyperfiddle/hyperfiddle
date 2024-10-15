@@ -215,11 +215,10 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
       ;(prn 'Service form 'now!) (e/server (prn 'Service form 'now!))
       (let [[effect & args] form
             Effect (effects* effect (e/fn default [& args] (doto ::effect-not-found (prn effect))))
-            [status & extras :as res] #_[t form guess db] (e/Apply Effect args)] ; effect handlers span client and server
+            res #_[t form guess db] (e/Apply Effect args)] ; effect handlers span client and server
         ;(prn 'Service form 'result res) (e/server (prn 'Service form 'result res))
         (prn 'final-res res)
-        (case status
+        (case res
           nil (prn 'res-was-nil-stop!)
           ::ok (t) ; sentinel, any unrecognized value is an error
-          (t ::rejected)) ; feed error back into control for retry affordance
-        res))))
+          (t ::rejected)))))) ; feed error back into control for retry affordance
