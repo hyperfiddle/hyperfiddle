@@ -65,7 +65,7 @@
           [(fn token
              ([] (t) (when form-t (form-t))) ; reset controlled form and both buttons, cancelling any in-flight commit
              ([err] (t err) #_(form-t err))) ; redirect error to button ("retry"), leave uncommitted form dirty
-           (if form-t [directive form-v] directive)]) ; compat
+           (if form-t [directive form-v] [directive nil])]) ; compat
         (e/amb)))))
 
 (e/defn FormSubmitGenesis!
