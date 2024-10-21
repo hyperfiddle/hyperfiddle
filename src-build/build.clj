@@ -12,7 +12,7 @@
 (defn jar [{:keys [version jar-file release] :or {version version, release false}}] ; release = false will produce a SNAPSHOT version.
   (clean nil)
   (let [version (if release version (str version "-SNAPSHOT"))
-        jar-file (or (str jar-file) (format "target/%s-%s.jar" (name lib) version))
+        jar-file (or (some-> jar-file str) (format "target/%s-%s.jar" (name lib) version))
         opts (assoc defaults
                :version    version
                :basis      basis
