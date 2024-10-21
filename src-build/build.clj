@@ -9,9 +9,10 @@
 
 (defn clean [_opts] (b/delete {:path "target"}))
 
-(defn jar [{:keys [version jar-file] :or {version version}}]
+(defn jar [{:keys [version jar-file release] :or {version version, release false}}] ; release = false will produce a SNAPSHOT version.
   (clean nil)
-  (let [jar-file (or (str jar-file) (format "target/%s-%s.jar" (name lib) version))
+  (let [version (if release version (str version "-SNAPSHOT"))
+        jar-file (or (str jar-file) (format "target/%s-%s.jar" (name lib) version))
         opts (assoc defaults
                :version    version
                :basis      basis
