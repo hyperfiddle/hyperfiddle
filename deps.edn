@@ -1,4 +1,4 @@
-{:deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-2-g7858fcbb"}
+{:deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-SNAPSHOT"}
         com.auth0/auth0    {:mvn/version "2.13.0"}
         com.auth0/jwks-rsa {:mvn/version "0.20.0"}}
  :paths ["src"]
