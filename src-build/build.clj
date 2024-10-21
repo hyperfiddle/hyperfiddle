@@ -9,9 +9,9 @@
 
 (defn clean [_opts] (b/delete {:path "target"}))
 
-(defn jar [{:keys [version] :or {version version}}]
+(defn jar [{:keys [version jar-file] :or {version version}}]
   (clean nil)
-  (let [jar-file (format "target/%s-%s.jar" (name lib) version)
+  (let [jar-file (or (str jar-file) (format "target/%s-%s.jar" (name lib) version))
         opts (assoc defaults
                :version    version
                :basis      basis
