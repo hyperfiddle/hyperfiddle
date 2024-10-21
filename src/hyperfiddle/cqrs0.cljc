@@ -187,7 +187,7 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
         ps (val (e/diff-by key (e/watch !pending)))]
     (e/for [[t cmd guess :as form] forms #_(Service forms)]
       (prn 'PendingController cmd guess)
-      (assert (<= (count guess) 1))
+      ((fn [] (assert (<= (count guess) 1))))
       (let [[tempid guess] (first guess)]
         (case guess
           nil nil ; guess is optional
