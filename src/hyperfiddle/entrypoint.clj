@@ -25,8 +25,10 @@
 (let [gen-server (fn [_&form &env opts Main & args] ; macro internal arity (similar to what defmacro desugares to)
                    (let [env (merge (lang/normalize-env &env) e/web-config opts)
                          source (lang/->source env ::e/Main `(e/fn [] (e/$ ~Main ~@args)))]
-                     `(r/server ~(select-keys opts [:cognitect.transit/read-handlers :cognitect.transit/write-handlers])
-                        (r/->defs {::e/Main ~source}) ::e/Main)))]
+                     `(clojure.core/fn [subject#]
+                        (r/peer-events
+                          (r/make-peer :server ~(select-keys opts [:cognitect.transit/read-handlers :cognitect.transit/write-handlers])
+                            subject# (r/->defs {::e/Main ~source}) ::e/Main nil)))))]
   (defn boot-server* [[ns-sym lexicals ring-request opts Main & args]]
     (binding [gen gen-server ; set the gen macro impl
               *ns* (find-ns ns-sym)] ; ensures eval runs in original ns to resolve ns requires and aliases
