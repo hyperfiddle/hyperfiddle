@@ -204,21 +204,15 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
   `(try ~@body ::ok ; sentinel
      (catch Exception e# (doto ::fail (prn e#)))))
 
-(e/defn Service
-  [forms
-   & {:keys [delay die] ; don't delay or die todomvc, client-only commands are impacted
-      :or {delay 0, die false}}]
+(e/defn Service [forms]
   (e/client ; client bias, t doesn't transfer
     (prn `Service (e/Count forms) 'forms (e/as-vec (second forms)))
-    (e/for [[t form guess] forms #_(e/Filter some? forms)] ; remove any accidental nils from dom
-      #_(case (e/Sleep delay form) (if die [::die]))
-      ;(prn 'Service form 'now!) (e/server (prn 'Service form 'now!))
+    (e/for [[t form guess] forms]
       (let [[effect & args] form
-            Effect (effects* effect (e/fn default [& args] (doto ::effect-not-found (prn effect))))
-            res #_[t form guess db] (e/Apply Effect args)] ; effect handlers span client and server
-        ;(prn 'Service form 'result res) (e/server (prn 'Service form 'result res))
+            Effect (effects* effect (e/fn Default [& args] (doto ::effect-not-found (prn effect))))
+            res (e/Apply Effect args)] ; effect handlers span client and server
         (prn 'final-res res)
         (case res
-          nil (prn 'res-was-nil-stop!)
-          ::ok (t) ; sentinel, any unrecognized value is an error
-          (t ::rejected)))))) ; feed error back into control for retry affordance
+          nil (prn `res-was-nil-stop!)
+          ::ok (t) ; sentinel, any other value is an error
+          (t ::rejected)))))) ; feed error back into control to prompt for retry
