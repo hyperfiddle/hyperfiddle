@@ -15,7 +15,7 @@
 ;; macro quoting args and delegating macroexpand to the runtime. The server-generated code doesn't escape into userland.
 
 (defn authenticate [ring-request boot-fn]
-  (if (jwt/valid-RS256? auth/PUBKEY (get-in ring-request [:cookies "jwt" :value]))
+  (if (jwt/valid-RS256? auth/PUBKEY (or (get-in ring-request [:cookies "jwt" :value]) auth/token))
     boot-fn
     (throw (ex-info "Booting an electric server requires authentication" {}))
     ))
