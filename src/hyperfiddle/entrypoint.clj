@@ -14,12 +14,6 @@
 ;; client entrypoint, code must be available to shadow-cljs. Instead we expose a
 ;; macro quoting args and delegating macroexpand to the runtime. The server-generated code doesn't escape into userland.
 
-(defn authenticate [ring-request boot-fn]
-  (if (jwt/valid-RS256? auth/PUBKEY (or (get-in ring-request [:cookies "jwt" :value]) auth/token))
-    boot-fn
-    (throw (ex-info "Booting an electric server requires authentication" {}))
-    ))
-
 (def ^:dynamic ^:macro gen) ; a macro var without impl, so users can't call it.
 
 (let [gen-server (fn [_&form &env opts Main & args] ; macro internal arity (similar to what defmacro desugares to)
@@ -32,7 +26,10 @@
   (defn boot-server* [[ns-sym lexicals ring-request opts Main & args]]
     (binding [gen gen-server ; set the gen macro impl
               *ns* (find-ns ns-sym)] ; ensures eval runs in original ns to resolve ns requires and aliases
-      (eval `(fn [~@lexicals] (authenticate ~ring-request (gen ~opts ~Main ~@args)))) ; wrapped in fn so gen's &env contains `lexicals` as LocalBindings
+      (eval `(fn [~@lexicals]
+               (if (jwt/valid-RS256? auth/PUBKEY (or (get-in ~ring-request [:cookies "jwt" :value]) auth/token))
+                 (gen ~opts ~Main ~@args)
+                 (throw (ex-info "Booting an electric server requires authentication" {}))))) ; wrapped in fn so gen's &env contains `lexicals` as LocalBindings
       )))
 
 (defmacro boot-server [ring-request opts Main & args]
