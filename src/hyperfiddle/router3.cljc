@@ -1,7 +1,8 @@
 (ns hyperfiddle.router3
   "A reactive tree router"
-  (:refer-clojure :exclude [set])
+  (:refer-clojure :exclude [set pop])
   (:require
+   [clojure.core :as cc]
    [contrib.data]
    [contrib.sexpr-router :as sexpr]
    [hyperfiddle.electric3 :as e :refer [$]]
@@ -60,6 +61,26 @@
 
 (defn pad [n coll] (vec (contrib.data/pad (max n (count coll)) nil coll)))
 
+(defn rest-lens
+  "Return a lens focusing on the rest of a list"
+  []
+  (lens rest (fn [value f] (cond (empty? value) (f ())
+                                 () (cons (first value) (f (rest value)))))))
+
+(tests
+  (view (rest-lens) nil) := ()
+  (view (rest-lens) '(:a)) := ()
+  (view (rest-lens) '(:a :b)) := '(:b)
+  (view (rest-lens) '(:a :b :c)) := '(:b :c)
+  (view (comp (rest-lens) (rest-lens)) '(:a :b :c)) := '(:c)
+
+  (set (rest-lens) '(:a) '()) := '(:a)
+  (set (rest-lens) '(:b) '(:a)) := '(:a :b)
+  (set (rest-lens) '(:b :c) '(:a)) := '(:a :b :c)
+  (set (rest-lens) '(:c) '(:a :b)) := '(:a :c)
+  (set (comp (rest-lens) (rest-lens)) '(:c) '(:a :b)) := '(:a :b :c)
+  )
+
 (defn adaptive-key
   "Return a lens focusing on the value at `key` in an associative data structure.
   When updating the focused value by a function `f`:
@@ -74,19 +95,21 @@
     - otherwise value will default to a map.
   "
   [key]
-  (lens
-    (fn [value] ((if (seq? value) nth get) value key nil))
-    (fn [value f]
-      (cond
-        (map? value)    (update value key f)
-        (vector? value) (update (pad key value) key f)
-        (seq? value)    (seq (update (pad key value) key f))
-        (nil? value)    (if (nat-int? key)
-                          (update (pad key []) key f)
-                          {key (f nil)})
-        :else           (if (nat-int? key)
-                          (update (pad key [value]) key f)
-                          {value (f nil)})))))
+  (if (= ::rest key)
+    (rest-lens)
+    (lens
+      (fn [value] ((if (seq? value) nth get) value key nil))
+      (fn [value f]
+        (cond
+          (map? value)    (update value key f)
+          (vector? value) (update (pad key value) key f)
+          (seq? value)    (seq (update (pad key value) key f))
+          (nil? value)    (if (nat-int? key)
+                            (update (pad key []) key f)
+                            {key (f nil)})
+          :else           (if (nat-int? key)
+                            (update (pad key [value]) key f)
+                            {value (f nil)}))))))
 
 (defn path-lens
   "Given a sequence of keys in an associative data structure (e.g. [:foo :bar
@@ -126,7 +149,7 @@
 
 ;;; Relative and absolute paths
 
-(defn safe-pop [coll] (if (empty? coll) coll (pop coll)))
+(defn safe-pop [coll] (if (empty? coll) coll (cc/pop coll)))
 
 (defn resolve-path
   "Given a path eventually containing relative path components (e.g. `'.`, `'..`, or `'/`), resolve the final path.
@@ -342,6 +365,7 @@
       ($ Body-fn))))
 
 (defmacro focus [path & body] `($ Focus ~path (e/fn [] ~@body))) ;; TODO find a better name
+(defmacro pop [& body] `(focus [::rest] ~@body))
 
 (defn split-link-path [path]
   (cond (not (vector? path)) [['.] path]
