@@ -23,16 +23,16 @@
                         (r/peer-events
                           (r/make-peer :server ~(select-keys opts [:cognitect.transit/read-handlers :cognitect.transit/write-handlers])
                             subject# (r/->defs {::e/Main ~source}) ::e/Main nil)))))]
-  (defn boot-server* [[ns-sym lexicals ring-request opts Main & args]]
+  (defn boot-server* [[ns-sym lexicals opts Main & args]]
     (binding [gen gen-server ; set the gen macro impl
               *ns* (find-ns ns-sym)] ; ensures eval runs in original ns to resolve ns requires and aliases
       (eval `(fn [~@lexicals]
-               (if (jwt/valid-RS256? auth/PUBKEY (or (get-in ~ring-request [:cookies "jwt" :value]) auth/token))
+               (if (jwt/valid-RS256? auth/PUBKEY auth/token)
                  (gen ~opts ~Main ~@args)
                  (throw (ex-info "Booting an electric server requires authentication" {}))))) ; wrapped in fn so gen's &env contains `lexicals` as LocalBindings
       )))
 
-(defmacro boot-server [ring-request opts Main & args]
+(defmacro boot-server [opts Main & args]
   (let [lexicals (vec (keys &env))]
-    `((boot-server* '[~(.name *ns*) ~lexicals ~ring-request ~opts ~Main ~@args]) ; capture ns and lexical bindings where macroexpand is happening
+    `((boot-server* '[~(.name *ns*) ~lexicals ~opts ~Main ~@args]) ; capture ns and lexical bindings where macroexpand is happening
       ~@lexicals)))
