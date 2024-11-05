@@ -5,9 +5,7 @@
    [hyperfiddle.electric.impl.lang3 :as lang]
    [hyperfiddle.electric.impl.runtime3 :as r]
    [hyperfiddle.electric3 :as e]
-   [hyperfiddle.electric-ring-adapter3 :as ring-adapter]
-   [hyperfiddle.jwt :as jwt]
-   [clojure.tools.logging :as log]))
+   [hyperfiddle.jwt :as jwt]))
 
 ;; Important clever macro tricks: We don't want users to see the entrypoint.
 ;; Even if we AOT this namespace, if we expose `boot-server` as a macro, users
