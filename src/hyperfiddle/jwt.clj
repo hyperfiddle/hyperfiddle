@@ -55,13 +55,18 @@
   "Generate a RS256 JWT token, signed with an RSA `java.security.PrivateKey`,
   expiring after a given `java.time.Duration`, and containing claims as
   json-encoded key-values from `claims-map`."
-  [^java.security.PrivateKey private-key
-   ^java.time.Duration expire-duration
-   claims-map]
-  (as-> (com.auth0.jwt.JWT/create) $
-    (reduce (fn [token [k v]] (.withClaim token (name k) v)) $ claims-map)
-    (.withExpiresAt $ (new java.util.Date (+ (System/currentTimeMillis) (.toMillis expire-duration))))
-    (.sign $ (com.auth0.jwt.algorithms.Algorithm/RSA256 nil private-key))))
+  ([^java.security.PrivateKey private-key
+    claims-map]
+   (->jwt private-key nil claims-map))
+  ([^java.security.PrivateKey private-key
+    ^java.time.Duration expire-duration
+    claims-map]
+   (as-> (com.auth0.jwt.JWT/create) $
+     (reduce (fn [token [k v]] (.withClaim token (name k) v)) $ claims-map)
+     (if expire-duration
+       (.withExpiresAt $ (new java.util.Date (+ (System/currentTimeMillis) (.toMillis expire-duration))))
+       $)
+     (.sign $ (com.auth0.jwt.algorithms.Algorithm/RSA256 nil private-key)))))
 
 (defn valid-RS256? [^java.security.PublicKey pubkey token]
   (try (and token (verify-RS256 pubkey token))
