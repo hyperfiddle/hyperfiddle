@@ -5,7 +5,9 @@
    [hyperfiddle.electric.impl.lang3 :as lang]
    [hyperfiddle.electric.impl.runtime3 :as r]
    [hyperfiddle.electric3 :as e]
-   [hyperfiddle.jwt :as jwt]))
+   [hyperfiddle.electric-ring-adapter3 :as ring-adapter]
+   [hyperfiddle.jwt :as jwt]
+   [clojure.tools.logging :as log]))
 
 ;; Important clever macro tricks: We don't want users to see the entrypoint.
 ;; Even if we AOT this namespace, if we expose `boot-server` as a macro, users
@@ -26,13 +28,17 @@
   (defn boot-server* [[ns-sym lexicals opts Main & args]]
     (binding [gen gen-server ; set the gen macro impl
               *ns* (find-ns ns-sym)] ; ensures eval runs in original ns to resolve ns requires and aliases
-      (eval `(fn [~@lexicals]
-               (if (jwt/valid-RS256? auth/PUBKEY auth/token)
-                 (gen ~opts ~Main ~@args)
-                 (throw (ex-info "Booting an electric server requires authentication" {}))))) ; wrapped in fn so gen's &env contains `lexicals` as LocalBindings
+      (eval `(fn [~@lexicals] (gen ~opts ~Main ~@args))) ; wrapped in fn so gen's &env contains `lexicals` as LocalBindings
       )))
 
 (defmacro boot-server [opts Main & args]
-  (let [lexicals (vec (keys &env))]
-    `((boot-server* '[~(.name *ns*) ~lexicals ~opts ~Main ~@args]) ; capture ns and lexical bindings where macroexpand is happening
-      ~@lexicals)))
+  ;; FIXME security issue, we check token at compile time. Users can snapshot
+  ;; this macro's output and get away with token verification.
+  (cond
+    (not auth/token) (throw (ex-info "Missing auth token, please run `./authenticate.sh`" {})) ; TODO improve message
+    (not (jwt/valid-RS256? auth/PUBKEY auth/token))
+    (let [ex-message (try (jwt/verify-RS256 auth/PUBKEY auth/token) nil (catch Throwable t (ex-message t)))]
+      (throw (ex-info (str "Invalid token, renew it with `./authenticate.sh` " ex-message) {}))) ; TODO improve message
+    () (let [lexicals (vec (keys &env))]
+         `((boot-server* '[~(.name *ns*) ~lexicals ~opts ~Main ~@args]) ; capture ns and lexical bindings where macroexpand is happening
+           ~@lexicals))))

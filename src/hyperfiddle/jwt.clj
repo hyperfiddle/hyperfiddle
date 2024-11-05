@@ -29,11 +29,13 @@
     (update-vals #(.as % Object))
     (update-keys keyword)))
 
-(defn verify-RS256 [verifier token] ; throws com.auth0.jwt.exceptions.TokenExpiredException
+(defn verify-RS256* [verifier token] ; throws com.auth0.jwt.exceptions.TokenExpiredException
   (.verify verifier token))
 
+(defn verify-RS256 [pubkey token] (verify-RS256* (build-RS256-verifier pubkey) token))
+
 (defn get-RS256-token-claim [verifier token]
- (parse-claims (.getClaims (verify-RS256 verifier token))))
+ (parse-claims (.getClaims (verify-RS256* verifier token))))
 
 (defn max-age [claims] (- (:exp claims) (quot (System/currentTimeMillis) 1000)))
 
@@ -62,8 +64,8 @@
     (.sign $ (com.auth0.jwt.algorithms.Algorithm/RSA256 nil private-key))))
 
 (defn valid-RS256? [^java.security.PublicKey pubkey token]
-  (and token
-    (.verify (build-RS256-verifier pubkey) token)))
+  (try (and token (verify-RS256 pubkey token))
+    (catch Throwable _ false)))
 
 ;; HS256 – legacy, signed with a secret
 
