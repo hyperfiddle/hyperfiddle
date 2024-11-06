@@ -26,8 +26,7 @@
 
 (defn parse-claims [claims]
   (-> (into {} claims)
-    (update-vals #(.as % Object))
-    (update-keys keyword)))
+    (update-vals #(.as % Object))))
 
 (defn verify-RS256* [verifier token] ; throws com.auth0.jwt.exceptions.TokenExpiredException
   (.verify verifier token))
