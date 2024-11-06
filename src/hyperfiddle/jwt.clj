@@ -36,7 +36,10 @@
 (defn get-RS256-token-claim [verifier token]
  (parse-claims (.getClaims (verify-RS256* verifier token))))
 
-(defn max-age [claims] (- (:exp claims) (quot (System/currentTimeMillis) 1000)))
+(defn max-age [claims]
+  (if-let [exp (get claims "exp")]
+    (- exp (quot (System/currentTimeMillis) 1000))
+    ##Inf))
 
 (def key-factory (java.security.KeyFactory/getInstance "RSA"))
 
