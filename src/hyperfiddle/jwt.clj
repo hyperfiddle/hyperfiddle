@@ -51,22 +51,30 @@
     (new java.security.spec.PKCS8EncodedKeySpec)
     (.generatePrivate key-factory)))
 
+(defn duration->date
+  "Return a java.util.Date set at `java.util.Date now` + `java.time.Duration from-now` in the future.
+  `now` defaults to current machine time. Useful to set tokens `exp` expiration time, or similar token times.
+
+  e.g. (duration->date (java.time.Duration/ofDays 1)) ; => tomorrow, same time as current machine time
+       (duration->date #inst \"2024-01-01T00:00:00.000-00:00\" (java.time.Duration/ofDays 1)) ; => 2024-01-02 at midnight"
+  ^java.util.Date
+  ([^java.time.Duration duration-from-now]
+   (duration->date (java.util.Date.) duration-from-now))
+  ([^java.util.Date now ^java.time.Duration from-now]
+   (java.util.Date. (+ (.getTime now) (.toMillis from-now)))))
+
 (defn ->jwt
-  "Generate a RS256 JWT token, signed with an RSA `java.security.PrivateKey`,
-  expiring after a given `java.time.Duration`, and containing claims as
-  json-encoded key-values from `claims-map`."
-  ([^java.security.PrivateKey private-key
-    claims-map]
-   (->jwt private-key nil claims-map))
-  ([^java.security.PrivateKey private-key
-    ^java.time.Duration expire-duration
-    claims-map]
-   (as-> (com.auth0.jwt.JWT/create) $
-     (reduce (fn [token [k v]] (.withClaim token (name k) v)) $ claims-map)
-     (if expire-duration
-       (.withExpiresAt $ (new java.util.Date (+ (System/currentTimeMillis) (.toMillis expire-duration))))
-       $)
-     (.sign $ (com.auth0.jwt.algorithms.Algorithm/RSA256 nil private-key)))))
+  "Generate a RS256 JWT token, signed with an RSA `java.security.PrivateKey`, and
+  containing claims as json-encoded key-values from `claims-map`. Claims-map's
+  keys must be strings. Claims-map values must be of type Boolean, Integer,
+  Long, Double, String, java.time.Instant, java.util.Date, java.util.List,
+  java.util.Map or java array of Integer, Long or String. List values can be of
+  any listed type, plus nil. Map values can be of any listed types, but cannot
+  be nil."
+  ([^java.security.PrivateKey private-key claims-map]
+   (-> (com.auth0.jwt.JWT/create)
+     (.withPayload claims-map)
+     (.sign (com.auth0.jwt.algorithms.Algorithm/RSA256 nil private-key)))))
 
 (defn valid-RS256? [^java.security.PublicKey pubkey token]
   (try (and token (verify-RS256 pubkey token))
