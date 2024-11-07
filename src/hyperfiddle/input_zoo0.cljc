@@ -46,8 +46,9 @@
 ; Errors are forwarded in via token callback
 ; Errors are never sent out via signal, because consumers already saw it when they forwarded it in
 
-(e/defn Input! [k v & {:keys [maxlength type parse edit-monoid] :as props
-                       :or {maxlength 100 type "text" parse identity edit-monoid hash-map}}]
+(e/defn Input! [field-name ; fields are named like the DOM, <input name=...> - for coordination with form containers
+                v & {:keys [maxlength type parse edit-monoid] :as props
+                     :or {maxlength 100 type "text" parse identity edit-monoid hash-map}}]
   (e/client
     (dom/input (dom/props (-> props (dissoc :parse) (assoc :maxLength maxlength :type type)))
       (let [e (dom/On "input" identity nil) [t err] (e/RetryToken e) ; reuse token until commit
@@ -58,7 +59,11 @@
         (when-not dirty? (set! (.-value dom/node) v)) ; todo - submit must reset input while focused
         (when error? (dom/props {:aria-invalid true}))
         (when waiting? (dom/props {:aria-busy true}))
-        (if waiting? [t (edit-monoid k ((fn [] (-> e .-target .-value (subs 0 maxlength) parse))))] (e/amb))))))
+        (if waiting?
+          (let [v' ((fn [] (-> e .-target .-value (subs 0 maxlength) parse)))
+                edit (edit-monoid field-name v')] ; named field edit, a KV structure
+            [t edit]) ; edit request, bubbles upward to service
+          (e/amb)))))) ; return nothing, not nil - because edits are concurrent, also helps prevent spurious nils
 
 ; include the error for the pending monitor - unclear if right
 ; encapsulate errors, the form already saw it when forwarding here
