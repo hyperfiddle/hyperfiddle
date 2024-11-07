@@ -162,7 +162,7 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
            (dom/pre #_(dom/props {:style {:min-height "4em"}})
              (dom/text (pprint-str form-v :margin 80)))))))))
 
-(defmacro Form! [fields1 & kwargs]
+(defmacro Form! [fields1 & kwargs] ; note - the fields must be nested under this form - which is fragile and unobvious
   `(dom/form ; for form "reset" event
      #_(dom/props kwargs) ; todo select dom props vs stage props
      (Form!* ~fields1 ~@kwargs))) ; place fields inside dom/form
