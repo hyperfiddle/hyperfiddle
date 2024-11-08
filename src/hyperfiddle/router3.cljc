@@ -7,6 +7,7 @@
    [contrib.sexpr-router :as sexpr]
    [hyperfiddle.electric3 :as e :refer [$]]
    [hyperfiddle.electric-dom3 :as dom]
+   [hyperfiddle.token-zoo0 :refer [TokenNofail]]
    [hyperfiddle.rcf :refer [tests]]
    [hyperfiddle.history3 :as h]
    [missionary.core :as m])
@@ -529,7 +530,7 @@
         nil nil)
      ;; 2. Then we can handle the event asynchronously to perform the navigation (or not)
      (when-let [^js event ($ dom/On node "click" identity nil nil)]
-       (when-some [done! ($ e/TokenNofail event)]
+       (when-some [done! ($ TokenNofail event)]
          (when (and (internal-nav-intent? event) (confirm-navigation? event))
            (case ($ OnBeforeNavigate!)  ; sequence effects
              (done! ($ Callback (-get-event-route event) event)))))))))
@@ -550,7 +551,7 @@
        (let [!idle (atom false)]
          #_(try)
          (when-some [^js e ($ dom/On js/window "beforeunload" identity nil nil)] ; refresh or close tab
-           (when-some [done! ($ e/TokenNofail e)]
+           (when-some [done! ($ TokenNofail e)]
              (done! (when-not (confirm-navigation? e)
                       (.preventDefault e)))))
 
@@ -559,7 +560,7 @@
 
 
          (when-some [e ($ dom/On js/window "popstate" identity nil nil)]   ; previous and next button
-           (when-some [done! ($ e/TokenNofail e)]
+           (when-some [done! ($ TokenNofail e)]
              ;; "popstate" event can't be cancelled. We are forced to detect
              ;; navigation direction (back/forward) and to invert it. History
              ;; must be idle during this back and forth operation to prevent a
