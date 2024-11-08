@@ -30,7 +30,7 @@
       (let [[t err] (e/apply Button! directive (mapcat identity (-> props (dissoc :form) ; if we don't dissoc form, both the button and FormDiscard will try to burn the token and we get an NPE - seems like the `when true` bug.
                                                                   (assoc :type :reset))))]
         (t))) ; always safe to call, Button returns [t err] or (e/amb)
-    (let [[t err] (e/RetryToken (dom/On "reset" #(do #_(.log js/console %) (.preventDefault %)(.stopPropagation %)
+    (let [[t err] (e/Token (dom/On "reset" #(do #_(.log js/console %) (.preventDefault %)(.stopPropagation %)
                                                      (blur-active-form-input! (.-target %)) %) nil))]
       (if t ; TODO unify with FormSubmit! and Button!
         (let [[form-t form-v] form]
@@ -50,14 +50,14 @@
                     (let [submit-event (dom/On "submit" #(do (.preventDefault %) (.stopPropagation %) (when-not (or auto-submit disabled) %)) nil)]
                       submit-event ; force signal
                       (if auto-submit
-                        (e/RetryToken form)
+                        (e/Token form)
                         (e/When (not show-button) ; show-buttons will render an <button type=submit> auto handling Enter
                           (do (dom/On "keypress" (fn [e] (let [target (.-target e)] ; submit form on enter
                                                            (when (and (= "Enter" (.-key e)) (= "INPUT" (.-nodeName target)))
                                                              (.stopPropagation e)
                                                              (.requestSubmit (.-form target)) ; fire submit event
                                                              nil))) nil)
-                              (let [[t err :as token] (e/RetryToken submit-event)]
+                              (let [[t err :as token] (e/Token submit-event)]
                                 (dom/props {:aria-invalid (some? err)})
                                 token))))))]
       (if t ; TODO unify with FormSubmit! and Button!

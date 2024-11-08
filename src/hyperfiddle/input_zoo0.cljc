@@ -51,7 +51,7 @@
                      :or {maxlength 100 type "text" parse identity edit-monoid hash-map}}]
   (e/client
     (dom/input (dom/props (-> props (dissoc :parse) (assoc :maxLength maxlength :type type)))
-      (let [e (dom/On "input" identity nil) [t err] (e/RetryToken e) ; reuse token until commit
+      (let [e (dom/On "input" identity nil) [t err] (e/Token e) ; reuse token until commit
             editing? (dom/Focused?)
             waiting? (some? t)
             error? (some? err)
@@ -77,7 +77,7 @@
         (dom/props {:style {:display "inline-block" :width "fit-content"}})
         (let [[e t err input-node]
               (dom/input (dom/props {:type "checkbox", :id id}) (dom/props (dissoc props :id :label :parse))
-                (let [e (dom/On "change" identity) [t err] (e/RetryToken e)] ; single txn, no concurrency
+                (let [e (dom/On "change" identity) [t err] (e/Token e)] ; single txn, no concurrency
                   [e t err dom/node]))
               editing? (dom/Focused? input-node)
               waiting? (some? t)
@@ -96,7 +96,7 @@
   (dom/button (dom/text label) ; (if err "retry" label)
     (dom/props (-> props (dissoc :label :disabled) (assoc :type type)))
     (let [x (dom/On "click" identity nil) ; (constantly directive) forbidden - would work skip subsequent clicks
-          [btn-t err] (e/RetryToken x)] ; genesis
+          [btn-t err] (e/Token x)] ; genesis
       (dom/props {:disabled (or disabled (some? btn-t))})
       (dom/props {:aria-busy (some? btn-t)})
       (dom/props {:aria-invalid (some? err)})

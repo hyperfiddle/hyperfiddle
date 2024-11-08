@@ -529,7 +529,7 @@
         nil nil)
      ;; 2. Then we can handle the event asynchronously to perform the navigation (or not)
      (when-let [^js event ($ dom/On node "click" identity nil nil)]
-       (when-some [done! ($ e/Token event)]
+       (when-some [done! ($ e/TokenNofail event)]
          (when (and (internal-nav-intent? event) (confirm-navigation? event))
            (case ($ OnBeforeNavigate!)  ; sequence effects
              (done! ($ Callback (-get-event-route event) event)))))))))
@@ -550,7 +550,7 @@
        (let [!idle (atom false)]
          #_(try)
          (when-some [^js e ($ dom/On js/window "beforeunload" identity nil nil)] ; refresh or close tab
-           (when-some [done! ($ e/Token e)]
+           (when-some [done! ($ e/TokenNofail e)]
              (done! (when-not (confirm-navigation? e)
                       (.preventDefault e)))))
 
@@ -559,7 +559,7 @@
 
 
          (when-some [e ($ dom/On js/window "popstate" identity nil nil)]   ; previous and next button
-           (when-some [done! ($ e/Token e)]
+           (when-some [done! ($ e/TokenNofail e)]
              ;; "popstate" event can't be cancelled. We are forced to detect
              ;; navigation direction (back/forward) and to invert it. History
              ;; must be idle during this back and forth operation to prevent a
