@@ -1,10 +1,118 @@
-(ns hyperfiddle.cqrs0
-  #?(:cljs (:require-macros hyperfiddle.cqrs0))
+(ns hyperfiddle.electric-forms0
+  #?(:cljs (:require-macros hyperfiddle.electric-forms0))
   (:require [contrib.data :refer [index-by]]
             [contrib.str :refer [pprint-str]]
             [hyperfiddle.electric3 :as e]
-            [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.input-zoo0 :refer [Button! ButtonGenesis!]]))
+            [hyperfiddle.electric-dom3 :as dom]))
+
+;; Simple controlled inputs (dataflow circuits)
+
+(e/defn Input [v & {:keys [maxlength type parse] :as props
+                    :or {maxlength 100 type "text" parse identity}}]
+  (e/client
+    (e/with-cycle [v (str v)] ; emits signal of current state
+      (dom/input (dom/props (-> props (dissoc :parse) (assoc :maxLength maxlength :type type)))
+        (when-not (dom/Focused?) (set! (.-value dom/node) v))
+        (dom/On "input" #(-> % .-target .-value (subs 0 maxlength) parse) v))))) ; emit on boot, rebuild on reset
+
+(e/defn Checkbox [checked & {:keys [id label parse] :as props
+                             :or {id (random-uuid) parse identity}}]
+  (e/client
+    (e/amb
+      (e/with-cycle [checked checked]
+        (dom/input (dom/props {:type "checkbox", :id id})
+          (dom/props (dissoc props :id :label :parse))
+          (when-not (dom/Focused?) (set! (.-checked dom/node) checked))
+          (dom/On "change" #(-> % .-target .-checked parse) checked)))
+      (e/When label (dom/label (dom/props {:for id}) (dom/text label))))))
+
+;; Transactional inputs
+; Errors are forwarded in via token callback
+; Errors are never sent out via signal, because consumers already saw it when they forwarded it in
+
+(e/defn Input! [field-name ; fields are named like the DOM, <input name=...> - for coordination with form containers
+                v & {:keys [maxlength type parse edit-monoid] :as props
+                     :or {maxlength 100 type "text" parse identity edit-monoid hash-map}}]
+  (e/client
+    (dom/input (dom/props (-> props (dissoc :parse) (assoc :maxLength maxlength :type type)))
+      (let [e (dom/On "input" identity nil) [t err] (e/Token e) ; reuse token until commit
+            editing? (dom/Focused?)
+            waiting? (some? t)
+            error? (some? err)
+            dirty? (or editing? waiting? error?)]
+        (when-not dirty? (set! (.-value dom/node) v)) ; todo - submit must reset input while focused
+        (when error? (dom/props {:aria-invalid true}))
+        (when waiting? (dom/props {:aria-busy true}))
+        (if waiting?
+          (let [v' ((fn [] (-> e .-target .-value (subs 0 maxlength) parse)))
+                edit (edit-monoid field-name v')] ; named field edit, a KV structure
+            [t edit]) ; edit request, bubbles upward to service
+          (e/amb)))))) ; return nothing, not nil - because edits are concurrent, also helps prevent spurious nils
+
+; include the error for the pending monitor - unclear if right
+; encapsulate errors, the form already saw it when forwarding here
+
+(e/defn Checkbox! [k checked & {:keys [id label parse edit-monoid] :as props
+                                :or {id (random-uuid) parse identity edit-monoid hash-map}}]
+  ; todo esc?
+  (e/client
+    (e/amb
+      (dom/div ; checkboxes don't have background so style wrapper div
+        (dom/props {:style {:display "inline-block" :width "fit-content"}})
+        (let [[e t err input-node]
+              (dom/input (dom/props {:type "checkbox", :id id}) (dom/props (dissoc props :id :label :parse))
+                (let [e (dom/On "change" identity) [t err] (e/Token e)] ; single txn, no concurrency
+                  [e t err dom/node]))
+              editing? (dom/Focused? input-node)
+              waiting? (some? t)
+              error? (some? err)
+              dirty? (or editing? waiting? error?)]
+          (when-not dirty? (set! (.-checked input-node) checked))
+          (when error? (dom/props {:aria-invalid true}))
+          (when waiting? (dom/props {:aria-busy true}))
+          (if waiting? [t (edit-monoid k ((fn [] (-> e .-target .-checked parse))))] (e/amb))))
+      (e/When label (dom/label (dom/props {:for id}) (dom/text label))))))
+
+(e/defn Button!
+  "Transactional button with busy state. Disables when busy."
+  [directive & {:keys [label disabled type form] :as props
+                :or {type :button}}] ; default type in form is submit
+  (dom/button (dom/text label) ; (if err "retry" label)
+    (dom/props (-> props (dissoc :label :disabled) (assoc :type type)))
+    (let [x (dom/On "click" identity nil) ; (constantly directive) forbidden - would work skip subsequent clicks
+          [btn-t err] (e/Token x)] ; genesis
+      (dom/props {:disabled (or disabled (some? btn-t))})
+      (dom/props {:aria-busy (some? btn-t)})
+      (dom/props {:aria-invalid (some? err)})
+      (if btn-t
+        (let [[form-t form-v] form]
+          [(fn token
+             ([] (btn-t) (when form-t (form-t))) ; reset controlled form and both buttons, cancelling any in-flight commit
+             ([err] (btn-t err) #_(form-t err))) ; redirect error to button ("retry"), leave uncommitted form dirty
+           (if form-t [directive form-v] directive)]) ; compat
+        (e/amb))))) ; None or Single
+
+(e/defn ButtonGenesis!
+  "Spawns a new tempid/token for each click. You must monitor the spawned tempid
+in an associated optimistic collection view!"
+  [directive & {:keys [label disabled type form] :as props
+                :or {type :button}}] ; default type in form is submit
+  (dom/button (dom/text label) ; (if err "retry" label)
+    (dom/props (-> props (dissoc :label :disabled) (assoc :type type)))
+    (dom/props {:disabled (or disabled #_(some? t))})
+    #_(dom/props {:aria-busy (some? t)})
+    #_(dom/props {:aria-invalid (some? err)})
+    (e/for [[btn-q e] (dom/On-all "click" identity)]
+      (let [[form-t form-v] (e/snapshot form)] ; snapshot to detach form before any reference to form, or spending the form token would loop into this branch and cause a crash.
+        (form-t) ; immediately detach form
+        [(fn token ; proxy genesis
+           ([] (btn-q) #_(form-t))
+           ([err] '... #_(btn-q err)))
+
+          ; abandon entity and clear form, ready for next submit -- snapshot to avoid clearing concurrent edits
+         [directive form-v]]))))
+
+;; Forms
 
 ; commit/discard with staging area
 ; inputs - emit as you type - with a token
@@ -200,7 +308,7 @@ lifecycle (e.g. for errors) in an associated optimistic collection view!"
 
 (def effects* {})
 
-(defmacro try-ok [& body]
+(defmacro try-ok [& body] ; fixme inject sentinel
   `(try ~@body ::ok ; sentinel
      (catch Exception e# (doto ::fail (prn e#)))))
 
