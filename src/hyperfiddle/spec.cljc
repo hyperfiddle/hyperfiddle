@@ -281,12 +281,16 @@
 (def valueType->type (zipmap (map #(get % 2) types) (map second types)))
 (def valueType->pred (zipmap (map #(get % 2) types) (map first types)))
 
+(comment (pred->type 'clojure.core/string?) := :hyperfiddle.spec.type/string)
+
 (defn type-of
   ([spec] (let [spec (datafy (hyperfiddle.spec/spec spec))]
             (case (::type spec)
               ::fspec (pred->type (::ret spec))
               (pred->type (::form spec)))))
   ([spec argument] (pred->type (::form (arg spec argument)))))
+
+(comment (type-of ::_pred) := :hyperfiddle.spec.type/string)
 
 (defn valueType-of [schema attr]
   (valueType->type (:db.valueType (get schema attr))))
