@@ -3,7 +3,7 @@
 
 (def lib 'com.hyperfiddle/hyperfiddle)
 (def version (b/git-process {:git-args "describe --tags --long --always --dirty"}))
-(def basis (b/create-basis {:project "deps.edn", :aliases [:build-fix]}))
+(def basis (b/create-basis {:project "deps.edn", :aliases [:build-deps]}))
 (def class-dir "target/classes")
 (def defaults {:src-pom "src-build/pom-template.xml" :lib lib :class-dir class-dir})
 
@@ -24,11 +24,11 @@
     (b/write-pom opts)
     (println "Copying resources to" class-dir)
     (b/copy-dir {:src-dirs ["src"], :target-dir class-dir
-                 :ignores ["entrypoint.clj" "auth.clj" "jwt.clj" "auth0.clj"]})
+                 :ignores ["entrypoint.clj" "auth.clj" "jwt.clj" "auth0.clj" "hooks3.clj"]})
     (b/compile-clj {:basis basis
                     :class-dir class-dir
-                    :ns-compile '[hyperfiddle.entrypoint hyperfiddle.auth hyperfiddle.jwt hyperfiddle.auth0]
-                    :filter-nses '[hyperfiddle.entrypoint hyperfiddle.auth hyperfiddle.jwt hyperfiddle.auth0]})
+                    :ns-compile '[hyperfiddle.entrypoint hyperfiddle.auth hyperfiddle.jwt hyperfiddle.auth0 hyperfiddle.electric.shadow-cljs.hooks3]
+                    :filter-nses '[hyperfiddle.entrypoint hyperfiddle.auth hyperfiddle.jwt hyperfiddle.auth0 hyperfiddle.electric.shadow-cljs.hooks3]})
     (println "Building jar" jar-file)
     (b/jar opts)))
 
