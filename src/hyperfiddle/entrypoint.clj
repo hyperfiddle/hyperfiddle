@@ -1,18 +1,17 @@
 ;;; Secret ns meant to be AOT compiled, do not ship source code.
 (ns hyperfiddle.entrypoint
   (:require
-   [hyperfiddle.auth :as auth]
    [hyperfiddle.electric.impl.lang3 :as lang]
    [hyperfiddle.electric.impl.runtime3 :as r]
-   [hyperfiddle.electric3 :as e]
-   [hyperfiddle.jwt :as jwt]))
+   [hyperfiddle.electric3 :as e]))
 
 ;; Important clever macro tricks: We don't want users to see the entrypoint.
 ;; Even if we AOT this namespace, if we expose `boot-server` as a macro, users
 ;; might just macroexpand it and make their own entrypoint. How? They could look
 ;; at the similar client entrypoint and tweak the result. We cannot AOT the
 ;; client entrypoint, code must be available to shadow-cljs. Instead we expose a
-;; macro quoting args and delegating macroexpand to the runtime. The server-generated code doesn't escape into userland.
+;; macro quoting args and delegating macroexpand to the runtime. The
+;; server-generated code doesn't escape into userland.
 
 (def ^:dynamic ^:macro gen) ; a macro var without impl, so users can't call it.
 
@@ -30,13 +29,6 @@
       )))
 
 (defmacro boot-server [opts Main & args]
-  ;; FIXME security issue, we check token at compile time. Users can snapshot
-  ;; this macro's output and get away with token verification.
-  (cond
-    (not auth/token) (throw (ex-info "Missing auth token, please run `./authenticate.sh`" {})) ; TODO improve message
-    (not (jwt/valid-RS256? auth/PUBKEY auth/token))
-    (let [ex-message (try (jwt/verify-RS256 auth/PUBKEY auth/token) nil (catch Throwable t (ex-message t)))]
-      (throw (ex-info (str "Invalid token, renew it with `./authenticate.sh` " ex-message) {}))) ; TODO improve message
-    () (let [lexicals (vec (keys &env))]
-         `((boot-server* '[~(.name *ns*) ~lexicals ~opts ~Main ~@args]) ; capture ns and lexical bindings where macroexpand is happening
-           ~@lexicals))))
+  (let [lexicals (vec (keys &env))]
+    `((boot-server* '[~(.name *ns*) ~lexicals ~opts ~Main ~@args]) ; capture ns and lexical bindings where macroexpand is happening
+      ~@lexicals)))
