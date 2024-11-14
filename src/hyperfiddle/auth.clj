@@ -160,6 +160,7 @@
 (def AUTH-URL "https://hyperfiddle-auth.fly.dev/login")
 
 (defn persist-token! [token-path token]
+  (io/make-parents token-path)
   (spit token-path (encode-with-fingerprint (base64 token))))
 
 (defn prompt-user-for-login! [auth-url]
