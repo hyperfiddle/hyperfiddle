@@ -29,6 +29,7 @@
             (assoc build-state :hyperfiddle.electric.shadow-cljs/hooks3 #{`reload-clj})) ; inform e/client this hook is loaded
           build-state)]
     (when first-compile?
+      (println "Compiling ..."); Prevent user thinking auth is bugged on first run. Because compilation takes some time after auth.
       (alter-var-root #'first-compile? not)
       (alter-var-root #'shadow.build.compiler/do-compile-cljs-resource (constantly #'wrapped-do-compile-cljs-resource)))
     (reset! !built-this-cycle #{})
