@@ -23,12 +23,7 @@
     (println "Writing pom.xml")
     (b/write-pom opts)
     (println "Copying resources to" class-dir)
-    (b/copy-dir {:src-dirs ["src"], :target-dir class-dir
-                 :ignores ["entrypoint.clj" "auth.clj" "jwt.clj" "auth0.clj" "hooks3.clj"]})
-    (b/compile-clj {:basis basis
-                    :class-dir class-dir
-                    :ns-compile '[hyperfiddle.entrypoint hyperfiddle.auth hyperfiddle.jwt hyperfiddle.auth0 hyperfiddle.electric.shadow-cljs.hooks3]
-                    :filter-nses '[hyperfiddle.entrypoint hyperfiddle.auth hyperfiddle.jwt hyperfiddle.auth0 hyperfiddle.electric.shadow-cljs.hooks3]})
+    (b/copy-dir {:src-dirs ["src"], :target-dir class-dir})
     (println "Building jar" jar-file)
     (b/jar opts)))
 
