@@ -1,16 +1,15 @@
 (ns hyperfiddle.datomic ; Rosie1
-  (:require [datomic.api :as d]
-            [contrib.datomic :as cd]))
+  (:require [datomic.api :as d]))
 
 (def tempid? string?)
 
 (defn entity [db e]
-  (if (cd/tempid? e)
+  (if (tempid? e)
     {:db/id e}
     (d/entity db e)))
 
 (defn pull [db pullexpr e]
-  (if (cd/tempid? e)
+  (if (tempid? e)
     (if (some #{:db/id} pullexpr)
       {:db/id e}
       {})

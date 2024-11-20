@@ -1,8 +1,8 @@
 (ns hyperfiddle.spec.datomic ; Rosie1
   (:require [clojure.set :as set]
             [clojure.spec.alpha :as s]
-            [contrib.data :refer [map-values update-existing]]
-            [taoensso.timbre :as timbre]))
+            [contrib.data :refer [update-existing]]
+            #_[taoensso.timbre :as timbre]))
 
 (def dbid {:db/ident       :db/id
            :db/cardinality :db.cardinality/one
@@ -81,6 +81,9 @@
 ;; (to-spec {:db/ident       :dustingetz/gender
 ;;           :db/cardinality {:db/ident :db.cardinality/one}
 ;;           :db/valueType   {:db/ident :db.type/ref}})
+
+(defn for-kv [kvs init f] (reduce-kv f init kvs))
+(defn map-values [f m] (for-kv m m (fn [acc k v] (assoc acc k (f v)))))
 
 (defn schema->spec [schema]
   (map-values to-spec schema))
