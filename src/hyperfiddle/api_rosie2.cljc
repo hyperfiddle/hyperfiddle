@@ -1,4 +1,4 @@
-(ns hyperfiddle.api
+(ns hyperfiddle.api-rosie2
   (:import [hyperfiddle.electric Pending]
            #?(:cljs [goog.math Long]))
   (:require clojure.edn
