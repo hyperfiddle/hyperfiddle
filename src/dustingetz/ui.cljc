@@ -3,11 +3,11 @@
             [contrib.str :refer [pprint-str]]
             [dustingetz.combobox :refer [ComboBox]]
             [dustingetz.gridsheet3 :as gridsheet :refer [Explorer3]]
-            [heroicons.electric3.v24.outline :as icons]
+            #_[heroicons.electric3.v24.outline :as icons]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric-forms0 :refer [Checkbox!]]
-            [hyperfiddle.ui.tags :as tag]))
+            #_[hyperfiddle.ui.tags :as tag]))
 
 (e/defn Identity [x] x)
 (e/defn Text [x] (dom/text x))
@@ -56,6 +56,8 @@
 
 (e/defn TagPickerReadOnly [kf xs]
   (dom/props {:class "hyperfiddle-tags flex flex-cols flex-wrap gap-x-2 gap-y-1"}) ; TODO TagPicker
+  (dom/text "todo tagpicker")
+  #_
   (e/for [tag (e/diff-by kf xs)] ; Verify if `(into {} datomic-entity)` is enough
     (tag/tag
       (tag/content (dom/text (kf tag)))
