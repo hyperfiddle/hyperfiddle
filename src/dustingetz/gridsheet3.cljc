@@ -11,17 +11,18 @@
             #?(:cljs [london-talk-2024.dom-scroll-helpers :refer [scroll-state resize-observer]])
             #?(:cljs goog.object)))
 
+(defn noscroll-page-size [row-count] (max 1 (dec row-count)))
+
 (e/defn GridSheet [xs props]
   (e/server ; todo site neutrality, today requires server bias
-    (let [{::keys [Format columns grid-template-columns
+    (let [rows (seq xs), row-count (count rows)
+          {::keys [Format columns grid-template-columns
                    row-height ; px, same unit as scrollTop
                    page-size #_"tight"] :as props}
           (auto-props props {::row-height 24
-                             ::page-size 20
+                             ::page-size (noscroll-page-size row-count)
                              ::Format (e/fn [m a] (dom/text #_(e/client) (pr-str (a m))))})
-          client-height (* (inc (check number? page-size)) (check number? row-height))
-          rows (seq xs)
-          row-count (count rows)]
+          client-height (* (inc (check number? page-size)) (check number? row-height))]
       #_(when rows (check vector? (first rows))) ; ensure treelister call -- can't do here, drain causes token transfer
       #_(check columns) ; "gridsheet: ::columns prop is required"
       (e/client ; why

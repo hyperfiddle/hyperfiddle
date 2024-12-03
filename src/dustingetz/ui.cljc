@@ -27,10 +27,7 @@
     (dom/pre (dom/props {:class "hyperfiddle-debug"})
       (dom/text (pprint-str x)))))
 
-(e/defn EasyTableNoScroll [xs & {:as props}]
-  (Explorer3 xs
-    (merge props
-      {:page-size (max 1 (dec (count xs)))})))
+(e/defn EasyTableNoScroll [xs & {:as props}] (Explorer3 xs props)) ; compat
 
 (e/defn EasyForm [x cols renders]
   (e/for [k (e/diff-by identity cols)]
