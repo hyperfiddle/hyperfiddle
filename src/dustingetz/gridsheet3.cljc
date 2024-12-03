@@ -11,7 +11,7 @@
             #?(:cljs [london-talk-2024.dom-scroll-helpers :refer [scroll-state resize-observer]])
             #?(:cljs goog.object)))
 
-(defn noscroll-page-size [row-count] (max 1 (dec row-count)))
+(defn noscroll-page-size [row-count] (max 1 #_(dec) row-count)) ; dec? wtf
 
 (e/defn GridSheet [xs props]
   (e/server ; todo site neutrality, today requires server bias
