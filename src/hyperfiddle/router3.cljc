@@ -345,10 +345,10 @@
 
 ;;; Electric
 
-(def paths "A stack of paths" [])
-(def path "The current path" [])
-(def root-route "Top level route" nil)
-(def route "Current rout in the scope of a router" nil)
+(e/declare ^{:doc "A stack of paths"} paths)
+(e/declare ^{:doc "The current path"} path)
+(e/declare ^{:doc "Top level route"} root-route)
+(e/declare ^{:doc "Current route in the scope of a router"} route)
 
 (def encode encode*)
 (def decode decode*)
@@ -477,7 +477,7 @@
          (fn [e]
            (on-link-click next-route node e))))))
 
-(def current-route? false)
+(e/declare current-route?)
 
 (defn normalize-route-value [x]
   (if (seq? x)

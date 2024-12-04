@@ -5,6 +5,7 @@
    [clojure.string :as str]
    [contrib.cljs-target :refer [do-browser]]
    [hyperfiddle.rcf :as rcf :refer [tests % tap with]]
+   [hyperfiddle.electric3 :as e]
    )
   #?(:clj (:import [clojure.lang IRef IAtom]))
   #?(:cljs (:require-macros hyperfiddle.history3))
@@ -228,7 +229,7 @@
 
 ;;; 1. and 2.
 
-(def history nil)                    ; History instance mutable ref
+(e/declare history)                    ; History instance mutable ref
 
 ;; HTML5 integration
 
