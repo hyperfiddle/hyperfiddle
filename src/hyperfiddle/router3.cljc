@@ -603,6 +603,7 @@
 (e/defn Router [history BodyFn]
   (binding [h/history  history
             root-route (decode (e/watch history))
+            path       []
             paths      []]
     ($ OnNavigate dom/node (e/fn [route e] ($ Navigate! route)))
     (focus '/
