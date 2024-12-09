@@ -14,7 +14,7 @@
     (dom/li (dom/props {:id "option-0" :role "option" :tabindex "-1"})
       (dom/span (dom/text label)
         (when selected? (dom/props {:class "font-semibold"})))
-      (dom/On "click" (fn [e] (doto e (.stopPropagation) (.preventDefault)) (value!))))))
+      (dom/On "click" (fn [e] (doto e (.stopPropagation) (.preventDefault)) (value!)) nil))))
 
 (e/defn ComboBox [v-record & {:as props}]
   (let [{::keys [Options Option-label]} ; props sited by user
@@ -30,7 +30,7 @@
           (if-some [t (dom/input
                         (dom/props {:type "text" :role "combobox" :placeholder "Filter..."
                                     :aria-controls options-id :aria-expanded "false"})
-                        (let [[t err] (e/Token (dom/On "focus"))]
+                        (let [[t err] (e/Token (e/Filter some? (dom/On "focus" identity nil)))]
                           (if t ; controlled only when not focused
                             (reset! !search (dom/On "input" #(-> % .-target .-value) ""))
                             (dom/props {:value (some-> v-record Option-label)}))
