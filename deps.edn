@@ -1,4 +1,6 @@
-{:deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-SNAPSHOT"}}
+{:deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-SNAPSHOT"}
+        com.hyperfiddle/heroicons-electric {:mvn/version "8a08de7"} ; for hyperfiddle.ui components
+        }
  :paths ["src"]
  :aliases {:build {:extra-paths ["src-build"]
                    :ns-default  build
