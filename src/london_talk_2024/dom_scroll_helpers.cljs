@@ -1,10 +1,8 @@
 (ns london-talk-2024.dom-scroll-helpers
-  (:require [missionary.core :as m]))
-
-(defn throttle [dur >in]
-  (m/ap
-    (let [x (m/?> (m/relieve {} >in))]
-      (m/amb x (do (m/? (m/sleep dur)) (m/amb))))))
+  (:require [clojure.math :as math]
+            [contrib.data :refer [clamp]]
+            [contrib.missionary-contrib :as mx]
+            [missionary.core :as m]))
 
 (defn scroll-state [scrollable]
   (->> (m/observe
@@ -15,7 +13,7 @@
                                    (.. scrollable -clientHeight)]))] ; measured viewport height (scrollbar length)
              (.addEventListener scrollable "scroll" sample #js {"passive" true})
              #(.removeEventListener scrollable "scroll" sample))))
-    (throttle 16) ; RAF interval
+    (mx/throttle 16) ; RAF interval
     (m/relieve {})))
 
 (defn resize-observer [node]
@@ -28,3 +26,22 @@
                                  (! [(.-blockSize content-box-size)
                                      (.-inlineSize content-box-size)]))))]
                    (.observe obs node) #(.unobserve obs))))))
+
+(defn compute-overquery [overquery-factor record-count offset limit]
+  (let [q-limit (* limit overquery-factor)
+        occluded (clamp (- q-limit limit) 0 record-count)
+        q-offset (clamp (- offset (math/floor (/ occluded overquery-factor))) 0 record-count)]
+    [q-offset q-limit]))
+
+(defn compute-scroll-window [row-height record-count clientHeight scrollTop]
+  (let [padding-top 0 ; e.g. sticky header row
+        limit (math/ceil (/ (- clientHeight padding-top) row-height)) ; aka page-size
+        offset (int (/ (clamp scrollTop 0 (* record-count row-height)) ; prevent overscroll past the end
+                      row-height))]
+    (compute-overquery 1 record-count offset limit)))
+
+(defn scroll-window [row-height record-count node] ; returns [offset, limit]
+  (m/cp
+    (let [[clientHeight] (m/?< (resize-observer node))
+          [scrollTop] (m/?< (scroll-state node))] ; smooth scroll has already happened, cannot quantize
+      (compute-scroll-window row-height record-count clientHeight scrollTop))))
