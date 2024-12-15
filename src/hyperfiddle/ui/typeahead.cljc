@@ -136,7 +136,8 @@
              option-label ; not an e/fn on purpose¹
              edit-monoid
              open?]
-      :or {edit-monoid hash-map}}]
+      :or {edit-monoid hash-map}
+      :as props}]
   ;; ¹ option-label is used to render options, but also to render the selected
   ;;   option into the input. Inputs only accept strings, so option-label must
   ;;   not mount DOM items (props, nodes) and must return a string. If we allow
@@ -147,6 +148,7 @@
       (let [{::keys [value open]} state
             input-node (ComboboxInput
                          (e/fn [] (dom/props {:placeholder "Filter..."})
+                           (dom/props (dissoc props :Options :label :edit-monoid :open?))
                            dom/node))]
         input-node ; force let binding, forces input to show up
         (ComboboxOptions
