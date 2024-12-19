@@ -45,15 +45,14 @@
       (swap! !state assoc ::value initial-state) ; always controlled
       ;; (dom/pre (dom/text (pr-str state)))
       (dom/div
-        (dom/props {:class "hyperfiddle-typeahead relative"})
         (dom/On "focusin" #(do (swap! !state assoc ::open true) %) nil)
         (dom/On "focusout" #(do (when-not (target-inside? dom/node %) (swap! !state assoc ::open false)) %) nil)
         (Body)))))
 
-(e/defn ComboboxInput [Body]
+(e/defn ComboboxInput [Body & {:keys [open?]}]
   (dom/input
-    (let [open? (::open state)]
-      (dom/props {:type :search, :role "combobox", :aria-controls options-id, :aria-expanded open?})
+    (let [open? (or (::open state) open?)]
+      (dom/props {:type :search, :role "combobox", :aria-controls options-id, :aria-expanded (boolean open?)})
       (let [user-input (dom/On "input" #(-> % .-target .-value) "")]
         (prn "user-input" user-input)
         (if open?
@@ -65,10 +64,7 @@
 (e/defn ComboboxOptions [Body]
   (let [{::keys [open search]} state]
     (dom/div
-      (dom/props {:aria-role :listbox
-                  :class [(#(when-not % "hidden") open)]
-                  :tabIndex "1"})
-      (.. dom/node -classList (add "absolute" "grid" "grid-flow-row" "overflow-x-hidden" "overflow-y-auto")) ; for perfs
+      (dom/props {:aria-role :listbox :tabIndex "1", :id options-id})
       (Body open search))))
 
 (e/defn ComboboxOption [value Body]
@@ -77,9 +73,6 @@
       (dom/props {:aria-role :option
                   :aria-selected (or selected? nil) ; attr is present or not, not true|false
                   })
-      (.. dom/node -classList (add "grid" "grid-rows-subgrid" "grid-cols-subgrid"
-                                "text-nowrap" "max-w-full" "text-ellipsis" "overflow-hidden"
-                                "cursor-pointer")) ; for perfs
       (dom/On "click" (fn [^js e]
                         (swap! !state assoc ::value value)
                         (swap! !state assoc ::open false) ; swap in two times for better perceived responsiveness
@@ -99,7 +92,7 @@
 (e/defn Typeahead [selected
                    & {:keys [Options
                              option-label ; not an e/fn on purpose¹
-                             ]}]
+                             open?]}]
   ;; ¹ option-label is used to render options, but also to render the selected
   ;;   option into the input. Inputs only accept strings, so option-label must
   ;;   not mount DOM items (props, nodes) and must return a string. If we allow
@@ -108,21 +101,18 @@
   (ComboboxWrapper selected option-label
     (e/fn []
       (ComboboxInput
-        (e/fn [] (dom/props {:placeholder "Filter..."})))
+        (e/fn [] (dom/props {:placeholder "Filter..."}))
+        :open? open?)
       (ComboboxOptions
-        (e/fn [open? search]
-          (dom/props {:class "bg-white shadow-lg w-full rounded py-0.5 border border-slate-300 z-10"})
-          (when open?
+        (e/fn [user-open? search]
+          (when (or user-open? open?)
             (Loader (Options search)
-              (e/fn [] (spinner/spinner (dom/props {:class "m-1 w-4 aspect-square justify-self-center"})))
+              (e/fn [] (spinner/spinner))
               (e/fn [options]
                 (e/for [opt options]
                   (ComboboxOption opt
                     (e/fn [label selected?]
-                      (dom/props {:class ["px-2 hover:text-white hover:bg-blue-400"
-                                          (when selected? "text-white bg-blue-500")]})
-                      (dom/span (dom/props {:class "overflow-hidden text-ellipsis"})
-                                (dom/text label))))))))))
+                      (dom/span (dom/text label))))))))))
       (::value state))))
 
 (defn reset-typeahead! [!state input-node]
@@ -149,21 +139,19 @@
             input-node (ComboboxInput
                          (e/fn [] (dom/props {:placeholder "Filter..."})
                            (dom/props (dissoc props :Options :label :edit-monoid :open?))
-                           dom/node))]
+                           dom/node)
+                         :open? open?)]
         input-node ; force let binding, forces input to show up
         (ComboboxOptions
           (e/fn [user-open? search]
-            (dom/props {:class "bg-white shadow-lg w-full rounded py-0.5 border border-slate-300 z-10"})
             (when (or open? user-open?)
               (Loader (Options search)
-                (e/fn [] (spinner/spinner (dom/props {:class "m-1 w-4 aspect-square justify-self-center"})))
+                (e/fn [] (spinner/spinner ))
                 (e/fn [options]
                   (e/for [opt options]
                     (ComboboxOption opt
                       (e/fn [label selected?]
-                        (.add (.-classList dom/node) "px-2" "hover:text-white" "hover:bg-blue-400")
-                        (dom/props {:class [(when selected? "text-white bg-blue-500")]})
-                        (dom/span (.add (.-classList dom/node) "overflow-hidden" "text-ellipsis")
+                        (dom/span
                           (dom/text label))))))))))
         (let [e (e/Filter some? (dom/On "click" (fn [^js e] (when (.-hyperfiddle_ui_typeahead_submit e) e)) nil))]
           (if (= value selected)
