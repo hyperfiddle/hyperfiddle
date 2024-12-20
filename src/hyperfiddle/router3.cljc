@@ -535,8 +535,12 @@
            (case ($ OnBeforeNavigate!)  ; sequence effects
              (done! ($ Callback (-get-event-route event) event)))))))))
 
-(e/defn Navigate! [path]
-  (h/navigate! h/history (encode ($ Route-for path))))
+(e/defn Navigate!
+  ([path]
+   (h/navigate! h/history (encode ($ Route-for path))))
+  ([path delay-ms]
+   (case (e/Task (m/sleep delay-ms))
+     (Navigate! path))))
 
 (e/defn ReplaceState! [path] ;; TODO find a better name
   (h/replace-state! h/history (encode ($ Route-for path))))
