@@ -543,7 +543,7 @@
      (Navigate! path))))
 
 (e/defn ReplaceState! [path] ;; TODO find a better name
-  (h/replace-state! h/history (encode ($ Route-for path))))
+  (e/client (h/replace-state! h/history (encode ($ Route-for path)))))
 
 #?(:cljs (defn -get-stack [^HTML5History history] (.-!stack history)))
 #?(:cljs (defn -get-position [^HTML5History history] (.-!position history)))
