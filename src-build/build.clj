@@ -1,5 +1,6 @@
 (ns build
-  (:require [clojure.tools.build.api :as b]))
+  (:require [clojure.tools.build.api :as b]
+            [deps-deploy.deps-deploy :as dd]))
 
 (def lib 'com.hyperfiddle/hyperfiddle)
 (def version (b/git-process {:git-args "describe --tags --long --always --dirty"}))
@@ -9,10 +10,9 @@
 
 (defn clean [_opts] (b/delete {:path "target"}))
 
-(defn jar [{:keys [version jar-file release] :or {version version, release false}}] ; release = false will produce a SNAPSHOT version.
+(defn jar [{:keys [version jar-file] :or {version version}}]
   (clean nil)
-  (let [version (if release version (str version "-SNAPSHOT"))
-        jar-file (or (some-> jar-file str) (format "target/%s-%s.jar" (name lib) version))
+  (let [jar-file (or (some-> jar-file str) (format "target/%s-%s.jar" (name lib) version))
         opts (assoc defaults
                :version    version
                :basis      basis
@@ -28,3 +28,21 @@
     (b/jar opts)))
 
 ;; No install nor deploy tasks, we are still figuring out delivery.
+
+(defn install [{:keys [version] :or {version version}}]
+  (let [jar-file (format "target/%s-%s.jar" (name lib) version)]
+    (b/install {:basis      basis
+                :lib        lib
+                :version    version
+                :jar-file   jar-file
+                :class-dir  class-dir})))
+
+(defn deploy [opts] ; clojars
+  (let [{:keys [lib version class-dir installer jar-file] :as opts} (merge defaults opts)]
+    (assert version ":version is required to deploy")
+    (when (and installer (not= :remote installer))
+      (println ":installer" installer "is deprecated -- use install task for local deployment"))
+    (let [jar-file (or jar-file (format "target/%s-%s.jar" (name (or lib 'application)) version))]
+      (dd/deploy (merge {:installer :remote :artifact (b/resolve-path jar-file)
+                         :pom-file (b/pom-path {:lib lib :class-dir class-dir})}
+                   opts)))))

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <name>com.hyperfiddle</name>
+    <description>Hyperfiddle</description>
+    <url>https://github.com/hyperfiddle/hyperfiddle</url>
+    <licenses>
+        <license>
+            <name>Hyperfiddle Business Source License</name>
+            <url>http://www.hyperfiddle.net/</url>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <organization>Hyperfiddle, Inc.</organization>
+            <organizationUrl>http://www.hyperfiddle.net/</organizationUrl>
+        </developer>
+    </developers>
+    <scm>
+        <url>https://github.com/hyperfiddle/hyperfiddle</url>
+        <connection>scm:git:git://github.com/hyperfiddle/hyperfiddle.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/hyperfiddle/hyperfiddle.git</developerConnection>
+    </scm>
+</project>
