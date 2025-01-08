@@ -526,10 +526,10 @@
      ;;    dom/on! – guarantees the event will be canceled before it bubbles up to the parent
      ;;    dom/on  – callback is async and might cancel the event too late, especially if the reactor is busy
      ;;    TODO this fails, shouldn't
-     ($ dom/On node "click" (fn [^js e] (when (internal-nav-intent? e) (.preventDefault e)))
+     (dom/On node "click" (fn [^js e] (when (internal-nav-intent? e) (.preventDefault e)))
         nil nil)
      ;; 2. Then we can handle the event asynchronously to perform the navigation (or not)
-     (when-let [^js event ($ dom/On node "click" identity nil nil)]
+     (when-let [^js event (dom/On node "click" identity nil nil)]
        (when-some [done! ($ TokenNofail event)]
          (when (and (internal-nav-intent? event) (confirm-navigation? event))
            (case ($ OnBeforeNavigate!)  ; sequence effects
@@ -554,7 +554,7 @@
      (e/client
        (let [!idle (atom false)]
          #_(try)
-         (when-some [^js e ($ dom/On js/window "beforeunload" identity nil nil)] ; refresh or close tab
+         (when-some [^js e (dom/On js/window "beforeunload" identity nil nil)] ; refresh or close tab
            (when-some [done! ($ TokenNofail e)]
              (done! (when-not (confirm-navigation? e)
                       (.preventDefault e)))))
@@ -563,7 +563,7 @@
          ;;                  (binding [h/history history] ($ Navigate! route))))
 
 
-         (when-some [e ($ dom/On js/window "popstate" identity nil nil)]   ; previous and next button
+         (when-some [e (dom/On js/window "popstate" identity nil nil)]   ; previous and next button
            (when-some [done! ($ TokenNofail e)]
              ;; "popstate" event can't be cancelled. We are forced to detect
              ;; navigation direction (back/forward) and to invert it. History
