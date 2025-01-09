@@ -6,6 +6,7 @@
    [contrib.data]
    [contrib.sexpr-router :as sexpr]
    [hyperfiddle.electric3 :as e :refer [$]]
+   [hyperfiddle.electric3-contrib :as ex]
    [hyperfiddle.electric-dom3 :as dom]
    [hyperfiddle.token-zoo0 :refer [TokenNofail]]
    [hyperfiddle.rcf :refer [tests]]
@@ -647,3 +648,11 @@
   (update-key {1 :one} 1 inc) := {2 :one}
   (update-key '{(foo 1) bar} '(foo 1) (partial cons 'baz)) := '{(baz foo 1) bar}
   )
+
+(e/defn Apply "
+(e/Apply F r/route) with fallback to supplied args when route is nil."
+  [F args] ; gotcha: argv damages site, make sure it's on client
+  (e/client
+    (case (ReplaceState! ['. (or (seq route) args)]) ; ensure
+      (case (ex/Sleep 1) ; fixme, settle
+        (e/Apply F route)))))
