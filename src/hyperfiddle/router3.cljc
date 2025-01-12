@@ -537,11 +537,8 @@
              (done! ($ Callback (-get-event-route event) event)))))))))
 
 (e/defn Navigate!
-  ([path]
-   (h/navigate! h/history (encode ($ Route-for path))))
-  ([path delay-ms]
-   (case (e/Task (m/sleep delay-ms))
-     (Navigate! path))))
+  ([path] (e/client (h/navigate! h/history (encode ($ Route-for path)))))
+  ([path delay-ms] (e/client (case (e/Task (m/sleep delay-ms)) (Navigate! path)))))
 
 (e/defn ReplaceState! [path] ;; TODO find a better name
   (e/client (h/replace-state! h/history (encode ($ Route-for path)))))
