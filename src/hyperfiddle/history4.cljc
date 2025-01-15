@@ -292,6 +292,7 @@
        (-reset! [this newval] #_(prn "reset! html5-history with " newval) (-swap! this (constantly newval)))
        IWatchable
        (-add-watch [_ key callback] (add-watch !history key callback))
+       (-remove-watch [_ key] (remove-watch !history key))
        IDeref
        (-deref [_] (deref !history))
        IHistory
