@@ -7,7 +7,7 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric-forms0 :refer [Input Input!]]
-            [hyperfiddle.router3 :as r] ; todo remove
+            [hyperfiddle.router4 :as r] ; todo remove
             #?(:cljs [hyperfiddle.electric-scroll0 :refer [scroll-state resize-observer]])
             #?(:cljs goog.object)))
 

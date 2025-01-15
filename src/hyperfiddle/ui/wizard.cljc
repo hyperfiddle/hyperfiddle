@@ -5,7 +5,7 @@
    [hyperfiddle.rcf :as rcf :refer [tests]]
    [hyperfiddle.ui.stepper-large :as step]
    [contrib.orderedmap :as ord]
-   [hyperfiddle.router3 :as r]
+   [hyperfiddle.router4 :as r]
    [hyperfiddle.electric-forms0]
    [hyperfiddle.electric-forms1]
    [hyperfiddle.ui.spinner]
