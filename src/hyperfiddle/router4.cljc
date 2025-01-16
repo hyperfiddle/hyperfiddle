@@ -64,23 +64,41 @@
 (defn pad [n coll] (vec (contrib.data/pad (max n (count coll)) nil coll)))
 
 (defn rest-lens
-  "Return a lens focusing on the rest of a list"
+  "Return a lens focusing on and setting the rest of a seq (cdr). The rest of a
+  list is always a seq – it is never nil – as per (rest (seq ())) := (). Setting
+  the rest of a seq keeps the first of the seq (car) and replaces the rest of
+  it (cdr) with the provided value. The provided value must be a seq, as the cdr
+  of a seq is always a seq (even if empty).
+
+  (view (rest-lens) '(:a :b :c) := '(:b :c)
+  (view (rest-lens) '(:a) := ()
+  (view (rest-lens) () := ()
+
+  (set (rest-lens) '() (:a)) := (:a)
+  (set (rest-lens) () ()) := '(nil)
+  (set (rest-lens) '(:b) '(:a)) := '(:a :b)
+  "
   []
-  (lens rest (fn [value f] (cond (empty? value) (f ())
-                                 () (cons (first value) (f (rest value)))))))
+  (lens rest (fn [value f] (cons (first value) (f (rest value))))))
 
 (tests
-  (view (rest-lens) nil) := ()
+  (view (rest-lens) nil) := () ; (cdr ()) := ()
+  (view (comp (rest-lens) (rest-lens)) nil) := () ; (cddr ()) := (cdr (cdr ())) := ()
   (view (rest-lens) '(:a)) := ()
   (view (rest-lens) '(:a :b)) := '(:b)
   (view (rest-lens) '(:a :b :c)) := '(:b :c)
   (view (comp (rest-lens) (rest-lens)) '(:a :b :c)) := '(:c)
 
-  (set (rest-lens) '(:a) '()) := '(:a)
+  (set (rest-lens) () '(:a)) := '(:a)
   (set (rest-lens) '(:b) '(:a)) := '(:a :b)
   (set (rest-lens) '(:b :c) '(:a)) := '(:a :b :c)
   (set (rest-lens) '(:c) '(:a :b)) := '(:a :c)
   (set (comp (rest-lens) (rest-lens)) '(:c) '(:a :b)) := '(:a :b :c)
+
+  (set (rest-lens) ':a '()) :throws #?(:clj java.lang.Throwable, :cljs js/Error) ; rest of a seq must be a seq
+  (set (rest-lens) () ()) := '(nil)
+  (set (rest-lens) '(:a) '()) := '(nil :a)
+  (set (comp (rest-lens) (rest-lens)) '(:a) '()) := '(nil nil :a)
   )
 
 (defn adaptive-key
