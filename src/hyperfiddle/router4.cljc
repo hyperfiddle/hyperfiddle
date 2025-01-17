@@ -556,12 +556,18 @@
          (dom/On js/window "popstate" #(h/set-history! !history (h/html5-path) (.-timeStamp %)) nil nil)
          !history))))
 
+(e/defn ForAll
+  "Experimental - mount a fresh F for all values of x, trashing F mounted for previous values of x."
+  [x F]
+  (e/for [x (e/diff-by (fn [_] (random-uuid)) (e/as-vec x))] ; G: bazooka to kill a fly?
+    (F x)))
+
 (e/defn Router [history BodyFn]
   (binding [h/history  history
             root-route (decode (e/watch history))
             path       []
             paths      []]
-    ($ OnNavigate dom/node (e/fn [route e] ($ Navigate! route)))
+    ($ OnNavigate dom/node (e/fn [route e] (ForAll e (e/fn [_e] (Navigate! route)))))
     (focus '/
       ($ BodyFn))))
 
