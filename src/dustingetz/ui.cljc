@@ -5,7 +5,6 @@
             #_[heroicons.electric3.v24.outline :as icons]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms0 :refer [Checkbox!]]
             #_[hyperfiddle.ui.tags :as tag]))
 
 (e/defn Identity [x] x)
@@ -36,17 +35,6 @@
 
 (e/defn ComboBox! [k v & {:as props}]
   (do (ComboBox v props) (e/amb)))
-
-(e/defn Radio! [k v & {:as props}]
-  (let [{:keys [Option-label Options type] :or {type :checkbox}} props
-        props (if (#{"radio" :radio} type) (assoc props :name k) props)]
-    (dom/dl (dom/props {:style {:align-items :center, :row-gap 0}})
-      (e/for [x (Options "")]
-        (dom/dt (dom/text (pr-str x)))
-        (dom/dd (dom/props {:class "flex items-center gap-2"})
-          (Checkbox! x (= v x) :label (Option-label x)
-            :edit-monoid (fn [x _v] {k x}) ; e.g. {::rosie/block-mode :leave-commitments}, not {:leave-commitements true} - the default
-            (dissoc props :Option-label :Options)))))))
 
 (e/defn TagPickerReadOnly [kf xs]
   (dom/props {:class "hyperfiddle-tags flex flex-cols flex-wrap gap-x-2 gap-y-1"}) ; TODO TagPicker
