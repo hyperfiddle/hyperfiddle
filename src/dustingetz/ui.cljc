@@ -2,7 +2,6 @@
   (:require [contrib.css :refer [css-slugify]]
             [contrib.str :refer [pprint-str]]
             [dustingetz.combobox :refer [ComboBox]]
-            [dustingetz.gridsheet3 :as gridsheet :refer [Explorer3]]
             #_[heroicons.electric3.v24.outline :as icons]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
@@ -26,8 +25,6 @@
   (dom/fieldset (dom/legend (dom/text "Debug"))
     (dom/pre (dom/props {:class "hyperfiddle-debug"})
       (dom/text (pprint-str x)))))
-
-(e/defn EasyTableNoScroll [xs & {:as props}] (Explorer3 xs props)) ; compat
 
 (e/defn EasyForm [x cols renders]
   (e/for [k (e/diff-by identity cols)]
