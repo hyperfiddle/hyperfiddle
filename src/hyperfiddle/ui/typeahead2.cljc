@@ -124,9 +124,7 @@
   [name selected
    & {:keys [Options
              option-label ; not an e/fn on purpose¹
-             edit-monoid
              open?]
-      :or {edit-monoid hash-map}
       :as props}]
   ;; ¹ option-label is used to render options, but also to render the selected
   ;;   option into the input. Inputs only accept strings, so option-label must
@@ -138,7 +136,7 @@
       (let [{::keys [value open]} state
             input-node (ComboboxInput
                          (e/fn [] (dom/props {:placeholder "Filter..."})
-                           (dom/props (dissoc props :Options :label :edit-monoid :open?))
+                           (dom/props (dissoc props :Options :label :open?))
                            dom/node)
                          :open? open?)]
         input-node ; force let binding, forces input to show up
@@ -168,6 +166,6 @@
                      :hyperfiddle.electric-forms4/value value}
                     #_[(fn ([] (t) (reset-typeahead! !state input-node)) ; success: Typeahead's authoritative value is expected to loop back from server
                        ([err] (t err) (reset-typeahead! !state input-node))) ; failure: leave current state untouched, user will edit
-                     (edit-monoid name value)])
+                       {name value}])
                 (e/amb)))))))))
 
