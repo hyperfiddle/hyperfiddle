@@ -152,17 +152,15 @@
                       (e/fn [label selected?]
                         (dom/span
                           (dom/text label))))))))))
-        (let [e (e/Filter some? (dom/On "click" (fn [^js e] (when (.-hyperfiddle_ui_typeahead3_submit e) e)) nil))]
-          (if (= value selected)
-            (e/amb)
-            (let [[t err] (e/Token e)
-                  waiting? (some? t)
-                  error? (some? err)]
-              (when error? (dom/props input-node {:aria-invalid true}))
-              (if waiting?
-                (do (dom/props input-node {:aria-busy true})
-                    [(fn ([] (t) (reset-typeahead! !state input-node)) ; success: Typeahead's authoritative value is expected to loop back from server
-                       ([err] (t err) (reset-typeahead! !state input-node))) ; todo use forms/after-ack
-                     {name value}])
-                (e/amb)))))))))
+        (let [e (e/Filter some? (dom/On "click" (fn [^js e] (when (.-hyperfiddle_ui_typeahead3_submit e) e)) nil))
+              [t err] (e/Token e)
+              waiting? (some? t)
+              error? (some? err)]
+          (when error? (dom/props input-node {:aria-invalid true}))
+          (if waiting?
+            (do (dom/props input-node {:aria-busy true})
+                [(fn ([] (t) (reset-typeahead! !state input-node)) ; success: Typeahead's authoritative value is expected to loop back from server
+                   ([err] (t err) (reset-typeahead! !state input-node))) ; todo use forms/after-ack
+                 {name value}])
+            (e/amb)))))))
 
