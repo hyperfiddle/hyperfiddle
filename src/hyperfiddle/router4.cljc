@@ -545,8 +545,18 @@
    (case (e/Task (m/sleep delay-ms))
      (Navigate! path))))
 
+#_
+(e/defn Navigate2! ; proposed impl
+  ([value] (Navigate2! ['.] value))
+  ([path value] (Navigate! (conj path value)))
+  ([path value delay-ms] (Navigate! (conj path value) delay-ms)))
+
 (e/defn ReplaceState! [path] ;; TODO find a better name
   (e/client (h/replace-state! h/history (encode ($ Route-for path)))))
+
+(e/defn ReplaceState2!
+  ([value] (ReplaceState2! ['.] value))
+  ([path value] (ReplaceState! (conj path value))))
 
 #?(:node nil
    :default
