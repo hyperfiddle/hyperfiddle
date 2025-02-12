@@ -28,7 +28,7 @@
 
 (e/defn TooltipArea [Body]
   (binding [element (e/client (->> (dom/On "mousemove" #(some-> % .-target (.closest "[data-tooltip]")) nil)
-                                   (dom/On "mouseout" (constantly nil))))]
+                                   (dom/On "mouseleave" (constantly nil))))]
     (Body)))
 
 (e/defn AdvancedTooltip [Body]
