@@ -6,7 +6,6 @@
             [contrib.str :refer [pprint-str]]
             [dustingetz.identify :refer [identify]]
             [dustingetz.easy-table :refer [Load-css]]
-            [dustingetz.treelister3 :as tl]
             [electric-fiddle.fiddle-index :refer [pages NotFoundPage]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric3-contrib :as ex]
