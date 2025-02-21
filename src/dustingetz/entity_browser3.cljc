@@ -1,0 +1,341 @@
+(ns dustingetz.entity-browser3
+  (:require [clojure.datafy :refer [datafy]]
+            [clojure.core.protocols :refer [nav]]
+            clojure.set
+            [contrib.data :refer [index-by unqualify index-of map-entry]]
+            [contrib.str :refer [pprint-str]]
+            [dustingetz.identify :refer [identify]]
+            [dustingetz.easy-table :refer [Load-css]]
+            [dustingetz.treelister3 :as tl]
+            [electric-fiddle.fiddle-index :refer [pages NotFoundPage]]
+            [hyperfiddle.electric3 :as e]
+            [hyperfiddle.electric3-contrib :as ex]
+            [hyperfiddle.electric-dom3 :as dom]
+            [hyperfiddle.electric-forms4 :refer [Intercept Interpreter Checkbox TablePicker!]]
+            [hyperfiddle.router4 :as router]
+            [hyperfiddle.rcf :refer [tests]]
+            #?(:clj [markdown.core :as md])
+            #?(:clj [peternagy.pull-walker :refer [walker]])
+            [contrib.debug :as dbg]
+            #?(:clj [dustingetz.hfql11 :refer [hf-pull hf-pull2 hf-pull3 hf-nav2 hfql-search-sort]])))
+
+(e/declare ; ^:dynamic
+ *hfql-bindings)
+
+(defn pretty-name [x]
+  (cond
+    (seq? x) (let [[qs & args] x] (list* (unqualify qs) args))
+    () (str x)))
+
+(defn pretty-value [x]
+  (cond
+    (coll? x) (->> (mapv #(or (identify %) %) x) (into (empty x)) pr-str)
+    () (pr-str (or (identify x) x))))
+
+(e/declare Render)
+
+(e/defn TreeRow [[path value branch? :as row]]
+  (e/server
+    (let [k (peek path)]
+      (dom/td (dom/props {:style {:padding-left (some-> path count dec (* 15) (str "px"))}})
+        (dom/span (dom/text (e/server (pretty-name k)))))
+      (when-not branch? (Render {k value} k value row)))))
+
+(e/defn Search [] (dom/input (dom/On "input" #(-> % .-target .-value) (.-value dom/node))))
+
+
+(defn tree-x->page-link [x ctx]
+  (when-some [select (-> x meta :hf/select)]
+    `[:page ~@(replace ctx select)]))
+
+(e/defn TreeBlock
+  [field-name kv p-next cols
+   & {:keys [TreeRow]
+      :or {TreeRow TreeRow}}]
+  (e/client
+    (dom/fieldset (dom/props {:class "entity"})
+      (let [cols (e/server (or cols ['*]))
+            search (dom/legend (dom/text (e/server (pr-str (key kv)) #_"use sitemap page name") " ") (Search))
+            x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x))
+            xs! (e/server #_(ex/Offload-latch (fn []))
+                  (when x (-> (hf-pull3 *hfql-bindings cols x)
+                            (walker cols (fn [& kv] (contrib.str/any-matches? kv search)))
+                            vec)))
+            row-count (e/server (count xs!)), row-height 24
+            selected-x (e/server (first (filter (fn [x]
+                                                  (or (tree-x->page-link x {'% (second x)}) ; FIXME wrong '% - should be e not v
+                                                    (= p-next (first x)))) xs!)))] ; slow, but the documents are small
+        (dom/props {:style {:--col-count 2 :--row-height row-height}})
+        (Intercept (e/fn [index] (TablePicker! field-name index row-count
+                                   (e/fn [index] (e/server (some-> (nth xs! index nil) TreeRow)))
+                                   :row-height row-height))
+          selected-x
+          (e/fn Unparse [x] (e/server (index-of xs! x)))
+          (e/fn Parse [index] (e/server
+                                (when-some [x (nth xs! index nil)]
+                                  (or (tree-x->page-link x {'% (second x)}) ; FIXME wrong '% - should be e not v
+                                    (first x))))))))))
+
+(e/declare whitelist)
+(e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
+
+(e/declare Render)
+
+#?(:clj
+   (defn str-inline-coll [coll]
+     (let [coll-count (count coll)
+           base (binding [*print-length* 1
+                          *print-level* 2]
+                  (-> (pprint-str coll)
+                    (clojure.string/replace (str \newline) (str \space))
+                    (clojure.string/trim)))]
+       (if (pos? (dec coll-count))
+         (str base (clojure.pprint/cl-format false " ~d element~:p" coll-count))
+         base))))
+
+(e/defn RenderInlineColl [?e a v pull-expr]
+  (let [{:keys [hf/link]} (meta pull-expr)
+        v-str (e/server (str-inline-coll v))] ; summarize
+    (if-some [[qsym & args] link]
+      (router/link ['. `[[~qsym ~@args]]] (dom/text v-str))
+      (dom/text v-str))))
+
+(defn safe-vary-meta [obj f & args]
+  (if #?(:clj (instance? clojure.lang.IObj obj) :cljs (satisfies? IMeta obj))
+    (vary-meta obj f args)
+    obj))
+
+(e/defn RenderCell [?e a v pull-expr]
+  (let [{:keys [hf/link hf/Render hf/Tooltip]} (meta pull-expr)]
+    (dom/td ; custom renderer runs in context of table cell
+      (let [Continuation (e/fn [?e a v pull-expr]
+                           (when ?e ; expensive n×m
+                             (e/for [Tooltip (e/diff-by identity (e/as-vec (Resolve Tooltip nil)))] ; glitch reboot
+                               (when (and Tooltip (dom/Mouse-over?)) (dom/props {:data-tooltip (Tooltip ?e a v pull-expr)})))
+                             (let []
+                               (if (coll? v)
+                                 (RenderInlineColl ?e a v pull-expr)
+                                 (let [v-sym (or (identify v) v) ; strip server refs, route must serialize ; if user put a link on some non-identifiable thing it will generate a bad route.
+                                       v-str (#_str pr-str v)] ; render identified not ref, is that right?
+                                   (if-some [[qsym & args] link]
+                                     (router/link ['.. `[[~qsym ~@(replace (assoc ?e a v-sym) args)]]] (dom/text v-str))
+                                     (dom/text v-str)))))))]
+        (binding [dustingetz.entity-browser3/Render Continuation]
+          (e/$ (Resolve Render Continuation) ?e a v (safe-vary-meta pull-expr dissoc :hf/Render)))))))
+
+(e/defn Render [?e a v pull-expr] (RenderCell ?e a v pull-expr))
+
+(e/defn CollectionRow [hfql-cols! picked-cols ?x]
+  (e/server
+    (let [index (index-by (fn [x & _] x) hfql-cols!)
+          cols! (e/as-vec picked-cols)
+          ?e #_(ex/Offload-latch (fn [])) (when ?x (hf-pull3 *hfql-bindings cols! ?x))]
+      (e/for [a picked-cols] ; n × m
+        (Render ?e a (get ?e a) (get index a))))))
+
+(defn- id->idx [id xs!] ; TODO unify with id->index
+  (first (eduction (map-indexed vector)
+           (keep (fn [[i v]] (when (= id (or (identify v) v)) i)))
+           (take 1)
+           xs!)))
+
+
+; #_(let [x (nav xs! i v)])
+
+(defn pull-top-level-attrs [pull-spec]
+  (mapcat (fn [attr] (if (map? attr) (keys attr) (list attr))) pull-spec))
+
+(defn has-top-level-splat? [pull-spec] (boolean (some #{'*} (pull-top-level-attrs pull-spec))))
+
+(comment
+  (has-top-level-splat? '[]) := false
+  (has-top-level-splat? '[:a]) := false
+  (has-top-level-splat? '[*]) := true
+  (has-top-level-splat? '[:a *]) := true
+  (has-top-level-splat? '[:a {* [:db/id]}])
+  )
+
+(defn column-inference-type [pull-spec]
+  (if (has-top-level-splat? pull-spec)
+    (if (= 1 (count pull-spec))
+      ::all-inferred
+      ::spec-selected-inferred)
+    ::spec-selected))
+
+(defn available-columns [pull-spec inferred-cols]
+  (->> (case (column-inference-type pull-spec)
+         ::all-inferred inferred-cols
+         ::spec-selected-inferred (concat (pull-top-level-attrs pull-spec) inferred-cols)
+         ::spec-selected (pull-top-level-attrs pull-spec))
+    (remove #{'*})
+    (distinct)))
+
+(defn selected-columns [pull-spec inferred-cols]
+  (->> (case (column-inference-type pull-spec)
+         ::all-inferred inferred-cols
+         ::spec-selected-inferred (pull-top-level-attrs pull-spec)
+         ::spec-selected (pull-top-level-attrs pull-spec))
+    (remove #{'*})
+    (into #{})))
+
+(e/defn ColumnPicker [pull-spec col-opts!]
+  (e/server
+    (let [cols-available! (distinct (available-columns pull-spec col-opts!)) #_(->> (concat pull-spec col-opts!) (remove #{'*}) (distinct))
+          selected? (selected-columns pull-spec col-opts!)]
+      (e/for [col (e/diff-by identity cols-available!)]
+        (if (e/client (Checkbox (e/server (selected? col))
+                        :label (cond
+                                 (keyword? col) (unqualify col)
+                                 (seq? col) (let [[qs & args] col] (list* (unqualify qs) args))
+                                 () (str col))))
+          col (e/amb))))))
+
+(defn infer-cols [x]
+  (let [x (datafy x)] ; *
+    (cond
+      (map? x) (keys x) ; keys crash on datoms type w/ no datafy
+      () nil)))
+
+(e/defn TableBlock2 ; Like TableBlock but takes xs! instead of (fn [search] xs!)
+  [field-name kv selected hfql-cols
+   & {:keys [Row]
+      :or {Row CollectionRow}}]
+  (e/client
+    (dom/fieldset
+      (dom/props {:class "entity-children"})
+      (let [select (e/server (-> hfql-cols meta :hf/select))
+            hfql-cols! (e/server (or hfql-cols ['*]))
+            !search (atom ""), search (e/watch !search)
+            path (e/server (key kv)),
+            ;; TODO filter should happen at query time, not here, tbd
+            xs!-with-meta (e/server (val kv))
+            xs! (e/server (hfql-search-sort *hfql-bindings hfql-cols! search xs!-with-meta))
+            row-count (e/server (count xs!)), row-height 24
+            cols (dom/legend (dom/text (e/server (pr-str path)) " ")
+                   (reset! !search (Search))
+                   (dom/text " (" row-count " items) ")
+                   (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn [])) (-> xs! first infer-cols))))]
+        (dom/props {:style {:--col-count (e/server (e/Count cols)) :--row-height row-height}})
+        (Intercept
+          (e/fn [index] (TablePicker! field-name index row-count
+                       (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                 (nav xs!-with-meta index)
+                                                 (Row hfql-cols! cols))))
+                       :row-height row-height))
+          selected
+          ;; path->index
+          (e/fn Unparse [p-next] (let [id (first p-next)]
+                                   (e/server (id->idx id xs!))))
+          ;; index->path
+          (e/fn Parse [index] (e/server (let [x (nth xs! index nil)
+                                              symbolic-x (identify x)] ; local-path
+                                          (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
+                                            (cond
+                                              select `[:page ~@(replace {'% symbolic-x} select)]
+                                              ()      [symbolic-x]))))))))))
+
+(e/defn MarkdownBlock [field-name kv _selected & _]
+  (dom/fieldset
+    (dom/legend (dom/text (e/server (pr-str (key kv)))))
+    (dom/div
+      (set! (.-innerHTML dom/node) (e/server (md/md-to-html-string (val kv)))))))
+
+(defn infer-block-type [x]
+  (cond
+    (or (set? x) ; align with explorer-seq which indexes sets
+      (sequential? x)) :table ; datafy does not alter cardinality, do not need to call it
+    (string? x) :string
+    (map? (datafy x)) :tree ; fixme gross, how to detect scalars? Can we not emit selection on scalars instead?
+    () :scalar))
+
+(e/declare *hfql-spec)
+
+(e/defn Block [kv locus]
+  (e/client
+    (let [x (e/server #_datafy (val kv))]
+      (when-some [F (e/server (case (infer-block-type x) :tree TreeBlock :table TableBlock2 :string MarkdownBlock :scalar nil nil))]
+        (Interpreter {::select (e/fn [path] (router/Navigate! ['. (if path [path] [])])
+                                 [:hyperfiddle.electric-forms4/ok])}
+          (F ::select kv locus *hfql-spec))))))
+
+(defn- id->index [id xs!] ; TODO unify with id->idx
+  (first (eduction (map-indexed vector)
+           (keep (fn [[i v]] (when (= id (identify v)) i)))
+           (take 1)
+           xs!)))
+
+(e/declare *sitemap)
+
+(e/defn BrowsePath [kv]
+  (e/client
+    (let [state (first router/route)]
+      (Block kv state)
+      (when (some? state)
+        (router/pop
+          (e/for [state (e/diff-by identity (e/as-vec state))] ; don't reuse DOM/IO frames across different objects
+            (if (= :page (first state))
+              (let [k (vec (next state))
+                    [F$ & args] k]
+                (binding [*hfql-spec (e/server (get *sitemap F$))]
+                  (BrowsePath
+                    (e/server
+                      (map-entry k
+                        (e/Apply (get pages F$) args))))))
+              (let [kv (e/server #_(ex/Offload-reset (fn []))
+                                 (case (infer-block-type (val kv))
+                                   :table (let [value (vec (val kv))
+                                                index (or (id->index (first state) (datafy value)) (first state))]
+                                            (map-entry state (hf-nav2 value index)))
+                                   (let [x (reduce hf-nav2 (val kv) state)
+                                         title state #_(if *dev-mode* (pr-str (let [x (val kv)] (or (identify x) x))))
+                                         ]
+                                     (map-entry title x))))]
+                ;; stacked views should get '*. First `Block` renders above
+                (binding [*hfql-spec (e/server ['*])]
+                  (BrowsePath kv))))))))))
+
+(e/defn BrowsePathWrapper [v]
+  (let [k (first router/route)]
+    (router/pop (BrowsePath (e/server (map-entry k v))))))
+
+(declare css) ; careful, used twice
+
+(e/defn HfqlRoot
+  [sitemap
+   & {:keys [default]
+      :or {default nil}}]
+  (e/client
+    #_(dom/pre (dom/text (pr-str r/route)))
+    (Load-css "dustingetz/easy_table.css") (dom/style (dom/text css))
+    (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
+      (e/for [route (e/diff-by first (e/as-vec router/route))] ; reboot top-level page
+        (binding [router/route route]
+          (let [[fiddle & _] (first router/route)]
+            (if-not fiddle
+              (router/ReplaceState! ['. default])
+              (let [Fiddle (get pages fiddle NotFoundPage)]
+                (set! (.-title js/document) (str (some-> fiddle name (str " – ")) "Hyperfiddle"))
+                (binding [*sitemap (e/server (identity sitemap))
+                          *hfql-spec (e/server (get sitemap fiddle []))] ; cols don't serialize perfectly yet fixme
+                  (BrowsePathWrapper (e/server (e/Apply Fiddle (nfirst router/route)))))))))))))
+
+(declare css)
+(e/defn EntityBrowser2 [kv]
+  (e/client (dom/style (dom/text css)) (Load-css "dustingetz/easy_table.css")
+    (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
+      (BrowsePath kv))))
+
+(def css "
+.Browser fieldset { position: relative; }
+.Browser fieldset > .Viewport { height: calc(var(--row-height) * 15 * 1px); }
+:where(.Browser fieldset.entity)          table { grid-template-columns: 15em auto; }
+.Browser fieldset.entity-children table { grid-template-columns: repeat(var(--col-count), 1fr); }
+
+/* table cell tooltips */
+.Browser td {position: relative;}
+.Browser .dustingetz-tooltip >       span { visibility: hidden; }
+.Browser .dustingetz-tooltip:hover > span { visibility: visible; pointer-events: none; }
+.Browser .dustingetz-tooltip > span {
+  position: absolute; top: 20px; left: 10px; z-index: 2; /* interaction with row selection z=1 */
+  margin-top: 4px; padding: 4px; font-size: smaller;
+  box-shadow: 0 0 .5rem gray; border: 1px whitesmoke solid; border-radius: 3px; background-color: white; }")
