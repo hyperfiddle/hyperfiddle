@@ -44,8 +44,8 @@
 (e/defn Search [] (dom/input (dom/On "input" #(-> % .-target .-value) (.-value dom/node))))
 
 
-(defn tree-x->page-link [x ctx]
-  (when-some [select (-> x meta :hf/select)]
+(defn tree-x->page-link [select ctx]
+  (when select
     `[:page ~@(replace ctx select)]))
 
 (e/defn TreeBlock
@@ -56,15 +56,16 @@
     (dom/fieldset (dom/props {:class "entity"})
       (let [hfql-cols! (e/server (or hfql-cols! ['*]))
             search (dom/legend (dom/text (e/server (pr-str (key kv)) #_"use sitemap page name") " ") (Search))
-            x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x))
+            x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
             xs! (e/server #_(ex/Offload-latch (fn []))
                   (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
                             (walker hfql-cols! (fn [& kv] (contrib.str/any-matches? kv search)))
                             vec)))
             row-count (e/server (count xs!)), row-height 24
             selected-x (e/server (first (filter (fn [x]
-                                                  (or (tree-x->page-link x {'% (second x)}) ; FIXME wrong '% - should be e not v
-                                                    (= p-next (first x)))) xs!)))] ; slow, but the documents are small
+                                                  (let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
+                                                    (or (tree-x->page-link select {'% (second x)}) ; FIXME wrong '% - should be e not v
+                                                      (= p-next (first x))))) xs!)))] ; slow, but the documents are small
         (dom/props {:style {:--col-count 2 :--row-height row-height}})
         (Intercept (e/fn [index] (TablePicker! field-name index row-count
                                    (e/fn [index] (e/server (some->> (nth xs! index nil)
@@ -74,8 +75,9 @@
           (e/fn Unparse [x] (e/server (index-of xs! x)))
           (e/fn Parse [index] (e/server
                                 (when-some [x (nth xs! index nil)]
-                                  (or (tree-x->page-link x {'% (second x)}) ; FIXME wrong '% - should be e not v
-                                    (first x))))))))))
+                                  (let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
+                                    (or (tree-x->page-link select {'% (second x)}) ; FIXME wrong '% - should be e not v
+                                      (first x)))))))))))
 
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
