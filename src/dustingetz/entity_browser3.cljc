@@ -49,17 +49,17 @@
     `[:page ~@(replace ctx select)]))
 
 (e/defn TreeBlock
-  [field-name kv p-next cols
+  [field-name kv p-next hfql-cols!
    & {:keys [TreeRow]
       :or {TreeRow TreeRow}}]
   (e/client
     (dom/fieldset (dom/props {:class "entity"})
-      (let [cols (e/server (or cols ['*]))
+      (let [hfql-cols! (e/server (or hfql-cols! ['*]))
             search (dom/legend (dom/text (e/server (pr-str (key kv)) #_"use sitemap page name") " ") (Search))
             x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x))
             xs! (e/server #_(ex/Offload-latch (fn []))
-                  (when x (-> (hf-pull3 *hfql-bindings cols x)
-                            (walker cols (fn [& kv] (contrib.str/any-matches? kv search)))
+                  (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
+                            (walker hfql-cols! (fn [& kv] (contrib.str/any-matches? kv search)))
                             vec)))
             row-count (e/server (count xs!)), row-height 24
             selected-x (e/server (first (filter (fn [x]
@@ -105,8 +105,8 @@
     (vary-meta obj f args)
     obj))
 
-(e/defn RenderCell [?e a v pull-expr]
-  (let [{:keys [hf/link hf/Render hf/Tooltip]} (meta pull-expr)]
+(e/defn RenderCell [?e a v hfql-col] ; both Collection and Tree
+  (let [{:keys [hf/link hf/Render hf/Tooltip]} (meta hfql-col)]
     (dom/td ; custom renderer runs in context of table cell
       (let [Continuation (e/fn [?e a v pull-expr]
                            (when ?e ; expensive n×m
@@ -121,17 +121,17 @@
                                      (router/link ['.. `[[~qsym ~@(replace (assoc ?e a v-sym) args)]]] (dom/text v-str))
                                      (dom/text v-str)))))))]
         (binding [dustingetz.entity-browser3/Render Continuation]
-          (e/$ (Resolve Render Continuation) ?e a v (safe-vary-meta pull-expr dissoc :hf/Render)))))))
+          (e/$ (Resolve Render Continuation) ?e a v (safe-vary-meta hfql-col dissoc :hf/Render)))))))
 
-(e/defn Render [?e a v pull-expr] (RenderCell ?e a v pull-expr))
+(e/defn Render [?e a v hfql-col] (RenderCell ?e a v hfql-col))
 
 (e/defn CollectionRow [hfql-cols! picked-cols ?x]
   (e/server
-    (let [index (index-by (fn [x & _] x) hfql-cols!)
+    (let [hfql-col-index (index-by (fn [x & _] x) hfql-cols!)
           cols! (e/as-vec picked-cols)
           ?e #_(ex/Offload-latch (fn [])) (when ?x (hf-pull3 *hfql-bindings cols! ?x))]
       (e/for [a picked-cols] ; n × m
-        (Render ?e a (get ?e a) (get index a))))))
+        (Render ?e a (get ?e a) (get hfql-col-index a))))))
 
 (defn- id->idx [id xs!] ; TODO unify with id->index
   (first (eduction (map-indexed vector)
@@ -197,14 +197,14 @@
       () nil)))
 
 (e/defn TableBlock2 ; Like TableBlock but takes xs! instead of (fn [search] xs!)
-  [field-name kv selected hfql-cols
+  [field-name kv selected hfql-cols!
    & {:keys [Row]
       :or {Row CollectionRow}}]
   (e/client
     (dom/fieldset
       (dom/props {:class "entity-children"})
-      (let [select (e/server (-> hfql-cols meta :hf/select))
-            hfql-cols! (e/server (or hfql-cols ['*]))
+      (let [select (e/server (-> hfql-cols! meta :hf/select))
+            hfql-cols! (e/server (or hfql-cols! ['*]))
             !search (atom ""), search (e/watch !search)
             path (e/server (key kv)),
             ;; TODO filter should happen at query time, not here, tbd
