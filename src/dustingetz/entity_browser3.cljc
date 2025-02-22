@@ -5,7 +5,7 @@
             [contrib.data :refer [index-by unqualify index-of map-entry]]
             [contrib.str :refer [pprint-str]]
             [dustingetz.identify :refer [identify]]
-            [dustingetz.easy-table :refer [Load-css]]
+            [dustingetz.easy-table :refer [Load-css]] ; todo
             [electric-fiddle.fiddle-index :refer [pages NotFoundPage]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric3-contrib :as ex]
@@ -16,7 +16,8 @@
             #?(:clj [markdown.core :as md])
             #?(:clj [peternagy.pull-walker :refer [walker]])
             [contrib.debug :as dbg]
-            #?(:clj [dustingetz.hfql11 :refer [hf-pull hf-pull2 hf-pull3 hf-nav2 hfql-search-sort]])))
+            #?(:clj [dustingetz.hfql11 :refer [hf-pull hf-pull2 hf-pull3 hf-nav2 hfql-search-sort]])
+            [hyperfiddle.ui.tooltip :as tooltip :refer [TooltipArea Tooltip]]))
 
 (e/declare ; ^:dynamic
  *hfql-bindings)
@@ -305,18 +306,20 @@
       :or {default nil}}]
   (e/client
     #_(dom/pre (dom/text (pr-str r/route)))
-    (Load-css "dustingetz/easy_table.css") (dom/style (dom/text css))
-    (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
-      (e/for [route (e/diff-by first (e/as-vec router/route))] ; reboot top-level page
-        (binding [router/route route]
-          (let [[fiddle & _] (first router/route)]
-            (if-not fiddle
-              (router/ReplaceState! ['. default])
-              (let [Fiddle (get pages fiddle NotFoundPage)]
-                (set! (.-title js/document) (str (some-> fiddle name (str " – ")) "Hyperfiddle"))
-                (binding [*sitemap (e/server (identity sitemap))
-                          *hfql-spec (e/server (get sitemap fiddle []))] ; cols don't serialize perfectly yet fixme
-                  (BrowsePathWrapper (e/server (e/Apply Fiddle (nfirst router/route)))))))))))))
+    (Load-css "dustingetz/easy_table.css") (dom/style (dom/text css tooltip/css))
+    (TooltipArea
+      (e/fn [] (Tooltip)
+        (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
+          (e/for [route (e/diff-by first (e/as-vec router/route))] ; reboot top-level page
+            (binding [router/route route]
+              (let [[fiddle & _] (first router/route)]
+                (if-not fiddle
+                  (router/ReplaceState! ['. default])
+                  (let [Fiddle (get pages fiddle NotFoundPage)]
+                    (set! (.-title js/document) (str (some-> fiddle name (str " – ")) "Hyperfiddle"))
+                    (binding [*sitemap (e/server (identity sitemap))
+                              *hfql-spec (e/server (get sitemap fiddle []))] ; cols don't serialize perfectly yet fixme
+                      (BrowsePathWrapper (e/server (e/Apply Fiddle (nfirst router/route)))))))))))))))
 
 (declare css)
 (e/defn EntityBrowser2 [kv]
