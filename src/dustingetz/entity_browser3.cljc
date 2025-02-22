@@ -74,10 +74,11 @@
           selected-x
           (e/fn Unparse [x] (e/server (index-of xs! x)))
           (e/fn Parse [index] (e/server
-                                (when-some [x (nth xs! index nil)]
+                                (when-some [[path v branch?] (nth xs! index nil)]
+                                  ; todo test for navigable with (identify (reduce hf-nav2 x path))
                                   (let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
-                                    (or (tree-x->page-link select {'% (second x)}) ; FIXME wrong '% - should be e not v
-                                      (first x)))))))))))
+                                    (or (tree-x->page-link select {'% v}) ; FIXME wrong '% - should be e not v
+                                      path))))))))))
 
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
