@@ -45,8 +45,7 @@
 
 
 (defn tree-x->page-link [select ctx]
-  (when select
-    `[:page ~@(replace ctx select)]))
+  `[:page ~@(replace ctx select)])
 
 (e/defn TreeBlock
   [field-name kv p-next hfql-cols!
@@ -63,9 +62,9 @@
                             vec)))
             row-count (e/server (count xs!)), row-height 24
             selected-x (e/server (first (filter (fn [x]
-                                                  (let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
-                                                    (or (tree-x->page-link select {'% (second x)}) ; FIXME wrong '% - should be e not v
-                                                      (= p-next (first x))))) xs!)))] ; slow, but the documents are small
+                                                  (if-let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
+                                                    (tree-x->page-link select {'% (second x)}) ; FIXME wrong '% - should be e not v
+                                                    (= p-next (first x)))) xs!)))] ; slow, but the documents are small
         (dom/props {:style {:--col-count 2 :--row-height row-height}})
         (Intercept (e/fn [index] (TablePicker! field-name index row-count
                                    (e/fn [index] (e/server (some->> (nth xs! index nil)
@@ -75,9 +74,9 @@
           (e/fn Unparse [x] (e/server (index-of xs! x)))
           (e/fn Parse [index] (e/server
                                 (when-some [[path v branch?] (nth xs! index nil)]
-                                  ; todo test for navigable with (identify (reduce hf-nav2 x path))
-                                  (let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
-                                    (or (tree-x->page-link select {'% v}) ; FIXME wrong '% - should be e not v
+                                  (if (identify (reduce hf-nav2 x path)) ; ignore illegal navs
+                                    (if-let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
+                                      (tree-x->page-link select {'% v}) ; FIXME wrong '% - should be e not v
                                       path))))))))))
 
 (e/declare whitelist)
