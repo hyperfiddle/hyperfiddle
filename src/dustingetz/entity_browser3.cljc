@@ -34,12 +34,12 @@
 
 (e/declare Render)
 
-(e/defn TreeRow [[path value branch? :as row]]
+(e/defn TreeRow [hfql-cols! [path value branch? :as row]]
   (e/server
     (let [k (peek path)]
       (dom/td (dom/props {:style {:padding-left (some-> path count dec (* 15) (str "px"))}})
-        (dom/span (dom/text (e/server (pretty-name k)))))
-      (when-not branch? (Render {k value} k value row)))))
+        (dom/span (dom/text (e/server (pretty-name k))))) ; todo attr schema tooltip if available
+      (when-not branch? (Render {k value} k value hfql-cols!))))) ; includes semantic tooltip if available
 
 (e/defn Search [] (dom/input (dom/On "input" #(-> % .-target .-value) (.-value dom/node))))
 
@@ -67,7 +67,8 @@
                                                     (= p-next (first x)))) xs!)))] ; slow, but the documents are small
         (dom/props {:style {:--col-count 2 :--row-height row-height}})
         (Intercept (e/fn [index] (TablePicker! field-name index row-count
-                                   (e/fn [index] (e/server (some-> (nth xs! index nil) TreeRow)))
+                                   (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                             (TreeRow hfql-cols!)))) ; no ColumnPicker
                                    :row-height row-height))
           selected-x
           (e/fn Unparse [x] (e/server (index-of xs! x)))
