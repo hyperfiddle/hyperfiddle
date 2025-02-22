@@ -140,9 +140,6 @@
            (take 1)
            xs!)))
 
-
-; #_(let [x (nav xs! i v)])
-
 (defn pull-top-level-attrs [pull-spec]
   (mapcat (fn [attr] (if (map? attr) (keys attr) (list attr))) pull-spec))
 
