@@ -124,3 +124,18 @@
 ;(defn lookup-ref [schema e-map]
 ;  (if-let [a (find-identity-attr schema e-map)]
 ;    [a (a e-map)]))
+
+; from hyperfiddle.datomic
+;(def tempid? string?)
+;
+;(defn entity [db e]
+;  (if (tempid? e)
+;    {:db/id e}
+;    (d/entity db e)))
+;
+;(defn pull [db pullexpr e]
+;  (if (tempid? e)
+;    (if (some #{:db/id} pullexpr)
+;      {:db/id e}
+;      {})
+;    (d/pull db pullexpr e)))
