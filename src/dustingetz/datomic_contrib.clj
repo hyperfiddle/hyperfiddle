@@ -1,4 +1,5 @@
 (ns dustingetz.datomic-contrib
+  "superseded. missionary based API over datomic facade, mostly unused."
   (:require [contrib.data :refer [index-by unqualify]]
             [dustingetz.datomic-m :as d] ; superseded and unused, todo delete all callers
             datomic.api
