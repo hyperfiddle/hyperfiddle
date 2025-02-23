@@ -4,7 +4,7 @@
             clojure.set
             [contrib.data :refer [index-by unqualify index-of map-entry]]
             [contrib.str]
-            [dustingetz.identify :refer [identify]]
+            [hyperfiddle.nav0 :refer [identify]]
             [dustingetz.easy-table :refer [Load-css]]
             [dustingetz.treelister3 :as tl]
             [hyperfiddle.electric3 :as e]

@@ -2,9 +2,8 @@
   (:require [contrib.data :refer [index-by unqualify]]
             [dustingetz.datomic-m :as d] ; care
             datomic.api
-            [dustingetz.identify :refer [Identifiable]] ; unresolved from electric module, promote ns to root
-            [dustingetz.nav-context :refer [NavContext nav-context]]
             #_[hyperfiddle.electric :as e] ; ?
+            [hyperfiddle.nav0 :refer [Identifiable NavContext nav-context]]
             [hyperfiddle.rcf :refer [tests % tap]]
             [missionary.core :as m]
             [clojure.core.protocols :as ccp :refer [Datafiable]]))

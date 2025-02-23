@@ -2,10 +2,10 @@
   "no cardinality many; partially restored 20250208"
   (:require
     [clojure.datafy :refer [datafy nav]]
-    [dustingetz.nav-context :refer [nav-context]]
     [datomic.api :as d]
     dustingetz.datomic-contrib ; datafy entity
     [meander.epsilon :as m :refer [match]]
+    [hyperfiddle.nav0 :refer [nav-context]]
     [hyperfiddle.rcf :refer [tests]]
     [hyperfiddle.spec :as spec]
     [clojure.spec.alpha :as s]))
