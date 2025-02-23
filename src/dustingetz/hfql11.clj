@@ -283,6 +283,7 @@
 
 (declare hf-pull3)
 (defn hfql-search-sort [hfql-dynamics hfql-spec search xs-enriched]
+  ; xs must be a collection of objects/records, i.e. not [:a :b :c]
   (with-meta
     (->> xs-enriched
       (eduction ; search all pulled cols

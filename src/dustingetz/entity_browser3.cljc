@@ -74,10 +74,22 @@
           (e/fn Unparse [x] (e/server (index-of xs! x)))
           (e/fn Parse [index] (e/server
                                 (when-some [[path v branch?] (nth xs! index nil)]
-                                  (if (identify (reduce hf-nav2 x path)) ; ignore illegal navs
-                                    (if-let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
-                                      (tree-x->page-link select {'% v}) ; FIXME wrong '% - should be e not v
-                                      path))))))))))
+                                  (let [x (reduce hf-nav2 x path) ; hydrated
+                                        card-many? (or (sequential? x) (set? x))
+                                        component? (map? x) ; ?
+                                        select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
+                                        ?s (when-not card-many? (identify x))]
+                                    #_(prn 'TreeBlockSelect ?s card-many? component? select x)
+                                    (cond ; guard illegal navs
+                                      (and ?s select) (tree-x->page-link select {'% v}) ; FIXME wrong '% - should be e not v
+                                      ; dev mode can traverse unidentified values/objects by path descent
+                                      ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
+                                      ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
+                                      (and ?s (not select)) path ; dev mode?
+                                      (and component? select) path #_ (tree-x->page-link select {'% v}) ; hf/select identified objects only ?
+                                      (and component? (not select)) path ; dev mode ?
+                                      card-many? path ; always navigable, dev mode? uses path descent not identified uri
+                                      () nil))))))))))
 
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
@@ -129,6 +141,7 @@
 (e/defn Render [?e a v hfql-col] (RenderCell ?e a v hfql-col))
 
 (e/defn CollectionRow [hfql-cols! picked-cols ?x]
+  ; ?x cannot be a simple value e.g. keyword, objects/records only
   (e/server
     (let [hfql-col-index (index-by (fn [x & _] x) hfql-cols!)
           cols! (e/as-vec picked-cols)
@@ -227,8 +240,10 @@
           (e/fn Unparse [p-next] (let [id (first p-next)]
                                    (e/server (id->idx id xs!))))
           ;; index->path
-          (e/fn Parse [index] (e/server (let [x (nth xs! index nil)
-                                              symbolic-x (identify x)] ; local-path
+          (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
+                                              !x (nav xs!-with-meta index x) ; hydrate object
+                                              symbolic-x (identify !x)] ; local-path
+                                          #_(prn 'TableBlockSelect symbolic-x x !x)
                                           (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
                                             (cond
                                               select `[:page ~@(replace {'% symbolic-x} select)]
