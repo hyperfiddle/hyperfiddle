@@ -1,6 +1,6 @@
 (ns dustingetz.datomic-contrib
   (:require [contrib.data :refer [index-by unqualify]]
-            [dustingetz.datomic-m :as d] ; care
+            [dustingetz.datomic-m :as d] ; superseded and unused, todo delete all callers
             datomic.api
             #_[hyperfiddle.electric :as e] ; ?
             [hyperfiddle.nav0 :refer [Identifiable NavContext nav-context]]
