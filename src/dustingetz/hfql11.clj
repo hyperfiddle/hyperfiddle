@@ -3,7 +3,7 @@
   (:require
     [clojure.datafy :refer [datafy nav]]
     [datomic.api :as d]
-    dustingetz.datomic-contrib ; datafy entity
+    dustingetz.datomic-contrib2 ; datafy EntityMap
     [meander.epsilon :as m :refer [match]]
     [hyperfiddle.nav0 :refer [nav-context]]
     [hyperfiddle.rcf :refer [tests]]
