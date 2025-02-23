@@ -81,7 +81,7 @@
                                         ?s (when-not card-many? (identify x))]
                                     #_(prn 'TreeBlockSelect ?s card-many? component? select x)
                                     (cond ; guard illegal navs
-                                      (and ?s select) (tree-x->page-link select {'% v}) ; FIXME wrong '% - should be e not v
+                                      (and ?s select) (tree-x->page-link select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
                                       ; dev mode can traverse unidentified values/objects by path descent
                                       ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
                                       ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
