@@ -1,4 +1,4 @@
-(ns dustingetz.ui
+(ns dustingetz.ui ; used in staffly.staff-detail
   (:require [contrib.css :refer [css-slugify]]
             [contrib.str :refer [pprint-str]]
             [dustingetz.combobox :refer [ComboBox]]
