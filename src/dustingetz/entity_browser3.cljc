@@ -73,15 +73,15 @@
           selected-x
           (e/fn Unparse [x] (e/server (index-of xs! x)))
           (e/fn Parse [index] (e/server
-                                (when-some [[path v branch?] (nth xs! index nil)]
+                                (when-some [[path v branch? :as row] (nth xs! index nil)]
                                   (let [x (reduce hf-nav2 x path) ; hydrated
                                         card-many? (or (sequential? x) (set? x))
                                         component? (map? x) ; ?
-                                        select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
+                                        select (or (-> row meta :hf/select) (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
                                         ?s (when-not card-many? (identify x))]
                                     #_(prn 'TreeBlockSelect ?s card-many? component? select x)
                                     (cond ; guard illegal navs
-                                      (and ?s select) (tree-x->page-link select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
+                                      select (tree-x->page-link select {'% v}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
                                       ; dev mode can traverse unidentified values/objects by path descent
                                       ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
                                       ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
