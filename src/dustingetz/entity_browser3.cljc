@@ -47,6 +47,16 @@
 (defn build-selection [select ctx]
   `[:page ~@(replace ctx select)])
 
+(defn symbolic-title [sexpr]
+  ;; G: not sure if this produces the correct semantic representation
+  ;;   But less visual noise is good for demos – previous impl rendered `(foo %)`, this one renders `foo`.
+  ;;   Will revisit
+  (if (vector? sexpr)
+    (if (and (= 1 (count sexpr)) (ident? (first sexpr)))
+      (first sexpr)
+      (seq sexpr))
+    sexpr))
+
 (e/defn TreeBlock
   [field-name kv p-next hfql-cols!
    & {:keys [TreeRow]
@@ -54,7 +64,7 @@
   (e/client
     (dom/fieldset (dom/props {:class "entity"})
       (let [hfql-cols! (e/server (or hfql-cols! ['*]))
-            search (dom/legend (dom/text (e/server (pr-str (key kv)) #_"use sitemap page name") " ") (Search))
+            search (dom/legend (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " ") (Search))
             x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
             xs! (e/server #_(ex/Offload-latch (fn []))
                   (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
@@ -237,7 +247,7 @@
             xs!-with-meta (e/server (val kv))
             xs! (e/server (hfql-search-sort *hfql-bindings hfql-cols! search xs!-with-meta))
             row-count (e/server (count xs!)), row-height 24
-            cols (dom/legend (dom/text (e/server (pr-str path)) " ")
+            cols (dom/legend (dom/text (e/server (pr-str (symbolic-title path))) " ")
                    (reset! !search (Search))
                    (dom/text " (" row-count " items) ")
                    (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn [])) (-> xs! first infer-cols))))]
@@ -268,7 +278,7 @@
 
 (e/defn MarkdownBlock [field-name kv _selected & _]
   (dom/fieldset
-    (dom/legend (dom/text (e/server (pr-str (key kv)))))
+    (dom/legend (dom/text (e/server (pr-str (symbolic-title (key kv))))))
     (dom/div
       (set! (.-innerHTML dom/node) (e/server (md/md-to-html-string (val kv)))))))
 
