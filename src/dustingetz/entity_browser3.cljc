@@ -194,14 +194,21 @@
     (remove #{'*})
     (into #{})))
 
+(defn ->short-keyword-map [cols-available!]
+  (let [k* (filterv keyword? cols-available!)
+        freq (frequencies (mapv unqualify k*))]
+    (into {} (map #(let [unq (unqualify %)] [% (if (= 1 (freq unq)) unq %)]))
+      k*)))
+
 (e/defn ColumnPicker [pull-spec col-opts!]
   (e/server
     (let [cols-available! (distinct (available-columns pull-spec col-opts!)) #_(->> (concat pull-spec col-opts!) (remove #{'*}) (distinct))
-          selected? (selected-columns pull-spec col-opts!)]
+          selected? (selected-columns pull-spec col-opts!)
+          short-keyword-map (->short-keyword-map cols-available!)]
       (e/for [col (e/diff-by identity cols-available!)]
         (if (e/client (Checkbox (e/server (selected? col))
                         :label (cond
-                                 (keyword? col) (unqualify col)
+                                 (keyword? col) (short-keyword-map col)
                                  (seq? col) (let [[qs & args] col] (list* (unqualify qs) args))
                                  () (str col))))
           col (e/amb))))))
