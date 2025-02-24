@@ -3,7 +3,7 @@
             [clojure.core.protocols :refer [nav]]
             clojure.set
             [contrib.data :refer [index-by unqualify index-of map-entry]]
-            [contrib.str]
+            [dustingetz.str]
             [hyperfiddle.nav0 :refer [identify]]
             [dustingetz.easy-table :refer [Load-css]]
             [dustingetz.treelister3 :as tl]
@@ -91,7 +91,7 @@
             xs! (e/server #_(ex/Offload-latch (fn [])) (when x (->> ((hf-pull2 cols) {'% #_(datafy) x}) ; control descent
                                                                  (tl/treelist
                                                                    tl/data-children
-                                                                   #(contrib.str/includes-str? % search))
+                                                                   #(dustingetz.str/includes-str? % search))
                                                                  (drop 1))))
             row-count (e/server (count xs!)), row-height 24
             selected-x (e/server (first (filter (fn [[path _ _]] (= p-next path)) xs!)))] ; slow, but the documents are small

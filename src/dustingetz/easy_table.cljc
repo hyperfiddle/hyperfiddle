@@ -2,7 +2,7 @@
   (:require #?(:clj clojure.java.io)
             [contrib.clojurex :refer [#?(:clj slurp-safe)]]
             [contrib.data :refer [clamp-left]]
-            [contrib.str :refer [includes-str?]]
+            [dustingetz.str :refer [includes-str?]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric-forms3 :refer [Input*]]

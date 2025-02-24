@@ -298,7 +298,7 @@
       (eduction ; search all pulled cols
         (map (fn [e] [e (hf-pull3 hfql-dynamics hfql-spec
                           (clojure.datafy/nav xs-enriched nil e))]))
-        (filter #(contrib.str/includes-str? (vals (nth % 1)) search))) ; exclude keys, todo revisit - problem is "clojure.core" matches `(ns-name %)
+        (filter #(dustingetz.str/includes-str? (vals (nth % 1)) search))) ; exclude keys, todo revisit - problem is "clojure.core" matches `(ns-name %)
       sequence
       (sort-by (fn [[e pulled-map]] (get pulled-map (first hfql-spec))) #_(if (ident? (first hfql-spec)) (first hfql-spec) hash))
       (map first)) ; unpull so we can datafy entity in view to infer cols

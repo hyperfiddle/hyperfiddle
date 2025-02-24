@@ -1,7 +1,7 @@
 (ns dustingetz.treelister1 "
 treeseq recursion scheme which supports ergonomic search, i.e. retaining intermediate path nodes
 for any matching leaves"
-  (:require contrib.str
+  (:require dustingetz.str
             [hyperfiddle.rcf :refer [tests]]))
 
 (defn- -tree-list [depth xs children-fn keep?]
@@ -18,8 +18,8 @@ for any matching leaves"
                     q)))))
     xs))
 
-(def any-matches? contrib.str/any-matches?) ; re-export for user convenience
-(def includes-str? contrib.str/includes-str?)
+(def any-matches? dustingetz.str/any-matches?) ; re-export for user convenience
+(def includes-str? dustingetz.str/includes-str?)
 
 (defn treelister
   ([xs] (treelister (fn [_]) (constantly true) xs)) ; wtf

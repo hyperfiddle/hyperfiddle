@@ -1,6 +1,6 @@
 (ns electric-fiddle.fiddle-index
   (:require [contrib.data :refer [clamp-left subgroup-by]]
-            [contrib.str :refer [includes-str?]]
+            [dustingetz.str :refer [includes-str?]]
             [dustingetz.treelister1 :refer [treelister]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]

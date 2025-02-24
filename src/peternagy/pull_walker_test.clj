@@ -1,6 +1,6 @@
 (ns peternagy.pull-walker-test
   (:require [peternagy.pull-walker :as pw]
-            [contrib.str]
+            [dustingetz.str]
             [clojure.test :as t]))
 
 (def data-map {:coll [{:foo 1, :bar 10}, {:foo 2, :bar 20}]
@@ -79,12 +79,12 @@
   (t/is (= [[[:map] {:a 1, :b 2, :coll [1 2], :map {:x 1, :y 2}} true]
             [[:map :a] 1 false]
             [[:map :map] {:x 1, :y 2} false]]
-          (pw/walker data-map [{:map ['*]}] (fn [k v] (contrib.str/any-matches? [k v] "a")))))
+          (pw/walker data-map [{:map ['*]}] (fn [k v] (dustingetz.str/any-matches? [k v] "a")))))
 
   (t/is (= [[[:map] {:a 1, :b 2, :coll [1 2], :map {:x 1, :y 2}} true]
             [[:map :map] {:x 1, :y 2} true]
             [[:map :map :x] 1 false]]
-          (pw/walker data-map [{:map [{:map ['*]}]}] (fn [k v] (contrib.str/any-matches? [k v] "x")))))
+          (pw/walker data-map [{:map [{:map ['*]}]}] (fn [k v] (dustingetz.str/any-matches? [k v] "x")))))
 
   (t/testing "parents omitted if no children match"
     (t/is (= [] (pw/walker data-map [{:map ['*]}] (fn [_k _v] false))))

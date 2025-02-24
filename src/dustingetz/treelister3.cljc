@@ -1,7 +1,7 @@
 (ns dustingetz.treelister3 "
 treeseq recursion scheme which supports ergonomic search, i.e. retaining intermediate path nodes
 for any matching leaves"
-  (:require contrib.str
+  (:require dustingetz.str
             [hyperfiddle.rcf :refer [tests]]
             [contrib.debug :as dbg]
             [clojure.string :as str]))

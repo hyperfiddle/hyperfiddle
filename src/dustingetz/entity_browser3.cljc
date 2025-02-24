@@ -3,7 +3,7 @@
             [clojure.core.protocols :refer [nav]]
             clojure.set
             [contrib.data :refer [index-by unqualify index-of map-entry]]
-            [contrib.str :refer [pprint-str]]
+            [dustingetz.str :refer [pprint-str]]
             [hyperfiddle.nav0 :refer [identify]]
             [dustingetz.easy-table :refer [Load-css]] ; todo
             [electric-fiddle.fiddle-index :refer [pages NotFoundPage]]
@@ -68,7 +68,7 @@
             x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
             xs! (e/server #_(ex/Offload-latch (fn []))
                   (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
-                            (walker hfql-cols! (fn [& kv] (contrib.str/any-matches? kv search)))
+                            (walker hfql-cols! (fn [& kv] (dustingetz.str/any-matches? kv search)))
                             vec)))
             row-count (e/server (count xs!)), row-height 24
             selected-x (e/server (first (filter (fn [x]

@@ -1,6 +1,6 @@
 (ns dustingetz.ui ; used in staffly.staff-detail
   (:require [contrib.css :refer [css-slugify]]
-            [contrib.str :refer [pprint-str]]
+            [dustingetz.str :refer [pprint-str]]
             [dustingetz.combobox :refer [ComboBox]]
             #_[heroicons.electric3.v24.outline :as icons]
             [hyperfiddle.electric3 :as e]
