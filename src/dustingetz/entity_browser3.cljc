@@ -263,7 +263,7 @@
                                           #_(prn 'TableBlockSelect symbolic-x x !x)
                                           (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
                                             (cond
-                                              select `[:page ~@(replace {'% symbolic-x} select)]
+                                              select (build-selection select {'% symbolic-x})
                                               ()      [symbolic-x]))))))))))
 
 (e/defn MarkdownBlock [field-name kv _selected & _]
