@@ -210,6 +210,9 @@
       (map? x) (keys x) ; keys crash on datoms type w/ no datafy
       () nil)))
 
+(defn find-index [pred x*]
+  (transduce (keep-indexed (fn [idx x] (when (pred x) idx))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*))
+
 (e/defn TableBlock2 ; Like TableBlock but takes xs! instead of (fn [search] xs!)
   [field-name kv selected hfql-cols!
    & {:keys [Row]
@@ -239,7 +242,11 @@
           selected
           ;; path->index
           (e/fn Unparse [p-next] (let [id (first p-next)]
-                                   (e/server (id->idx id xs!))))
+                                   (e/server
+                                     (->> (eduction (map #(or (identify %) %)) xs!)
+                                       (find-index (if (= :page id)
+                                                     (fn [x] (= p-next (build-selection select {'% x})))
+                                                     #{id}))))))
           ;; index->path
           (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
                                               !x (nav xs!-with-meta index x) ; hydrate object
