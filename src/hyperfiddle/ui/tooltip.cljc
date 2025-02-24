@@ -33,7 +33,7 @@
 
 (e/defn AdvancedTooltip [Body]
   (dom/div
-    (dom/props {:class #=(contrib.css/css-slugify `Tooltip)})
+    (dom/props {:class (contrib.css/css-slugify `Tooltip)})
     (Body element)))
 
 #?(:cljs
@@ -45,7 +45,7 @@
   "Render `data-tooltip` as plain text. To be styled with CSS."
   (AdvancedTooltip (e/fn [target-node]
                      (let [[x y] (coordinates dom/node target-node)]
-                       (dom/props {:class [#=(contrib.css/css-slugify `Tooltip-basic) (#(when (zero? %) #=(contrib.css/css-slugify `Tooltip-hidden)) x)]
+                       (dom/props {:class [(contrib.css/css-slugify `Tooltip-basic) (#(when (zero? %) (contrib.css/css-slugify `Tooltip-hidden)) x)]
                                    :style {:left (str x "px") :top (str y "px")}})
                        (basic-set-content! dom/node (get-content target-node)) ; only set text, don't unset, just hide tooltip - enabling disappear animation
                        ))))
