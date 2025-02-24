@@ -343,6 +343,9 @@
        (hf-pull3 dynamic-scope context root-pattern [pattern] e depth)
        ))))
 
+(defn hfql
+  ([pat e] (hf-pull3 {} pat e))
+  ([dynamic-scope pat e] (hf-pull3 dynamic-scope pat e)))
 
 (comment
   (hf-pull3 [`(fs/file-name ~'%) {`(fs/dir-list ~'%) 2}] '…)
