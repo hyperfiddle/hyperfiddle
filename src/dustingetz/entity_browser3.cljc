@@ -44,7 +44,7 @@
 (e/defn Search [] (dom/input (dom/On "input" #(-> % .-target .-value) (.-value dom/node))))
 
 
-(defn tree-x->page-link [select ctx]
+(defn build-selection [select ctx]
   `[:page ~@(replace ctx select)])
 
 (e/defn TreeBlock
@@ -63,7 +63,7 @@
             row-count (e/server (count xs!)), row-height 24
             selected-x (e/server (first (filter (fn [x]
                                                   (if-let [select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))]
-                                                    (tree-x->page-link select {'% (second x)}) ; FIXME wrong '% - should be e not v
+                                                    (build-selection select {'% (second x)}) ; FIXME wrong '% - should be e not v
                                                     (= p-next (first x)))) xs!)))] ; slow, but the documents are small
         (dom/props {:style {:--col-count 2 :--row-height row-height}})
         (Intercept (e/fn [index] (TablePicker! field-name index row-count
@@ -81,12 +81,12 @@
                                         ?s (when-not card-many? (identify x))]
                                     #_(prn 'TreeBlockSelect ?s card-many? component? select x)
                                     (cond ; guard illegal navs
-                                      select (tree-x->page-link select {'% v}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
+                                      select (build-selection select {'% v}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
                                       ; dev mode can traverse unidentified values/objects by path descent
                                       ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
                                       ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
                                       (and ?s (not select)) path ; dev mode?
-                                      (and component? select) path #_ (tree-x->page-link select {'% v}) ; hf/select identified objects only ?
+                                      (and component? select) path #_ (build-selection select {'% v}) ; hf/select identified objects only ?
                                       (and component? (not select)) path ; dev mode ?
                                       card-many? path ; always navigable, dev mode? uses path descent not identified uri
                                       () nil))))))))))
