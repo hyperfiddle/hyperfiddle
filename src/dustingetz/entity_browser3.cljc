@@ -78,17 +78,19 @@
                                   (let [x (reduce hf-nav2 x path) ; hydrated
                                         card-many? (or (sequential? x) (set? x))
                                         component? (map? x) ; ?
-                                        select (or (-> row meta :hf/select) (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
+                                        row-select (-> row meta :hf/select)
+                                        default-select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
                                         ?s (when-not card-many? (identify x))]
                                     #_(prn 'TreeBlockSelect ?s card-many? component? select x)
                                     (cond ; guard illegal navs
-                                      select (build-selection select {'% v}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
+                                      row-select (build-selection row-select {'% (or ?s x)})
+                                      (and ?s default-select) (build-selection default-select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
                                       ; dev mode can traverse unidentified values/objects by path descent
                                       ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
                                       ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
-                                      (and ?s (not select)) path ; dev mode?
-                                      (and component? select) path #_ (build-selection select {'% v}) ; hf/select identified objects only ?
-                                      (and component? (not select)) path ; dev mode ?
+                                      (and ?s (not default-select)) path ; dev mode?
+                                      (and component? default-select) path #_ (build-selection default-select {'% v}) ; hf/default-select identified objects only ?
+                                      (and component? (not default-select)) path ; dev mode ?
                                       card-many? path ; always navigable, dev mode? uses path descent not identified uri
                                       () nil))))))))))
 
