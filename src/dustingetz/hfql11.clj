@@ -139,6 +139,10 @@
   ;; := class clojure.lang.Symbol cannot be cast to class clojure.lang.Keyword (clojure.lang.Symbol and clojure.lang.Keyword are in unnamed module of loader 'app')
   )
 
+(defn fn-sym? [sym]
+  (let [obj (resolve sym)]
+    (and (var? obj) (fn? (deref obj)))))
+
 (defn hf-nav2 ; WIP
   ([e a] (hf-nav2 e a {'% e}))
   ([e a ctx]
@@ -146,8 +150,10 @@
    (cond
      (keyword? a) (nav-with-fallback e a (lookup e a))
      (string? a)  (nav-with-fallback e a (lookup e a))
-     (symbol? a)  (let [k (keyword (namespace a) (name a))]
-                    (or (hf-nav2 e k ctx) (nav-with-fallback e a (lookup e a))))
+     (symbol? a)  (if (fn-sym? a)
+                    (hf-nav2 e `(~a ~'%) ctx)
+                    (let [k (keyword (namespace a) (name a))]
+                      (or (hf-nav2 e k ctx) (nav-with-fallback e a (lookup e a)))))
      (sequential? a) (let [[fsym & arg-syms] a]
                        (with-bindings *dynamic-scope*
                          (apply (resolve fsym) (map (comp undatafy (partial context-resolve ctx)) arg-syms))))
@@ -169,6 +175,7 @@
   (-> !alice (hf-nav2 :order/gender) (hf-nav2 :db/ident))
   := (d/entity @test-db :order/female)
 
+  (hf-nav2 !alice `identity) := !alice
   (hf-nav2 !alice '(identity %)) := !alice
   (type *1) := datomic.query.EntityMap
 
@@ -253,7 +260,9 @@
 (defn- pull-one [context pattern e]
   (cond (= '* pattern) (datafy e)
         (keyword? pattern) {pattern (get e pattern)}
-        (symbol? pattern)  {pattern (get e pattern (get e (keyword (namespace pattern) (name pattern))))} ; fallback to keyword aliased as symbol
+        (symbol? pattern)  {pattern (if (fn-sym? pattern)
+                                      (hf-nav2 e pattern context)
+                                      (get e pattern (get e (keyword (namespace pattern) (name pattern)))))} ; fallback to keyword aliased as symbol
         (seq? pattern)     {(symbolic pattern) (hf-nav2 e pattern context)}
         () (throw (let [m {:pattern pattern}]
                     (ex-info (str "pull-one, not implemented " (pr-str m)) m)))))
@@ -354,6 +363,7 @@
       :order/tags #{:c :b :a}})
 
 (tests ; pull3
+  (hf-pull3 `identity !lennon) := {`identity !lennon}
   (hf-pull3 `(identity ~'%) !lennon)
   := {`(identity ~'%) !lennon}
 
