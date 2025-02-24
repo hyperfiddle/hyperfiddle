@@ -1,5 +1,6 @@
 {:deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-SNAPSHOT"}
         com.hyperfiddle/heroicons-electric {:mvn/version "8a08de7"} ; for hyperfiddle.ui components
+        com.hyperfiddle/hyperfiddle-contrib {:local/root "../hyperfiddle-contrib"}
         markdown-clj/markdown-clj {:mvn/version "1.11.7"} ; entity-browser
         meander/epsilon {:mvn/version "0.0.650"} ; entity browser
         }
