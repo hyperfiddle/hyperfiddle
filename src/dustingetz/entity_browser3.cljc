@@ -65,13 +65,18 @@
                      ([] (doseq [t tokens] (t)))
                      ([_err] #_(doseq [t tokens] (t err ::forms/keep)))))
    ::forms/name ::block
-   ::forms/value (swap! !v (fn [v] (reduce (fn [v {::forms/keys [name value]}] (assoc v name value)) v edits-vec)))
+   ::forms/value (swap! !v (fn [v] (reduce (fn [v {::forms/keys [name value]}]
+                                             (if value (assoc v name value) (dissoc v name)))
+                                     v edits-vec)))
    ::forms/validation (not-empty (remove nil? (map ::forms/validation edits-vec)))})
 
 (e/defn CollectBlockEdits [state edits]
   (let [!v (atom (e/snapshot state)), edits-vec (e/as-vec edits)]
     (e/When (seq edits-vec)
       (compose-edits edits-vec !v))))
+
+(defn find-index [pred x*]
+  (transduce (keep-indexed (fn [idx x] (when (pred x) idx))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*))
 
 (e/defn TreeBlock
   [field-name kv state hfql-cols!
@@ -88,12 +93,7 @@
                           (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
                                     (walker hfql-cols! (fn [& kv] (dustingetz.str/any-matches? kv authoritative-search)))
                                     vec)))
-            row-count (e/server (count xs!)), row-height 24
-            selected-x (e/server (first (filter (fn [x]
-                                                  (= selected
-                                                    (if-some [select (-> x meta :hf/select)]
-                                                      (build-selection select {'% (second x)}) ; FIXME wrong '% - should be e not v
-                                                      (first x)))) xs!)))] ; slow, but the documents are small
+            row-count (e/server (count xs!)), row-height 24]
         (dom/props {:style {:--col-count 2 :--row-height row-height}})
         (CollectBlockEdits
           state
@@ -103,8 +103,20 @@
                                        (e/fn [index] (e/server (some->> (nth xs! index nil)
                                                                  (TreeRow hfql-cols!)))) ; no ColumnPicker
                                        :row-height row-height))
-              selected-x
-              (e/fn Unparse [x] (e/server (index-of xs! x)))
+              selected
+              (e/fn Unparse [selected]
+                (e/server (if (= :page (first selected))
+                            (let [default-select (-> hfql-cols! meta :hf/select)
+                                  selected? (fn [[path _v _branch? :as row]]
+                                              (let [x (reduce hf-nav2 x path)
+                                                    card-many? (or (sequential? x) (set? x))
+                                                    ?s (when-not card-many? (identify x))]
+                                                (= selected
+                                                  (build-selection
+                                                    (or (-> row meta :hf/select) default-select)
+                                                    {'% (or ?s x)}))))]
+                              (find-index selected? xs!))
+                            (find-index (comp #{selected} first) xs!))))
               (e/fn Parse [index] (e/server
                                     (when-some [[path v branch? :as row] (nth xs! index nil)]
                                       (let [x (reduce hf-nav2 x path) ; hydrated
@@ -251,9 +263,6 @@
       (map? x) (keys x) ; keys crash on datoms type w/ no datafy
       () nil)))
 
-(defn find-index [pred x*]
-  (transduce (keep-indexed (fn [idx x] (when (pred x) idx))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*))
-
 (e/defn TableBlock2 ; Like TableBlock but takes xs! instead of (fn [search] xs!)
   [field-name kv state hfql-cols!
    & {:keys [Row]
@@ -261,7 +270,7 @@
   (e/client
     (dom/fieldset
       (dom/props {:class "entity-children"})
-      (let [{selected ::selection, authoritative-search ::search} (dbg/spy state)
+      (let [{selected ::selection, authoritative-search ::search} state
             select (e/server (-> hfql-cols! meta :hf/select))
             hfql-cols! (e/server (or hfql-cols! ['*]))
             !search (atom nil), search (e/watch !search)
@@ -343,26 +352,27 @@
       (when (some? state)
         (router/pop
           (e/for [{::keys [selection]} (e/diff-by ::selection (e/as-vec state))] ; don't reuse DOM/IO frames across different objects
-            (if (= :page (first selection))
-              (let [k (vec (next selection))
-                    [F$ & args] k]
-                (binding [*hfql-spec (e/server (get *sitemap F$))]
-                  (BrowsePath
-                    (e/server
-                      (map-entry k
-                        (e/Apply (get pages F$) args))))))
-              (let [kv (e/server #_(ex/Offload-reset (fn []))
-                                 (case (infer-block-type (val kv))
-                                   :table (let [value (vec (val kv))
-                                                index (or (id->index (first selection) (datafy value)) (first selection))]
-                                            (map-entry selection (hf-nav2 value index)))
-                                   (let [x (reduce hf-nav2 (val kv) selection)
-                                         title selection #_(if *dev-mode* (pr-str (let [x (val kv)] (or (identify x) x))))
-                                         ]
-                                     (map-entry title x))))]
-                ;; stacked views should get '*. First `Block` renders above
-                (binding [*hfql-spec (e/server ['*])]
-                  (BrowsePath kv))))))))))
+            (when selection
+              (if (= :page (first selection))
+                (let [k (vec (next selection))
+                      [F$ & args] k]
+                  (binding [*hfql-spec (e/server (get *sitemap F$))]
+                    (BrowsePath
+                      (e/server
+                        (map-entry k
+                          (e/Apply (get pages F$) args))))))
+                (let [kv (e/server #_(ex/Offload-reset (fn []))
+                                   (case (infer-block-type (val kv))
+                                     :table (let [value (vec (val kv))
+                                                  index (or (id->index (first selection) (datafy value)) (first selection))]
+                                              (map-entry selection (hf-nav2 value index)))
+                                     (let [x (reduce hf-nav2 (val kv) selection)
+                                           title selection #_(if *dev-mode* (pr-str (let [x (val kv)] (or (identify x) x))))
+                                           ]
+                                       (map-entry title x))))]
+                  ;; stacked views should get '*. First `Block` renders above
+                  (binding [*hfql-spec (e/server ['*])]
+                    (BrowsePath kv)))))))))))
 
 (e/defn BrowsePathWrapper [v]
   (let [k (first router/route)]
