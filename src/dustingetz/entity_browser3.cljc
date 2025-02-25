@@ -53,10 +53,11 @@
   ;; G: not sure if this produces the correct semantic representation
   ;;   But less visual noise is good for demos – previous impl rendered `(foo %)`, this one renders `foo`.
   ;;   Will revisit
-  (if (vector? sexpr)
-    (if (and (= 1 (count sexpr)) (ident? (first sexpr)))
-      (first sexpr)
-      (seq sexpr))
+  (if (vector? sexpr) ; sequential?
+    (let [[x & args] sexpr]
+      (if (ident? x)
+        (cons (unqualify x) args) ; todo tooltip
+        (seq sexpr)))
     sexpr))
 
 (defn compose-edits [edits-vec !v]
