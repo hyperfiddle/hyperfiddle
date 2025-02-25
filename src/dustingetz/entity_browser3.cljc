@@ -4,13 +4,13 @@
             clojure.set
             [contrib.data :refer [index-by unqualify index-of map-entry]]
             [dustingetz.str :refer [pprint-str]]
+            [contrib.css :refer [css-slugify]]
             [hyperfiddle.nav0 :refer [identify]]
-            [dustingetz.easy-table :refer [Load-css]] ; todo
             [electric-fiddle.fiddle-index :refer [pages NotFoundPage]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric3-contrib :as ex]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms4 :as forms :refer [Intercept Interpreter Checkbox TablePicker!]]
+            [hyperfiddle.electric-forms4 :as forms :refer [Intercept Interpreter Checkbox TablePicker! TablePicker!2]]
             [hyperfiddle.router4 :as router]
             [hyperfiddle.rcf :refer [tests]]
             #?(:clj [markdown.core :as md])
@@ -120,6 +120,54 @@
                                         (and component? (not default-select)) path ; dev mode ?
                                         card-many? path ; always navigable, dev mode? uses path descent not identified uri
                                         () nil)))))) )))))
+
+(e/defn TreeBlock2
+  [field-name kv p-next hfql-cols!
+   & {:keys [TreeRow]
+      :or {TreeRow TreeRow}}]
+  (e/client
+    (dom/fieldset (dom/props {:class "entity dustingetz-entity-browser3__block"})
+      (let [hfql-cols! (e/server (or hfql-cols! ['*]))
+            search (dom/legend (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " ") (Search))
+            x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
+            xs! (e/server #_(ex/Offload-latch (fn []))
+                  (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
+                            (walker hfql-cols! (fn [& kv] (dustingetz.str/any-matches? kv search)))
+                            vec)))
+            row-count (e/server (count xs!)), row-height 24
+            selected-x (e/server (first (filter (fn [x]
+                                                  (= p-next
+                                                    (if-some [select (-> x meta :hf/select)]
+                                                      (build-selection select {'% (second x)}) ; FIXME wrong '% - should be e not v
+                                                      (first x)))) xs!)))] ; slow, but the documents are small
+        (dom/props {:style {:--column-count 2 :--row-height row-height}})
+        (Intercept (e/fn [index] (TablePicker!2 field-name index row-count
+                                   (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                             (TreeRow hfql-cols!)))) ; no ColumnPicker
+                                   :row-height row-height
+                                   :column-count 2))
+          selected-x
+          (e/fn Unparse [x] (e/server (index-of xs! x)))
+          (e/fn Parse [index] (e/server
+                                (when-some [[path v branch? :as row] (nth xs! index nil)]
+                                  (let [x (reduce hf-nav2 x path) ; hydrated
+                                        card-many? (or (sequential? x) (set? x))
+                                        component? (map? x) ; ?
+                                        row-select (-> row meta :hf/select)
+                                        default-select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
+                                        ?s (when-not card-many? (identify x))]
+                                    #_(prn 'TreeBlockSelect ?s card-many? component? select x)
+                                    (cond ; guard illegal navs
+                                      row-select (build-selection row-select {'% (or ?s x)})
+                                      (and ?s default-select) (build-selection default-select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
+                                      ; dev mode can traverse unidentified values/objects by path descent
+                                      ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
+                                      ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
+                                      (and ?s (not default-select)) path ; dev mode?
+                                      (and component? default-select) path #_ (build-selection default-select {'% v}) ; hf/default-select identified objects only ?
+                                      (and component? (not default-select)) path ; dev mode ?
+                                      card-many? path ; always navigable, dev mode? uses path descent not identified uri
+                                      () nil))))))))))
 
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
@@ -295,6 +343,72 @@
                                                 select (build-selection select {'% symbolic-x})
                                                 ()      [symbolic-x])))))) )))))
 
+(e/defn TableBlock3 ; Like TableBlock but takes xs! instead of (fn [search] xs!)
+  [field-name kv selected hfql-cols!
+   & {:keys [Row]
+      :or {Row CollectionRow}}]
+  (e/client
+    (dom/fieldset
+      (dom/props {:class "entity-children dustingetz-entity-browser3__block"})
+      (let [select (e/server (-> hfql-cols! meta :hf/select))
+            hfql-cols! (e/server (or hfql-cols! ['*]))
+            !search (atom ""), search (e/watch !search)
+            path (e/server (key kv)),
+            ;; TODO filter should happen at query time, not here, tbd
+            xs!-with-meta (e/server (val kv))
+            xs! (e/server (hfql-search-sort *hfql-bindings hfql-cols! search xs!-with-meta))
+            row-count (e/server (count xs!)), row-height 24
+            cols (dom/legend (dom/text (e/server (pr-str (symbolic-title path))) " ")
+                   (reset! !search (Search))
+                   (dom/text " (" row-count " items) ")
+                   (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn [])) (-> xs! first infer-cols))))
+            column-count (e/server (e/Count cols))]
+        (dom/table
+          (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
+          (dom/thead
+            (dom/tr
+              (e/for [col cols]
+                (dom/th (dom/props {:title (str col)})
+                  (dom/text col)))))
+          (Intercept
+            (e/fn [index] (TablePicker!2 field-name index row-count
+                            (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                      (nav xs!-with-meta index)
+                                                      (Row hfql-cols! cols))))
+                            :row-height row-height
+                            :column-count column-count
+                            :as :tbody))
+            selected
+            ;; path->index
+            (e/fn Unparse [p-next] (let [id (first p-next)]
+                                     (e/server
+                                       (->> (eduction (map #(or (identify %) %)) xs!)
+                                         (find-index (if (= :page id)
+                                                       (fn [x] (= p-next (build-selection select {'% x})))
+                                                       #{id}))))))
+            ;; index->path
+            (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
+                                                !x (nav xs!-with-meta index x) ; hydrate object
+                                                symbolic-x (identify !x)] ; local-path
+                                            #_(prn 'TableBlockSelect symbolic-x x !x)
+                                            (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
+                                              (cond
+                                                select (build-selection select {'% symbolic-x})
+                                                ()      [symbolic-x])))))))))))
+
+(def table-block-css
+"
+.dustingetz-entity-browser3__block table { display: grid; grid-template-columns: repeat(var(--column-count), 1fr);  grid-template-rows: var(--row-height);}
+
+.dustingetz-entity-browser3__block table thead { display: contents; }
+.dustingetz-entity-browser3__block table thead tr { display: grid; grid-row: 1; grid-column: 1 / -1; grid-template-columns: subgrid;}
+.dustingetz-entity-browser3__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+
+.dustingetz-entity-browser3__block .hyperfiddle-electric-forms4__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
+
+"
+)
+
 (e/defn MarkdownBlock [field-name kv _selected & _]
   (dom/fieldset
     (dom/legend (dom/text (e/server (pr-str (symbolic-title (key kv))))))
@@ -314,7 +428,7 @@
 (e/defn Block [kv locus]
   (e/client
     (let [x (e/server #_datafy (val kv))]
-      (when-some [F (e/server (case (infer-block-type x) :tree TreeBlock :table TableBlock2 :string MarkdownBlock :scalar nil nil))]
+      (when-some [F (e/server (case (infer-block-type x) :tree TreeBlock2 :table TableBlock3 :string MarkdownBlock :scalar nil nil))]
         (Interpreter {::selection (e/fn [path]
                                     (let [[state] router/route]
                                       (if path
@@ -376,10 +490,10 @@
       :or {default nil}}]
   (e/client
     #_(dom/pre (dom/text (pr-str r/route)))
-    (Load-css "dustingetz/easy_table.css") (dom/style (dom/text css tooltip/css))
+    (dom/style (dom/text css tooltip/css))
     (TooltipArea
       (e/fn [] (Tooltip)
-        (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
+        (dom/div (dom/props {:class "Browser"})
           (e/for [route (e/diff-by first (e/as-vec router/route))] ; reboot top-level page
             (binding [router/route route]
               (let [[fiddle & _] (first router/route)]
@@ -387,28 +501,26 @@
                   (router/ReplaceState! ['. default])
                   (let [Fiddle (get pages fiddle NotFoundPage)]
                     (set! (.-title js/document) (str (some-> fiddle name (str " – ")) "Hyperfiddle"))
+                    (dom/props {:class (css-slugify fiddle)})
                     (binding [*sitemap (e/server (identity sitemap))
                               *hfql-spec (e/server (get sitemap fiddle []))] ; cols don't serialize perfectly yet fixme
                       (BrowsePathWrapper (e/server (e/Apply Fiddle (nfirst router/route)))))))))))))))
 
-(declare css)
-(e/defn EntityBrowser2 [kv]
-  (e/client (dom/style (dom/text css)) (Load-css "dustingetz/easy_table.css")
-    (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
-      (BrowsePath kv))))
+(def css
+  (str hyperfiddle.electric-forms4/css
+    table-block-css
 
-(def css "
-.Browser fieldset { position: relative; }
-.Browser fieldset > .Viewport { height: calc(var(--row-height) * 15 * 1px); }
-:where(.Browser fieldset.entity)          table { grid-template-columns: 15em auto; }
-.Browser fieldset.entity-children table { grid-template-columns: repeat(var(--col-count), 1fr); }
-.Browser fieldset legend .title { font-weight: 600; }
+    "
+/* cosmetic defaults */
+.dustingetz-entity-browser3__block legend .title {font-weight:600;}
+.dustingetz-entity-browser3__block table { background-color: white; border: 1px lightgray solid; border-top-left-radius: 0.25rem; border-top-right-radius: 0.25rem; }
+.dustingetz-entity-browser3__block table thead tr { border-bottom: 1px lightgray solid; }
+.dustingetz-entity-browser3__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.dustingetz-entity-browser3__block table thead tr th { font-weight: 500; }
+.dustingetz-entity-browser3__block table thead tr th:not(:first-child) { border-left: 1px lightgray solid; }
+.dustingetz-entity-browser3__block table :is(th, td) { padding: 0 0.25em; }
+/* --------- */
 
-/* table cell tooltips */
-.Browser td {position: relative;}
-.Browser .dustingetz-tooltip >       span { visibility: hidden; }
-.Browser .dustingetz-tooltip:hover > span { visibility: visible; pointer-events: none; }
-.Browser .dustingetz-tooltip > span {
-  position: absolute; top: 20px; left: 10px; z-index: 2; /* interaction with row selection z=1 */
-  margin-top: 4px; padding: 4px; font-size: smaller;
-  box-shadow: 0 0 .5rem gray; border: 1px whitesmoke solid; border-radius: 3px; background-color: white; }")
+"
+
+    ))

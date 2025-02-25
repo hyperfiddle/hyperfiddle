@@ -55,8 +55,6 @@
 "
 
 .hyperfiddle-ui-tooltip-Tooltip{
-  left: var(--hyperfiddle-ui-tooltip-offsetX);
-  top: var(--hyperfiddle-ui-tooltip-offsetY);
   position: absolute;
   z-index: 2;
 }
