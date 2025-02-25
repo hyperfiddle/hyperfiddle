@@ -89,3 +89,10 @@
   (t/testing "parents omitted if no children match"
     (t/is (= [] (pw/walker data-map [{:map ['*]}] (fn [_k _v] false))))
     (t/is (= [] (pw/walker data-map [{:map [{:map ['*]}]}] (fn [_k _v] false))))))
+
+;; TODO move to HFQL
+(t/deftest removing-symbolic-duplicates
+  (t/is (= ["scalar" 'coll :map]
+          (pw/?expand-star ["scalar" 'coll '*] data-map)))
+  (t/is (= ["scalar" 'coll 'map]
+          (pw/?expand-star ["scalar" 'coll '* 'map] data-map))))

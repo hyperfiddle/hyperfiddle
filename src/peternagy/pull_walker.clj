@@ -15,9 +15,15 @@
 (defn row [path v branch? metao]
   (with-meta [path v branch?] (meta metao)))
 
+;; TODO push to HFQL
+(defn remove-symbolic-duplicates [k*]
+  (let [symbol* (into #{} (filter symbol? k*))]
+    (into [] (remove #(and (keyword? %) (symbol* (symbol (namespace %) (name %))))) k*)))
+
 (defn ?expand-star [pull v]
   (if (some #{'*} pull)
     (-> (into [] (comp cat (distinct)) [(eduction (remove #{'*}) pull) (keys v)])
+      remove-symbolic-duplicates
       (with-meta (meta pull)))
     pull))
 
