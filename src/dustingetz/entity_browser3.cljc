@@ -86,7 +86,7 @@
     (dom/fieldset (dom/props {:class "entity"})
       (let [{selected ::selection, authoritative-search ::search} state
             hfql-cols! (e/server (or hfql-cols! ['*]))
-            search (dom/legend (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " ")
+            search (dom/legend (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " "))
                                (Search! authoritative-search))
             x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
             xs! (e/server #_(ex/Offload-latch (fn []))
@@ -280,7 +280,7 @@
             xs! (e/server (hfql-search-sort *hfql-bindings hfql-cols! authoritative-search xs!-with-meta))
             row-count (e/server (count xs!)), row-height 24
             cols (dom/legend
-                   (dom/text (e/server (pr-str (symbolic-title path))) " ")
+                   (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title path))) " "))
                    (reset! !search (Search! authoritative-search))
                    (dom/text " (" row-count " items) ")
                    (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn [])) (-> xs! first infer-cols))))]
@@ -412,6 +412,7 @@
 .Browser fieldset > .Viewport { height: calc(var(--row-height) * 15 * 1px); }
 :where(.Browser fieldset.entity)          table { grid-template-columns: 15em auto; }
 .Browser fieldset.entity-children table { grid-template-columns: repeat(var(--col-count), 1fr); }
+.Browser fieldset legend .title { font-weight: 600; }
 
 /* table cell tooltips */
 .Browser td {position: relative;}
