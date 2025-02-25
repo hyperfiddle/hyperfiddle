@@ -284,7 +284,8 @@
                    (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title path))) " "))
                    (reset! !search (Search! authoritative-search))
                    (dom/text " (" row-count " items) ")
-                   (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn [])) (-> xs! first infer-cols))))]
+                   (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn []))
+                               (when (seq xs!) (infer-cols (nav xs! 0 (nth xs! 0)))))))]
         (dom/props {:style {:--col-count (e/server (e/Count cols)) :--row-height row-height}})
         (CollectBlockEdits
           state
