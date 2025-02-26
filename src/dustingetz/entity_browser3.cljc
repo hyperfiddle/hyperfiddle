@@ -122,52 +122,65 @@
                                         () nil)))))) )))))
 
 (e/defn TreeBlock2
-  [field-name kv p-next hfql-cols!
+  [field-name kv state hfql-cols!
    & {:keys [TreeRow]
       :or {TreeRow TreeRow}}]
   (e/client
     (dom/fieldset (dom/props {:class "entity dustingetz-entity-browser3__block"})
-      (let [hfql-cols! (e/server (or hfql-cols! ['*]))
-            search (dom/legend (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " ") (Search))
+      (let [{selected ::selection, authoritative-search ::search} state
+            hfql-cols! (e/server (or hfql-cols! ['*]))
+            search (dom/legend (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " "))
+                               (Search! authoritative-search))
             x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
             xs! (e/server #_(ex/Offload-latch (fn []))
                   (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
-                            (walker hfql-cols! (fn [& kv] (dustingetz.str/any-matches? kv search)))
+                            (walker hfql-cols! (fn [& kv] (dustingetz.str/any-matches? kv authoritative-search)))
                             vec)))
-            row-count (e/server (count xs!)), row-height 24
-            selected-x (e/server (first (filter (fn [x]
-                                                  (= p-next
-                                                    (if-some [select (-> x meta :hf/select)]
-                                                      (build-selection select {'% (second x)}) ; FIXME wrong '% - should be e not v
-                                                      (first x)))) xs!)))] ; slow, but the documents are small
+            row-count (e/server (count xs!)), row-height 24]
         (dom/props {:style {:--column-count 2 :--row-height row-height}})
-        (Intercept (e/fn [index] (TablePicker!2 field-name index row-count
-                                   (e/fn [index] (e/server (some->> (nth xs! index nil)
-                                                             (TreeRow hfql-cols!)))) ; no ColumnPicker
-                                   :row-height row-height
-                                   :column-count 2))
-          selected-x
-          (e/fn Unparse [x] (e/server (index-of xs! x)))
-          (e/fn Parse [index] (e/server
-                                (when-some [[path v branch? :as row] (nth xs! index nil)]
-                                  (let [x (reduce hf-nav2 x path) ; hydrated
-                                        card-many? (or (sequential? x) (set? x))
-                                        component? (map? x) ; ?
-                                        row-select (-> row meta :hf/select)
-                                        default-select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
-                                        ?s (when-not card-many? (identify x))]
-                                    #_(prn 'TreeBlockSelect ?s card-many? component? select x)
-                                    (cond ; guard illegal navs
-                                      row-select (build-selection row-select {'% (or ?s x)})
-                                      (and ?s default-select) (build-selection default-select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
-                                      ; dev mode can traverse unidentified values/objects by path descent
-                                      ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
-                                      ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
-                                      (and ?s (not default-select)) path ; dev mode?
-                                      (and component? default-select) path #_ (build-selection default-select {'% v}) ; hf/default-select identified objects only ?
-                                      (and component? (not default-select)) path ; dev mode ?
-                                      card-many? path ; always navigable, dev mode? uses path descent not identified uri
-                                      () nil))))))))))
+        (CollectBlockEdits
+          state
+          (e/amb
+            search
+            (Intercept (e/fn [index] (TablePicker!2 ::selection index row-count
+                                       (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                                 (TreeRow hfql-cols!)))) ; no ColumnPicker
+                                       :row-height row-height
+                                       :column-count 2))
+              selected
+              (e/fn Unparse [selected]
+                (e/server (if (= :page (first selected))
+                            (let [default-select (-> hfql-cols! meta :hf/select)
+                                  selected? (fn [[path _v _branch? :as row]]
+                                              (let [x (reduce hf-nav2 x path)
+                                                    card-many? (or (sequential? x) (set? x))
+                                                    ?s (when-not card-many? (identify x))]
+                                                (= selected
+                                                  (build-selection
+                                                    (or (-> row meta :hf/select) default-select)
+                                                    {'% (or ?s x)}))))]
+                              (find-index selected? xs!))
+                            (find-index (comp #{selected} first) xs!))))
+              (e/fn Parse [index] (e/server
+                                    (when-some [[path v branch? :as row] (nth xs! index nil)]
+                                      (let [x (reduce hf-nav2 x path) ; hydrated
+                                            card-many? (or (sequential? x) (set? x))
+                                            component? (map? x) ; ?
+                                            row-select (-> row meta :hf/select)
+                                            default-select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
+                                            ?s (when-not card-many? (identify x))]
+                                        #_(prn 'TreeBlockSelect ?s card-many? component? select x)
+                                        (cond ; guard illegal navs
+                                          row-select (build-selection row-select {'% (or ?s x)})
+                                          (and ?s default-select) (build-selection default-select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
+                                        ; dev mode can traverse unidentified values/objects by path descent
+                                        ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
+                                        ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
+                                          (and ?s (not default-select)) path ; dev mode?
+                                          (and component? default-select) path #_ (build-selection default-select {'% v}) ; hf/default-select identified objects only ?
+                                          (and component? (not default-select)) path ; dev mode ?
+                                          card-many? path ; always navigable, dev mode? uses path descent not identified uri
+                                          () nil)))))) ))))))
 
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
