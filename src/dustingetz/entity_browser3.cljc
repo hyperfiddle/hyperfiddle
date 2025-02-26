@@ -60,22 +60,6 @@
         (seq sexpr)))
     sexpr))
 
-(defn compose-edits [edits-vec !v]
-  {::forms/token (let [tokens (mapv ::forms/token edits-vec)]
-                   (fn token ; fresh if ts changes (should fields be disabled when commit pending?)
-                     ([] (doseq [t tokens] (t)))
-                     ([_err] #_(doseq [t tokens] (t err ::forms/keep)))))
-   ::forms/name ::block
-   ::forms/value (swap! !v (fn [v] (reduce (fn [v {::forms/keys [name value]}]
-                                             (if value (assoc v name value) (dissoc v name)))
-                                     v edits-vec)))
-   ::forms/validation (not-empty (remove nil? (map ::forms/validation edits-vec)))})
-
-(e/defn CollectBlockEdits [state edits]
-  (let [!v (atom (e/snapshot state)), edits-vec (e/as-vec edits)]
-    (e/When (seq edits-vec)
-      (compose-edits edits-vec !v))))
-
 (defn find-index [pred x*]
   (transduce (keep-indexed (fn [idx x] (when (pred x) idx))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*))
 
@@ -96,48 +80,46 @@
                                     vec)))
             row-count (e/server (count xs!)), row-height 24]
         (dom/props {:style {:--col-count 2 :--row-height row-height}})
-        (CollectBlockEdits
-          state
-          (e/amb
-            search
-            (Intercept (e/fn [index] (TablePicker! ::selection index row-count
-                                       (e/fn [index] (e/server (some->> (nth xs! index nil)
-                                                                 (TreeRow hfql-cols!)))) ; no ColumnPicker
-                                       :row-height row-height))
-              selected
-              (e/fn Unparse [selected]
-                (e/server (if (= :page (first selected))
-                            (let [default-select (-> hfql-cols! meta :hf/select)
-                                  selected? (fn [[path _v _branch? :as row]]
-                                              (let [x (reduce hf-nav2 x path)
-                                                    card-many? (or (sequential? x) (set? x))
-                                                    ?s (when-not card-many? (identify x))]
-                                                (= selected
-                                                  (build-selection
-                                                    (or (-> row meta :hf/select) default-select)
-                                                    {'% (or ?s x)}))))]
-                              (find-index selected? xs!))
-                            (find-index (comp #{selected} first) xs!))))
-              (e/fn Parse [index] (e/server
-                                    (when-some [[path v branch? :as row] (nth xs! index nil)]
-                                      (let [x (reduce hf-nav2 x path) ; hydrated
-                                            card-many? (or (sequential? x) (set? x))
-                                            component? (map? x) ; ?
-                                            row-select (-> row meta :hf/select)
-                                            default-select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
-                                            ?s (when-not card-many? (identify x))]
-                                        #_(prn 'TreeBlockSelect ?s card-many? component? select x)
-                                        (cond ; guard illegal navs
-                                          row-select (build-selection row-select {'% (or ?s x)})
-                                          (and ?s default-select) (build-selection default-select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
+        (e/amb
+          search
+          (Intercept (e/fn [index] (TablePicker! ::selection index row-count
+                                     (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                               (TreeRow hfql-cols!)))) ; no ColumnPicker
+                                     :row-height row-height))
+            selected
+            (e/fn Unparse [selected]
+              (e/server (if (= :page (first selected))
+                          (let [default-select (-> hfql-cols! meta :hf/select)
+                                selected? (fn [[path _v _branch? :as row]]
+                                            (let [x (reduce hf-nav2 x path)
+                                                  card-many? (or (sequential? x) (set? x))
+                                                  ?s (when-not card-many? (identify x))]
+                                              (= selected
+                                                (build-selection
+                                                  (or (-> row meta :hf/select) default-select)
+                                                  {'% (or ?s x)}))))]
+                            (find-index selected? xs!))
+                          (find-index (comp #{selected} first) xs!))))
+            (e/fn Parse [index] (e/server
+                                  (when-some [[path v branch? :as row] (nth xs! index nil)]
+                                    (let [x (reduce hf-nav2 x path) ; hydrated
+                                          card-many? (or (sequential? x) (set? x))
+                                          component? (map? x) ; ?
+                                          row-select (-> row meta :hf/select)
+                                          default-select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
+                                          ?s (when-not card-many? (identify x))]
+                                      #_(prn 'TreeBlockSelect ?s card-many? component? select x)
+                                      (cond ; guard illegal navs
+                                        row-select (build-selection row-select {'% (or ?s x)})
+                                        (and ?s default-select) (build-selection default-select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
                                         ; dev mode can traverse unidentified values/objects by path descent
                                         ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
                                         ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
-                                          (and ?s (not default-select)) path ; dev mode?
-                                          (and component? default-select) path #_ (build-selection default-select {'% v}) ; hf/default-select identified objects only ?
-                                          (and component? (not default-select)) path ; dev mode ?
-                                          card-many? path ; always navigable, dev mode? uses path descent not identified uri
-                                          () nil)))))) ))))))
+                                        (and ?s (not default-select)) path ; dev mode?
+                                        (and component? default-select) path #_ (build-selection default-select {'% v}) ; hf/default-select identified objects only ?
+                                        (and component? (not default-select)) path ; dev mode ?
+                                        card-many? path ; always navigable, dev mode? uses path descent not identified uri
+                                        () nil)))))) )))))
 
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
@@ -287,33 +269,31 @@
                    (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn []))
                                (when (seq xs!) (infer-cols (nav xs! 0 (nth xs! 0)))))))]
         (dom/props {:style {:--col-count (e/server (e/Count cols)) :--row-height row-height}})
-        (CollectBlockEdits
-          state
-          (e/amb
-            (e/When search search)
-            (Intercept
-              (e/fn [index] (TablePicker! ::selection index row-count
-                              (e/fn [index] (e/server (some->> (nth xs! index nil)
-                                                        (nav xs!-with-meta index)
-                                                        (Row hfql-cols! cols))))
-                              :row-height row-height))
-              selected
-              ;; path->index
-              (e/fn Unparse [p-next] (let [id (first p-next)]
-                                       (e/server
-                                         (->> (eduction (map #(or (identify %) %)) xs!)
-                                           (find-index (if (= :page id)
-                                                         (fn [x] (= p-next (build-selection select {'% x})))
-                                                         #{id}))))))
-              ;; index->path
-              (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
-                                                  !x (nav xs!-with-meta index x) ; hydrate object
-                                                  symbolic-x (identify !x)] ; local-path
-                                              #_(prn 'TableBlockSelect symbolic-x x !x)
-                                              (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
-                                                (cond
-                                                  select (build-selection select {'% symbolic-x})
-                                                  ()      [symbolic-x])))))) ))))))
+        (e/amb
+          (e/When search search)
+          (Intercept
+            (e/fn [index] (TablePicker! ::selection index row-count
+                            (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                      (nav xs!-with-meta index)
+                                                      (Row hfql-cols! cols))))
+                            :row-height row-height))
+            selected
+            ;; path->index
+            (e/fn Unparse [p-next] (let [id (first p-next)]
+                                     (e/server
+                                       (->> (eduction (map #(or (identify %) %)) xs!)
+                                         (find-index (if (= :page id)
+                                                       (fn [x] (= p-next (build-selection select {'% x})))
+                                                       #{id}))))))
+            ;; index->path
+            (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
+                                                !x (nav xs!-with-meta index x) ; hydrate object
+                                                symbolic-x (identify !x)] ; local-path
+                                            #_(prn 'TableBlockSelect symbolic-x x !x)
+                                            (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
+                                              (cond
+                                                select (build-selection select {'% symbolic-x})
+                                                ()      [symbolic-x])))))) )))))
 
 (e/defn MarkdownBlock [field-name kv _selected & _]
   (dom/fieldset
@@ -335,9 +315,17 @@
   (e/client
     (let [x (e/server #_datafy (val kv))]
       (when-some [F (e/server (case (infer-block-type x) :tree TreeBlock :table TableBlock2 :string MarkdownBlock :scalar nil nil))]
-        (Interpreter {::block (e/fn [block-state] (router/Navigate! ['. (if block-state [block-state] [])])
-                                 [:hyperfiddle.electric-forms4/ok])}
-          (F ::block kv locus *hfql-spec))))))
+        (Interpreter {::selection (e/fn [path]
+                                    (let [[state] router/route]
+                                      (if path
+                                        (router/Navigate! ['. [(assoc state ::selection path)]])
+                                        (router/Navigate! ['. [(dissoc state ::selection)]])))
+                                    [:hyperfiddle.electric-forms4/ok])
+                      ::search (e/fn [search]
+                                 (if (seq search)
+                                   (router/Navigate! ['. (assoc-in (vec router/route) [0 ::search] search)])
+                                   (router/Navigate! ['. (update (vec router/route) 0 dissoc ::search)])))}
+          (F nil kv locus *hfql-spec))))))
 
 (defn- id->index [id xs!] ; TODO unify with id->idx
   (first (eduction (map-indexed vector)
