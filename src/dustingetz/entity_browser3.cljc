@@ -382,9 +382,9 @@
                           (e/Apply (get pages F$) args))))))
                 (let [kv (e/server #_(ex/Offload-reset (fn []))
                                    (case (infer-block-type (val kv))
-                                     :table (let [value (vec (val kv))
-                                                  index (or (id->index (first selection) (datafy value)) (first selection))]
-                                              (map-entry selection (hf-nav2 value index)))
+                                     :table (let [xs (val kv) ; preserve metas
+                                                  index (or (id->index (first selection) (datafy xs)) (first selection))]
+                                              (map-entry selection (hf-nav2 xs index)))
                                      (let [x (reduce hf-nav2 (val kv) selection)
                                            title selection #_(if *dev-mode* (pr-str (let [x (val kv)] (or (identify x) x))))
                                            ]
