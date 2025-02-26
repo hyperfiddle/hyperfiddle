@@ -1,4 +1,4 @@
-(ns dustingetz.easy-table
+(ns ^:deprecated dustingetz.easy-table ; used in blog posts
   (:require #?(:clj clojure.java.io)
             [contrib.clojurex :refer [#?(:clj slurp-safe)]]
             [contrib.data :refer [clamp-left]]
@@ -8,7 +8,8 @@
             [hyperfiddle.electric-forms3 :refer [Input*]]
             [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing]]))
 
-(e/defn TableScroll [record-count Row & [selected]]
+(e/defn ^:deprecated TableScroll "Deprecated: user hyperfiddle.electric-forms4/TablePicker! instead"
+  [record-count Row & [selected]]
   (e/client
     (dom/div (dom/props {:class "Viewport"})
       (let [row-height 24 ; todo parameterize

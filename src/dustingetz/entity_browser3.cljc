@@ -10,7 +10,7 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric3-contrib :as ex]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms4 :as forms :refer [Intercept Interpreter Checkbox TablePicker!2]]
+            [hyperfiddle.electric-forms4 :as forms :refer [Intercept Interpreter Checkbox TablePicker!]]
             [hyperfiddle.router4 :as router]
             [hyperfiddle.rcf :refer [tests]]
             #?(:clj [markdown.core :as md])
@@ -72,7 +72,7 @@
       (let [{selected ::selection, authoritative-search ::search} state
             hfql-cols! (e/server (or hfql-cols! ['*]))
             search (dom/legend (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " "))
-                               (Search! authoritative-search))
+                     (Search! authoritative-search))
             x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
             xs! (e/server #_(ex/Offload-latch (fn []))
                   (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
@@ -82,7 +82,7 @@
         (dom/props {:style {:--column-count 2 :--row-height row-height}})
         (e/amb
           search
-          (Intercept (e/fn [index] (TablePicker!2 ::selection index row-count
+          (Intercept (e/fn [index] (TablePicker! ::selection index row-count
                                      (e/fn [index] (e/server (some->> (nth xs! index nil)
                                                                (TreeRow hfql-cols!)))) ; no ColumnPicker
                                      :row-height row-height
@@ -283,9 +283,9 @@
                 (let [shorten (column-shortener (e/as-vec cols))]
                   (e/for [col cols]
                     (dom/th (dom/props {:title (str col)})
-                            (dom/text (shorten col)))))))
+                      (dom/text (shorten col)))))))
             (Intercept
-              (e/fn [index] (TablePicker!2 ::selection index row-count
+              (e/fn [index] (TablePicker! ::selection index row-count
                               (e/fn [index] (e/server (some->> (nth xs! index nil)
                                                         (nav xs!-with-meta index)
                                                         (Row hfql-cols! cols))))

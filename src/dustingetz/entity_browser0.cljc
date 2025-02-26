@@ -1,4 +1,4 @@
-(ns dustingetz.entity-browser0
+(ns ^:deprecated dustingetz.entity-browser0
   "no major/breaking changes changes - used in the blog"
   (:require [clojure.datafy :refer [datafy]]
             [clojure.core.protocols :refer [nav]]
@@ -64,7 +64,8 @@
         (dom/props {:style {:--col-count 2 :--row-height row-height}})
         (Intercept (e/fn [index] (TablePicker! ::select index row-count
                                    (e/fn [index] (e/server (some-> (nth xs! index nil) TreeRow)))
-                                   :row-height row-height))
+                                   :row-height row-height
+                                   :column-count 2))
           selected-x
           (e/fn Unparse [x] (e/server (index-of xs! x)))
           (e/fn Parse [index] (e/server (first (nth xs! index nil))))))))) ; keep path, drop value
@@ -85,7 +86,8 @@
         (Intercept
           (e/fn [index] (TablePicker! ::select index row-count
                           (e/fn Row [index] (e/server (some->> (nth xs! index nil) (CollectionRow cols))))
-                          :row-height row-height))
+                          :row-height row-height
+                          :column-count (e/Count cols)))
           selected
           (e/fn Unparse [p-next] (first p-next))
           (e/fn Parse [index] [(e/server (when (contains? xs! index) index))]))))))
@@ -118,22 +120,20 @@
 (declare css)
 (e/defn EntityBrowser0 [x]
   (e/client (dom/style (dom/text css)) (Load-css "dustingetz/easy_table.css")
-    (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
+    (dom/div (dom/props {:class (str "Browser")})
       (let [x (e/server (ex/Offload-reset #(datafy x)))]
         (BrowsePath nil x)))))
 
-(def css "
-.Browser fieldset { position: relative; }
-.Browser fieldset > .Viewport { height: calc(var(--row-height) * 15 * 1px); }
+(def css
+  (str hyperfiddle.electric-forms4/css
+    "
+
+/* Explicit table height*/
+.Browser fieldset table { height: calc(16 * var(--row-height)); } /* 15 rows + header row */
+.Browser fieldset { height: fit-content; }
+
 .Browser fieldset.entity          table { grid-template-columns: 15em auto; }
 .Browser fieldset.entity-children table { grid-template-columns: repeat(var(--col-count), 1fr); }
 .Browser fieldset table td a { font-weight: 600; }
 
-/* table cell tooltips */
-.Browser td {position: relative;}
-.Browser .dustingetz-tooltip >       span { visibility: hidden; }
-.Browser .dustingetz-tooltip:hover > span { visibility: visible; pointer-events: none; }
-.Browser .dustingetz-tooltip > span {
-  position: absolute; top: 20px; left: 10px; z-index: 2; /* interaction with row selection z=1 */
-  margin-top: 4px; padding: 4px; font-size: smaller;
-  box-shadow: 0 0 .5rem gray; border: 1px whitesmoke solid; border-radius: 3px; background-color: white; }")
+"))
