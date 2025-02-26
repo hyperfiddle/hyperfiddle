@@ -358,7 +358,7 @@
 
 (defn- id->index [id xs!] ; TODO unify with id->idx
   (first (eduction (map-indexed vector)
-           (keep (fn [[i v]] (when (= id (identify v)) i)))
+           (keep (fn [[i x]] (when (= id (or (identify x) x)) i)))
            (take 1)
            xs!)))
 
