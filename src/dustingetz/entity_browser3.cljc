@@ -344,57 +344,63 @@
                                                 ()      [symbolic-x])))))) )))))
 
 (e/defn TableBlock3 ; Like TableBlock but takes xs! instead of (fn [search] xs!)
-  [field-name kv selected hfql-cols!
+  [field-name kv state hfql-cols!
    & {:keys [Row]
       :or {Row CollectionRow}}]
   (e/client
     (dom/fieldset
       (dom/props {:class "entity-children dustingetz-entity-browser3__block"})
-      (let [select (e/server (-> hfql-cols! meta :hf/select))
+      (let [{selected ::selection, authoritative-search ::search} state
+            select (e/server (-> hfql-cols! meta :hf/select))
             hfql-cols! (e/server (or hfql-cols! ['*]))
-            !search (atom ""), search (e/watch !search)
+            !search (atom nil), search (e/watch !search)
             path (e/server (key kv)),
             ;; TODO filter should happen at query time, not here, tbd
             xs!-with-meta (e/server (val kv))
-            xs! (e/server (hfql-search-sort *hfql-bindings hfql-cols! search xs!-with-meta))
+            xs! (e/server (hfql-search-sort *hfql-bindings hfql-cols! authoritative-search xs!-with-meta))
             row-count (e/server (count xs!)), row-height 24
-            cols (dom/legend (dom/text (e/server (pr-str (symbolic-title path))) " ")
-                   (reset! !search (Search))
+            cols (dom/legend
+                   (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title path))) " "))
+                   (reset! !search (Search! authoritative-search))
                    (dom/text " (" row-count " items) ")
                    (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn [])) (-> xs! first infer-cols))))
             column-count (e/server (e/Count cols))]
-        (dom/table
-          (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-          (dom/thead
-            (dom/tr
-              (e/for [col cols]
-                (dom/th (dom/props {:title (str col)})
-                  (dom/text col)))))
-          (Intercept
-            (e/fn [index] (TablePicker!2 field-name index row-count
-                            (e/fn [index] (e/server (some->> (nth xs! index nil)
-                                                      (nav xs!-with-meta index)
-                                                      (Row hfql-cols! cols))))
-                            :row-height row-height
-                            :column-count column-count
-                            :as :tbody))
-            selected
-            ;; path->index
-            (e/fn Unparse [p-next] (let [id (first p-next)]
-                                     (e/server
-                                       (->> (eduction (map #(or (identify %) %)) xs!)
-                                         (find-index (if (= :page id)
-                                                       (fn [x] (= p-next (build-selection select {'% x})))
-                                                       #{id}))))))
-            ;; index->path
-            (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
-                                                !x (nav xs!-with-meta index x) ; hydrate object
-                                                symbolic-x (identify !x)] ; local-path
-                                            #_(prn 'TableBlockSelect symbolic-x x !x)
-                                            (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
-                                              (cond
-                                                select (build-selection select {'% symbolic-x})
-                                                ()      [symbolic-x])))))))))))
+        (CollectBlockEdits
+          state
+          (e/amb
+            (e/When search search)
+            (dom/table
+              (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
+              (dom/thead
+                (dom/tr
+                  (e/for [col cols]
+                    (dom/th (dom/props {:title (str col)})
+                      (dom/text col)))))
+              (Intercept
+                (e/fn [index] (TablePicker!2 ::selection index row-count
+                                (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                          (nav xs!-with-meta index)
+                                                          (Row hfql-cols! cols))))
+                                :row-height row-height
+                                :column-count column-count
+                                :as :tbody))
+                selected
+                ;; path->index
+                (e/fn Unparse [p-next] (let [id (first p-next)]
+                                         (e/server
+                                           (->> (eduction (map #(or (identify %) %)) xs!)
+                                             (find-index (if (= :page id)
+                                                           (fn [x] (= p-next (build-selection select {'% x})))
+                                                           #{id}))))))
+                ;; index->path
+                (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
+                                                    !x (nav xs!-with-meta index x) ; hydrate object
+                                                    symbolic-x (identify !x)] ; local-path
+                                                #_(prn 'TableBlockSelect symbolic-x x !x)
+                                                (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
+                                                  (cond
+                                                    select (build-selection select {'% symbolic-x})
+                                                    ()      [symbolic-x])))))))))))))
 
 (def table-block-css
 "
