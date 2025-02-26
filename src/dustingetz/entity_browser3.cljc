@@ -10,7 +10,7 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric3-contrib :as ex]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms4 :as forms :refer [Intercept Interpreter Checkbox TablePicker! TablePicker!2]]
+            [hyperfiddle.electric-forms4 :as forms :refer [Intercept Interpreter Checkbox TablePicker!2]]
             [hyperfiddle.router4 :as router]
             [hyperfiddle.rcf :refer [tests]]
             #?(:clj [markdown.core :as md])
@@ -68,24 +68,25 @@
    & {:keys [TreeRow]
       :or {TreeRow TreeRow}}]
   (e/client
-    (dom/fieldset (dom/props {:class "entity"})
+    (dom/fieldset (dom/props {:class "entity dustingetz-entity-browser3__block"})
       (let [{selected ::selection, authoritative-search ::search} state
             hfql-cols! (e/server (or hfql-cols! ['*]))
             search (dom/legend (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " "))
                                (Search! authoritative-search))
             x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
             xs! (e/server #_(ex/Offload-latch (fn []))
-                          (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
-                                    (walker hfql-cols! (fn [& kv] (dustingetz.str/any-matches? kv authoritative-search)))
-                                    vec)))
+                  (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
+                            (walker hfql-cols! (fn [& kv] (dustingetz.str/any-matches? kv authoritative-search)))
+                            vec)))
             row-count (e/server (count xs!)), row-height 24]
-        (dom/props {:style {:--col-count 2 :--row-height row-height}})
+        (dom/props {:style {:--column-count 2 :--row-height row-height}})
         (e/amb
           search
-          (Intercept (e/fn [index] (TablePicker! ::selection index row-count
+          (Intercept (e/fn [index] (TablePicker!2 ::selection index row-count
                                      (e/fn [index] (e/server (some->> (nth xs! index nil)
                                                                (TreeRow hfql-cols!)))) ; no ColumnPicker
-                                     :row-height row-height))
+                                     :row-height row-height
+                                     :column-count 2))
             selected
             (e/fn Unparse [selected]
               (e/server (if (= :page (first selected))
@@ -120,67 +121,6 @@
                                         (and component? (not default-select)) path ; dev mode ?
                                         card-many? path ; always navigable, dev mode? uses path descent not identified uri
                                         () nil)))))) )))))
-
-(e/defn TreeBlock2
-  [field-name kv state hfql-cols!
-   & {:keys [TreeRow]
-      :or {TreeRow TreeRow}}]
-  (e/client
-    (dom/fieldset (dom/props {:class "entity dustingetz-entity-browser3__block"})
-      (let [{selected ::selection, authoritative-search ::search} state
-            hfql-cols! (e/server (or hfql-cols! ['*]))
-            search (dom/legend (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title (key kv))) #_"use sitemap page name") " "))
-                               (Search! authoritative-search))
-            x (e/server (e/for [x (e/diff-by identity (e/as-vec (val kv)))] x)) ; safe meta
-            xs! (e/server #_(ex/Offload-latch (fn []))
-                  (when x (-> (hf-pull3 *hfql-bindings hfql-cols! x)
-                            (walker hfql-cols! (fn [& kv] (dustingetz.str/any-matches? kv authoritative-search)))
-                            vec)))
-            row-count (e/server (count xs!)), row-height 24]
-        (dom/props {:style {:--column-count 2 :--row-height row-height}})
-        (CollectBlockEdits
-          state
-          (e/amb
-            search
-            (Intercept (e/fn [index] (TablePicker!2 ::selection index row-count
-                                       (e/fn [index] (e/server (some->> (nth xs! index nil)
-                                                                 (TreeRow hfql-cols!)))) ; no ColumnPicker
-                                       :row-height row-height
-                                       :column-count 2))
-              selected
-              (e/fn Unparse [selected]
-                (e/server (if (= :page (first selected))
-                            (let [default-select (-> hfql-cols! meta :hf/select)
-                                  selected? (fn [[path _v _branch? :as row]]
-                                              (let [x (reduce hf-nav2 x path)
-                                                    card-many? (or (sequential? x) (set? x))
-                                                    ?s (when-not card-many? (identify x))]
-                                                (= selected
-                                                  (build-selection
-                                                    (or (-> row meta :hf/select) default-select)
-                                                    {'% (or ?s x)}))))]
-                              (find-index selected? xs!))
-                            (find-index (comp #{selected} first) xs!))))
-              (e/fn Parse [index] (e/server
-                                    (when-some [[path v branch? :as row] (nth xs! index nil)]
-                                      (let [x (reduce hf-nav2 x path) ; hydrated
-                                            card-many? (or (sequential? x) (set? x))
-                                            component? (map? x) ; ?
-                                            row-select (-> row meta :hf/select)
-                                            default-select (or (-> x meta :hf/select) (-> hfql-cols! meta :hf/select))
-                                            ?s (when-not card-many? (identify x))]
-                                        #_(prn 'TreeBlockSelect ?s card-many? component? select x)
-                                        (cond ; guard illegal navs
-                                          row-select (build-selection row-select {'% (or ?s x)})
-                                          (and ?s default-select) (build-selection default-select {'% ?s}) ; FIXME wrong '% - should be e not v. DJG: fixed maybe?
-                                        ; dev mode can traverse unidentified values/objects by path descent
-                                        ; some objects, such as #{:a :b} (Class :flags) are not HFQL-valid.
-                                        ; These objects will route but crash in TableBlock HFQL pull. Should HFQL handle them?
-                                          (and ?s (not default-select)) path ; dev mode?
-                                          (and component? default-select) path #_ (build-selection default-select {'% v}) ; hf/default-select identified objects only ?
-                                          (and component? (not default-select)) path ; dev mode ?
-                                          card-many? path ; always navigable, dev mode? uses path descent not identified uri
-                                          () nil)))))) ))))))
 
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
@@ -313,55 +253,6 @@
       :or {Row CollectionRow}}]
   (e/client
     (dom/fieldset
-      (dom/props {:class "entity-children"})
-      (let [{selected ::selection, authoritative-search ::search} state
-            select (e/server (-> hfql-cols! meta :hf/select))
-            hfql-cols! (e/server (or hfql-cols! ['*]))
-            !search (atom nil), search (e/watch !search)
-            path (e/server (key kv)),
-            ;; TODO filter should happen at query time, not here, tbd
-            xs!-with-meta (e/server (val kv))
-            xs! (e/server (hfql-search-sort *hfql-bindings hfql-cols! authoritative-search xs!-with-meta))
-            row-count (e/server (count xs!)), row-height 24
-            cols (dom/legend
-                   (dom/span (dom/props {:class "title"}) (dom/text (e/server (pr-str (symbolic-title path))) " "))
-                   (reset! !search (Search! authoritative-search))
-                   (dom/text " (" row-count " items) ")
-                   (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn []))
-                               (when (seq xs!) (infer-cols (nav xs! 0 (nth xs! 0)))))))]
-        (dom/props {:style {:--col-count (e/server (e/Count cols)) :--row-height row-height}})
-        (e/amb
-          (e/When search search)
-          (Intercept
-            (e/fn [index] (TablePicker! ::selection index row-count
-                            (e/fn [index] (e/server (some->> (nth xs! index nil)
-                                                      (nav xs!-with-meta index)
-                                                      (Row hfql-cols! cols))))
-                            :row-height row-height))
-            selected
-            ;; path->index
-            (e/fn Unparse [p-next] (let [id (first p-next)]
-                                     (e/server
-                                       (->> (eduction (map #(or (identify %) %)) xs!)
-                                         (find-index (if (= :page id)
-                                                       (fn [x] (= p-next (build-selection select {'% x})))
-                                                       #{id}))))))
-            ;; index->path
-            (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
-                                                !x (nav xs!-with-meta index x) ; hydrate object
-                                                symbolic-x (identify !x)] ; local-path
-                                            #_(prn 'TableBlockSelect symbolic-x x !x)
-                                            (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
-                                              (cond
-                                                select (build-selection select {'% symbolic-x})
-                                                ()      [symbolic-x])))))) )))))
-
-(e/defn TableBlock3 ; Like TableBlock but takes xs! instead of (fn [search] xs!)
-  [field-name kv state hfql-cols!
-   & {:keys [Row]
-      :or {Row CollectionRow}}]
-  (e/client
-    (dom/fieldset
       (dom/props {:class "entity-children dustingetz-entity-browser3__block"})
       (let [{selected ::selection, authoritative-search ::search} state
             select (e/server (-> hfql-cols! meta :hf/select))
@@ -378,42 +269,40 @@
                    (dom/text " (" row-count " items) ")
                    (e/server (ColumnPicker hfql-cols! #_(ex/Offload-latch (fn [])) (-> xs! first infer-cols))))
             column-count (e/server (e/Count cols))]
-        (CollectBlockEdits
-          state
-          (e/amb
-            (e/When search search)
-            (dom/table
-              (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-              (dom/thead
-                (dom/tr
-                  (e/for [col cols]
-                    (dom/th (dom/props {:title (str col)})
-                      (dom/text col)))))
-              (Intercept
-                (e/fn [index] (TablePicker!2 ::selection index row-count
-                                (e/fn [index] (e/server (some->> (nth xs! index nil)
-                                                          (nav xs!-with-meta index)
-                                                          (Row hfql-cols! cols))))
-                                :row-height row-height
-                                :column-count column-count
-                                :as :tbody))
-                selected
-                ;; path->index
-                (e/fn Unparse [p-next] (let [id (first p-next)]
-                                         (e/server
-                                           (->> (eduction (map #(or (identify %) %)) xs!)
-                                             (find-index (if (= :page id)
-                                                           (fn [x] (= p-next (build-selection select {'% x})))
-                                                           #{id}))))))
-                ;; index->path
-                (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
-                                                    !x (nav xs!-with-meta index x) ; hydrate object
-                                                    symbolic-x (identify !x)] ; local-path
-                                                #_(prn 'TableBlockSelect symbolic-x x !x)
-                                                (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
-                                                  (cond
-                                                    select (build-selection select {'% symbolic-x})
-                                                    ()      [symbolic-x])))))))))))))
+        (e/amb
+          (e/When search search)
+          (dom/table ; for table header - optional POC
+            (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
+            (dom/thead ; POC - safe to comment out
+              (dom/tr
+                (e/for [col cols]
+                  (dom/th (dom/props {:title (str col)})
+                    (dom/text col)))))
+            (Intercept
+              (e/fn [index] (TablePicker!2 ::selection index row-count
+                              (e/fn [index] (e/server (some->> (nth xs! index nil)
+                                                        (nav xs!-with-meta index)
+                                                        (Row hfql-cols! cols))))
+                              :row-height row-height
+                              :column-count column-count
+                              :as :tbody))
+              selected
+              ;; path->index
+              (e/fn Unparse [p-next] (let [id (first p-next)]
+                                       (e/server
+                                         (->> (eduction (map #(or (identify %) %)) xs!)
+                                           (find-index (if (= :page id)
+                                                         (fn [x] (= p-next (build-selection select {'% x})))
+                                                         #{id}))))))
+              ;; index->path
+              (e/fn Parse [index] (e/server (let [x (nth xs! index nil) ; maybe sym maybe object
+                                                  !x (nav xs!-with-meta index x) ; hydrate object
+                                                  symbolic-x (identify !x)] ; local-path
+                                              #_(prn 'TableBlockSelect symbolic-x x !x)
+                                              (e/When symbolic-x ; only nav if row is identifiable. TODO render EdnBlock if not identifiable.
+                                                (cond
+                                                  select (build-selection select {'% symbolic-x})
+                                                  ()      [symbolic-x]))))))))))))
 
 (def table-block-css
 "
@@ -447,7 +336,7 @@
 (e/defn Block [kv locus]
   (e/client
     (let [x (e/server #_datafy (val kv))]
-      (when-some [F (e/server (case (infer-block-type x) :tree TreeBlock2 :table TableBlock3 :string MarkdownBlock :scalar nil nil))]
+      (when-some [F (e/server (case (infer-block-type x) :tree TreeBlock :table TableBlock2 :string MarkdownBlock :scalar nil nil))]
         (Interpreter {::selection (e/fn [path]
                                     (let [[state] router/route]
                                       (if path
