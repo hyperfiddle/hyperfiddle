@@ -228,17 +228,22 @@
     (into {} (map #(let [unq (unqualify %)] [% (if (= 1 (freq unq)) unq %)]))
       k*)))
 
+(defn column-shortener [symbolic-columns]
+  (let [short-keyword-map (->short-keyword-map symbolic-columns)]
+    (fn [symbolic-column]
+      (cond
+        (keyword? symbolic-column) (short-keyword-map symbolic-column)
+        (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (unqualify qs) args))
+        () (str symbolic-column)))))
+
 (e/defn ColumnPicker [pull-spec col-opts!]
   (e/server
     (let [cols-available! (distinct (available-columns pull-spec col-opts!)) #_(->> (concat pull-spec col-opts!) (remove #{'*}) (distinct))
           selected? (selected-columns pull-spec col-opts!)
-          short-keyword-map (->short-keyword-map cols-available!)]
+          shorten (e/client (column-shortener cols-available!))]
       (e/for [col (e/diff-by identity cols-available!)]
         (if (e/client (Checkbox (e/server (selected? col))
-                        :label (cond
-                                 (keyword? col) (short-keyword-map col)
-                                 (seq? col) (let [[qs & args] col] (list* (unqualify qs) args))
-                                 () (str col))))
+                        :label (shorten col)))
           col (e/amb))))))
 
 (defn infer-cols [x]
@@ -275,9 +280,10 @@
             (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
             (dom/thead ; POC - safe to comment out
               (dom/tr
-                (e/for [col cols]
-                  (dom/th (dom/props {:title (str col)})
-                    (dom/text col)))))
+                (let [shorten (column-shortener (e/as-vec cols))]
+                  (e/for [col cols]
+                    (dom/th (dom/props {:title (str col)})
+                            (dom/text (shorten col)))))))
             (Intercept
               (e/fn [index] (TablePicker!2 ::selection index row-count
                               (e/fn [index] (e/server (some->> (nth xs! index nil)
