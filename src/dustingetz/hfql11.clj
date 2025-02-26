@@ -157,8 +157,8 @@
      (sequential? a) (let [[fsym & arg-syms] a]
                        (with-bindings *dynamic-scope*
                          (apply (resolve fsym) (map (comp undatafy (partial context-resolve ctx)) arg-syms))))
-     (nat-int? a) (cond (vector? e) (get e a)
-                        (sequential? e) (nth e a)
+     (nat-int? a) (cond (vector? e) (nav-with-fallback e a (get e a))
+                        (sequential? e) (nav-with-fallback e a (nth e a))
                         () (println `hf-nav2 "don't know how to navigate through" a "onto" e))
      ()           (binding [*print-length* 1, *print-level* 2]
                     (println `hf-nav2 "don't know how to navigate through" (pr-str a) "(a" (type a) ")" "onto" (pr-str e))))))
