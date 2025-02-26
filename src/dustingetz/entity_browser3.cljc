@@ -155,17 +155,17 @@
   (let [{:keys [hf/link hf/Render hf/Tooltip]} (meta hfql-col)]
     (dom/td ; custom renderer runs in context of table cell
       (let [Continuation (e/fn [?e a v pull-expr]
-                           (when ?e ; expensive n×m
-                             (e/for [Tooltip (e/diff-by identity (e/as-vec (Resolve Tooltip nil)))] ; glitch reboot
+                           (when ?e ; expensive n×m ; what is this check useful for?
+                             (let [Tooltip (Resolve Tooltip nil)] ; used to be unglitched with e/for - seems harmless now - perf boost
+                               #_(e/for [Tooltip (e/diff-by identity (e/as-vec (Resolve Tooltip nil)))])
                                (when (and Tooltip (dom/Mouse-over?)) (dom/props {:data-tooltip (Tooltip ?e a v pull-expr)})))
-                             (let []
-                               (if (coll? v)
-                                 (RenderInlineColl ?e a v pull-expr)
-                                 (let [v-sym (or (identify v) v) ; strip server refs, route must serialize ; if user put a link on some non-identifiable thing it will generate a bad route.
-                                       v-str (#_str pr-str v)] ; render identified not ref, is that right?
-                                   (if-some [[qsym & args] link]
-                                     (router/link ['.. `[[~qsym ~@(replace (assoc ?e a v-sym) args)]]] (dom/text v-str))
-                                     (dom/text v-str)))))))]
+                             (if (coll? v)
+                               (RenderInlineColl ?e a v pull-expr)
+                               (let [v-sym (or (identify v) v) ; strip server refs, route must serialize ; if user put a link on some non-identifiable thing it will generate a bad route.
+                                     v-str (#_str pr-str v)] ; render identified not ref, is that right?
+                                 (if-some [[qsym & args] link]
+                                   (router/link ['.. `[[~qsym ~@(replace (assoc ?e a v-sym) args)]]] (dom/text v-str))
+                                   (dom/text v-str))))))]
         (binding [dustingetz.entity-browser3/Render Continuation]
           (e/$ (Resolve Render Continuation) ?e a v (safe-vary-meta hfql-col dissoc :hf/Render)))))))
 
