@@ -49,7 +49,7 @@ navigable pulled maps, without touching all attributes."
   #_(clojure.repl/doc nav) ; big idea: k is optional actually!
   ; nav can use k if it helps you enrich the object but you don't have to!
   ; G: I think it was a mistake for Rich to make nav look like get and get-in
-  (def xs (with-meta [123 125 lennon] ; attach polymorphic context to the resultset not the element
+  (def xs (with-meta [123 124 lennon] ; attach polymorphic context to the resultset not the element
             {`clojure.core.protocols/nav ; polymorphic not by type but by meta
              (fn [xs k v] (d/entity @test-db v))}))
   "nav can resolve a hydrated object from a dehydrated resultset"
