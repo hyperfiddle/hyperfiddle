@@ -40,12 +40,14 @@
 
 (defn props [k opts] (->Props k opts))
 
+(defn resolve! [f$] (or (resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
+
 (defn pull-object [scope spec o]
   (reduce (fn [ac viewer]
             (let [k (unwrap viewer)]
               (if (seq? k)
                 (let [[f$ & args] (replace scope k)
-                      v (apply (resolve f$) args)]
+                      v (apply (resolve! f$) args)]
                   (assoc ac k v))
                 (assoc ac k (view viewer o)))))
     {} spec))
