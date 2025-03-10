@@ -383,7 +383,9 @@
                 (let [kv (e/server #_(ex/Offload-reset (fn []))
                                    (case (infer-block-type (val kv))
                                      :table (let [xs (val kv) ; preserve metas
-                                                  index (or (id->index (first selection) (datafy xs)) (first selection))]
+                                                  xs (datafy xs)
+                                                  xs (vec xs) ; cast sets for index lookup, fixme untangle
+                                                  index (or (id->index (first selection) xs) (first selection))]
                                               (map-entry selection (hf-nav2 xs index)))
                                      (let [x (reduce hf-nav2 (val kv) selection)
                                            title selection #_(if *dev-mode* (pr-str (let [x (val kv)] (or (identify x) x))))

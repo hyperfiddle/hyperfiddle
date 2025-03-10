@@ -159,6 +159,7 @@
                          (apply (resolve fsym) (map (comp undatafy (partial context-resolve ctx)) arg-syms))))
      (nat-int? k) (cond (vector? x) (nav-with-fallback x k (get x k))
                         (sequential? x) (nav-with-fallback x k (nth x k))
+                        #_#_(set? x) (nav-with-fallback x k (nth (vec x) k)) ; sets cannot support ordinal lookup
                         () (println `hf-nav2 "don't know how to navigate through" k "onto" x))
      ()           (binding [*print-length* 1, *print-level* 2]
                     (println `hf-nav2 "don't know how to navigate through" (pr-str k) "(a" (type k) ")" "onto" (pr-str x))))))
