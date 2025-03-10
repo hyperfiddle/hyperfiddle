@@ -144,24 +144,24 @@
     (and (var? obj) (fn? (deref obj)))))
 
 (defn hf-nav2 ; WIP
-  ([e a] (hf-nav2 e a {'% e}))
-  ([e a ctx]
+  ([x k] (hf-nav2 x k {'% x})) ; x,k is either e,a or xs,i
+  ([x k ctx]
    ; hack: keyword/symbol lookups query datafy repr, sexpr calls query object repr
    (cond
-     (keyword? a) (nav-with-fallback e a (lookup e a))
-     (string? a)  (nav-with-fallback e a (lookup e a))
-     (symbol? a)  (if (fn-sym? a)
-                    (hf-nav2 e `(~a ~'%) ctx)
-                    (let [k (keyword (namespace a) (name a))]
-                      (or (hf-nav2 e k ctx) (nav-with-fallback e a (lookup e a)))))
-     (sequential? a) (let [[fsym & arg-syms] a]
+     (keyword? k) (nav-with-fallback x k (lookup x k))
+     (string? k)  (nav-with-fallback x k (lookup x k))
+     (symbol? k)  (if (fn-sym? k)
+                    (hf-nav2 x `(~k ~'%) ctx)
+                    (let [k (keyword (namespace k) (name k))]
+                      (or (hf-nav2 x k ctx) (nav-with-fallback x k (lookup x k)))))
+     (sequential? k) (let [[fsym & arg-syms] k]
                        (with-bindings *dynamic-scope*
                          (apply (resolve fsym) (map (comp undatafy (partial context-resolve ctx)) arg-syms))))
-     (nat-int? a) (cond (vector? e) (nav-with-fallback e a (get e a))
-                        (sequential? e) (nav-with-fallback e a (nth e a))
-                        () (println `hf-nav2 "don't know how to navigate through" a "onto" e))
+     (nat-int? k) (cond (vector? x) (nav-with-fallback x k (get x k))
+                        (sequential? x) (nav-with-fallback x k (nth x k))
+                        () (println `hf-nav2 "don't know how to navigate through" k "onto" x))
      ()           (binding [*print-length* 1, *print-level* 2]
-                    (println `hf-nav2 "don't know how to navigate through" (pr-str a) "(a" (type a) ")" "onto" (pr-str e))))))
+                    (println `hf-nav2 "don't know how to navigate through" (pr-str k) "(a" (type k) ")" "onto" (pr-str x))))))
 
 (tests ; nav-2
   (get !alice :db/id) := 17592186045428
