@@ -183,12 +183,15 @@
           (router/pop
             (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))))))))))
 
+#?(:clj (defn not-entity-like? [x] (or (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x)))))
+
 (e/defn AnonymousBlock [selection next-x]
   (e/server
     (rebooting next-x
-      (e/client
-        (router/pop
-          (Block [selection] next-x (e/server [])))))))
+      (when-not (and (sequential? next-x) (not-entity-like? (first next-x)))
+        (e/client
+          (router/pop
+            (Block [selection] next-x (e/server []))))))))
 
 #?(:clj (defn find-default-page [page-defaults o]))
 
