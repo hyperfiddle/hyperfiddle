@@ -373,9 +373,10 @@
               data (e/server (eager-pull-search-sort
                                ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
                                raw-spec2 *hfql-bindings saved-search sort-spec))
-              row-count (e/server (count data)), row-height 24
+              row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
               column-count (e/server (count raw-spec2))]
+          (reset! !row-count (e/server (count data)))
           (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
             (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) :asc]]))
           (dom/table
