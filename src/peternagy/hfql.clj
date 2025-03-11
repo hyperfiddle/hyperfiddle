@@ -1,5 +1,6 @@
 (ns peternagy.hfql
   (:require [hyperfiddle.electric3 :as e]
+            [clojure.string :as str]
             [hyperfiddle.rcf :as rcf]
             [contrib.debug :as dbg])
   (:import [java.io Writer]))
@@ -8,11 +9,39 @@
   (-suggest [o]))
 (defn suggest [o] (-suggest o))
 
+(defn suggest-fields [^Class clazz]
+  (into [] (map
+             (fn [^java.lang.reflect.Field fld]
+               (let [nm (.getName fld)]
+                 {:label (str ".-" nm)
+                  :entry (list (symbol (str ".-" nm)) (symbol "%"))})))
+    (.getFields clazz)))
+
+(defn suggest-methods [^Class clazz]
+  (into [] (map
+             (fn [^java.lang.reflect.Method meth]
+               (let [nm (.getName meth), arg-count (.getParameterCount meth)
+                     stub-arg* (mapv #(symbol (str "arg" (inc %))) (range arg-count))]
+                 {:label (str "." nm " (" arg-count ")")
+                  :entry (list* (symbol (str "." nm)) (symbol "%") stub-arg*)})))
+    (.getMethods clazz)))
+
+(defn suggest-jvm [o]
+  (let [clazz (class o)]
+    (into (suggest-fields clazz) (suggest-methods clazz))))
+
 (extend-protocol Suggestable
+  clojure.lang.IPersistentMap
+  (-suggest [m] (into [] (map (fn [k] {:label k, :entry k}) (keys m))))
   Object
   (-suggest [_])
   nil
   (-suggest [_]))
+
+(comment
+  (suggest-fields (class (props :k {})))
+  (suggest-methods (class (props :k {})))
+  )
 
 (defprotocol Viewer
   (-view [_ _o])
@@ -54,13 +83,18 @@
 
 (defn resolve! [f$] (or (resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
 
+(defn invoke-reflective [method$ o & args]
+  (clojure.lang.Reflector/invokeInstanceMethodOfClass o (class o) (subs (str method$) 1) (into-array args)))
+
 (defn pull-object [scope spec o]
   (with-meta
     (reduce (fn [ac viewer]
               (let [k (unwrap viewer)]
                 (if (seq? k)
                   (let [[f$ & args] (replace scope k)
-                        v (apply (resolve! f$) args)]
+                        v (if (str/starts-with? (str f$) ".")
+                            (apply invoke-reflective f$ args)
+                            (apply (resolve! f$) args))]
                     (assoc ac k v))
                   (assoc ac k (view viewer o)))))
       {} spec)
@@ -81,4 +115,12 @@
   (pull {} `[(inc ~'%)] 1)                   := {`(inc ~'%) 2}
   (pull {#'*test* 10} `[(test-times ~'%)] 2) := {`(test-times ~'%) 20}
   (pull {} `[(inc ~'%)] [1 2])               := `[{(inc ~'%) 2} {(inc ~'%) 3}]
+  (pull {} `[(.get ~'% :a)] {:a 1})          := `{(.get ~'% :a) 1}
+  (pull {} `[(.get ~'% :a)] [{:a 1} {:b 2}]) := `[{(.get ~'% :a) 1} {(.get ~'% :a) nil}]
+  )
+
+(comment
+  (.get {:a 1} :a)
+  (clojure.lang.Reflector/invokeInstanceMethodOfClass {:a 1} (class {:a 1}) "get" (into-array [:a]))
+  (invoke-reflective {:a 1} '.get :a)
   )

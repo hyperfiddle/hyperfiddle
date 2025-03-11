@@ -66,21 +66,30 @@
 
 (defn column-appender [s] (fn [v] (str (subs v 0 (- (count v) 2)) "\n " s "]\n")))
 
+#?(:clj (defn collect-suggestions [o bindings]
+          (with-bindings bindings
+            (let [innate* (or (hfql/suggest o)
+                            (when (or (coll? o) (sequential? o))
+                              (hfql/suggest (nth o 0 nil))))
+                  jvm* (hfql/suggest-jvm o)]
+              (into innate* jvm*)))))
+
 (e/defn Suggestions [o]
   (e/client
     (e/When (IDE-mode?)
       (dom/div
         (dom/text "suggestions:")
-        (let [suggestions (e/server (or (with-bindings *hfql-bindings (hfql/suggest o))
+        (let [suggestions (e/server (collect-suggestions o *hfql-bindings)
+                                    #_(or (with-bindings *hfql-bindings (hfql/suggest o))
                                       (when (or (coll? o) (sequential? o))
                                         (with-bindings *hfql-bindings (hfql/suggest (nth o 0 nil))))))]
           (e/When suggestions
             (dom/div
-              (e/for [s (e/diff-by {} suggestions)]
+              (e/for [{:keys [label entry]} (e/diff-by {} suggestions)]
                 (dom/button
-                  (dom/text s)
+                  (dom/text label)
                   (let [[t] (e/Token (dom/On "click" (fn [_] true) nil))]
-                    (e/When t [t s])))))))))))
+                    (e/When t [t entry])))))))))))
 
 (e/declare Render)
 
@@ -153,7 +162,7 @@
 #?(:clj (defn add-suggestions [spec suggest*]
           (hfql/props-update-k spec
             (fn [raw-spec]
-              (reduce (fn [raw-spec nx]
+              (reduce (fn [raw-spec {nx :entry}]
                         (if (find-if #(= nx (hfql/unwrap %)) raw-spec)
                           raw-spec
                           (conj raw-spec nx)))
@@ -211,7 +220,9 @@
           (dom/props {:class "entity dustingetz-entity-browser3__block"})
           (dom/legend
             (dom/span (dom/props {:class "title"}) (dom/text (e/server (pretty-title query)) " "))
-            (reset! !search (Search! saved-search)))
+            ;; TODO remove ugly workaround, solves bug where search travels across navigation
+            (reset! !search (update (Search! saved-search) ::forms/token forms/unify-t
+                              (fn ([] (reset! !search nil)) ([err] (prn 'err err))))))
           (dom/props {:style {:--column-count 2 :--row-height row-height}})
           (forms/Interpreter effect-handlers
             (e/amb
@@ -270,14 +281,30 @@
               (dom/On "click" #(reset! !sort-spec [[col :asc]]) nil))
             (dom/text (shorten col))))))))
 
-(e/defn TableTitle [query !search saved-search row-count]
+(e/defn TableTitle [query !search saved-search row-count spec suggest*]
   (dom/legend
     (dom/span
       (dom/props {:class "title"})
-      (dom/text (e/server (pretty-title query)))
+      (dom/text (pretty-title query))
       (dom/text " ")
-      (reset! !search (Search! saved-search))
-      (dom/text " (" row-count " items)"))))
+      ;; TODO remove ugly workaround, solves bug where search travels across navigation
+      (e/client (reset! !search (update (Search! saved-search)
+                                  ::forms/token forms/unify-t
+                                  (fn ([] (reset! !search nil)) ([err] (prn 'err err)))))
+                nil)
+      (dom/text " (" row-count " items) ")
+      (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
+            pre-checked (empty? k*)
+            selected (e/as-vec
+                       (e/for [{:keys [entry]} (e/diff-by {} (eduction (remove (comp k* :entry)) suggest*))]
+                         (dom/label
+                           (dom/text entry)
+                           (dom/input
+                             (dom/props {:type "checkbox"})
+                             (e/client (set! (.-checked dom/node) pre-checked))
+                             (e/When (dom/On "change" #(-> % .-target .-checked) pre-checked)
+                               entry)))))]
+        (hfql/props-update-k spec (fn [raw-spec] (into raw-spec selected)))))))
 
 (e/defn TableBody [row-count row-height cols data raw-spec saved-selection select]
   (let [col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
@@ -298,41 +325,6 @@
                               (let [x (e/server (nth data index nil))
                                     symbolic-x (e/server (hfp/identify x))]
                                 (e/When symbolic-x symbolic-x)))))))
-
-(e/defn QueryBlock [query o-fn spec effect-handlers args]
-  (e/client
-    (let [[{saved-search ::search, saved-selection ::selection}] args
-          select (e/server (::hfql/select (hfql/opts spec)))
-          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) :asc]]), sort-spec (e/watch !sort-spec)
-          !search (atom nil), search (e/watch !search)
-          data (e/server (o-fn saved-search sort-spec))
-          spec2 (e/server (cond-> spec (Browse-mode?) (add-suggestions (hfql/suggest (first data)))))
-          raw-spec (e/server (hfql/unwrap spec2))
-          row-count (e/server (count data)), row-height 24
-          cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec)))
-          column-count (e/server (count raw-spec))]
-      (dom/fieldset
-        (dom/props {:class "entity-children dustingetz-entity-browser3__block"})
-        (TableTitle query !search saved-search row-count)
-        (dom/table
-          (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-          (TableHeader cols !sort-spec)
-          (forms/Interpreter effect-handlers
-            (e/amb
-              (e/When search search)
-              (TableBody row-count row-height cols data raw-spec saved-selection select)))))
-      (when saved-selection
-        (let [next-x (e/server (->> (find-if #(= saved-selection (or (hfp/identify %) %)) data)
-                                 (Nav data nil)))]
-          (if select
-            ;; In ObjectBlock we pass the selected object and the root object.
-            ;; Here the root object is a query fn, or the filtered collection.
-            ;; Do we want/need to pass it? Should we bind it to `%`?
-            (NextBlock select next-x next-x)
-            (when (Browse-mode?)
-              (if-some [query-template (e/server (find-default-page *page-defaults next-x))]
-                (NextBlock query-template next-x next-x)
-                (AnonymousBlock saved-selection next-x)))))))))
 
 #?(:clj (defn eager-pull-search-sort [data spec hfql-bindings search sort-spec]
           (let [enriched (hfql/pull hfql-bindings spec data)
@@ -360,37 +352,36 @@
                                     symbolic-x (e/server (hfp/identify x))]
                                 (e/When symbolic-x symbolic-x)))))))
 
-;; copied QueryBlock
-;; QueryBlock needs work, for efficient queries we need to pass
-;; - columns
-;; - sort
-;; - search
-;; - page (offset&limit)
-;; CollectionBlock is a naive version doing N+1 queries and doing work in memory
+;; CollectionBlock is naive, doing N+1 queries and doing work in memory
 (e/defn CollectionBlock [query unpulled spec effect-handlers args]
   (e/client
     (let [[{saved-search ::search, saved-selection ::selection}] args
           select (e/server (::hfql/select (hfql/opts spec)))
           !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) :asc]]), sort-spec (e/watch !sort-spec)
           !search (atom nil), search (e/watch !search)
-          spec2 (e/server (cond-> spec (Browse-mode?) (add-suggestions (hfql/suggest (first unpulled)))))
-          raw-spec (e/server (hfql/unwrap spec2))
-          data (e/server (eager-pull-search-sort
-                           ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
-                           raw-spec *hfql-bindings saved-search sort-spec))
-          row-count (e/server (count data)), row-height 24
-          cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec)))
-          column-count (e/server (count raw-spec))]
+          !row-count (atom 0), row-count (e/watch !row-count)]
+      ;; cycle back first column as sort in browse mode
       (dom/fieldset
         (dom/props {:class "entity-children dustingetz-entity-browser3__block"})
-        (TableTitle query !search saved-search row-count)
-        (dom/table
-          (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-          (TableHeader cols !sort-spec)
-          (forms/Interpreter effect-handlers
-            (e/amb
-              (e/When search search)
-              (CollectionTableBody row-count row-height cols data raw-spec saved-selection select)))))
+        (let [spec2 (e/server
+                      (TableTitle query !search saved-search row-count spec
+                        (when (Browse-mode?) (hfql/suggest (first unpulled)))))
+              raw-spec2 (e/server (hfql/unwrap spec2))
+              data (e/server (eager-pull-search-sort
+                               ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
+                               raw-spec2 *hfql-bindings saved-search sort-spec))
+              row-count (e/server (count data)), row-height 24
+              cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
+              column-count (e/server (count raw-spec2))]
+          (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
+            (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) :asc]]))
+          (dom/table
+            (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
+            (TableHeader cols !sort-spec)
+            (forms/Interpreter effect-handlers
+              (e/amb
+                (e/When search search)
+                (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select))))))
       (when saved-selection
         (let [next-x (e/server (->> (find-if #(= saved-selection (or (hfp/identify %) %)) unpulled)
                                  (Nav unpulled nil)))]
@@ -422,7 +413,6 @@
                             :object ObjectBlock
                             :collection CollectionBlock
                             :set CollectionBlock
-                            :query QueryBlock
                             #_else nil))]
     (when (IDE-mode?)
       (let [update-text (dom/textarea
@@ -438,16 +428,15 @@
                       (swap! !sitemap append-to-query query v)))
                   #_(*sitemap-writer (sitemapify (update *sitemap (list* query) conj v))))
             (t)))))
-    (let [effect-handlers {::search (e/fn [s]
-                                      (router/pop
-                                        (let [[state & more] router/route]
-                                          (router/ReplaceState! ['. `[~(assoc state ::search s) ~@more]])
-                                          [::forms/ok])))
-                           ::selection (e/fn [symbolic-x]
-                                         (router/pop
-                                           (let [[state] router/route]
-                                             (router/ReplaceState! ['. `[~(assoc state ::selection symbolic-x)]])
-                                             [::forms/ok])))}]
+    (let [effect-handlers
+          {::search (e/fn [s]
+                      (router/focus [1]
+                        (router/ReplaceState! ['. (assoc router/route ::search s)])
+                        [::forms/ok]))
+           ::selection (e/fn [symbolic-x]
+                         (router/pop
+                           (router/ReplaceState! ['. `[~(assoc (first router/route) ::selection symbolic-x)]])
+                           [::forms/ok]))}]
       (reset! !mode (or (e/server (-> spec hfql/opts ::hfql/mode)) default-mode))
       (F query o spec effect-handlers (next router/route)))))
 
