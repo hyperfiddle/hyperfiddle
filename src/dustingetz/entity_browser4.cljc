@@ -307,6 +307,11 @@
                              (e/client (set! (.-checked dom/node) pre-checked))
                              (e/When (dom/On "change" #(-> % .-target .-checked) pre-checked)
                                entry)))))]
+        (e/for [k (e/diff-by {} (mapv hfql/unwrap (hfql/unwrap spec)))]
+          (dom/label
+            (dom/text k)
+            (dom/input
+              (dom/props {:type "checkbox", :checked true, :disabled true}))))
         (hfql/props-update-k spec (fn [raw-spec] (into raw-spec selected)))))))
 
 (e/defn TableBody [row-count row-height cols data raw-spec saved-selection select]
