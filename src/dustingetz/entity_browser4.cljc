@@ -375,7 +375,7 @@
         (dom/props {:class "entity-children dustingetz-entity-browser3__block"})
         (let [spec2 (e/server
                       (TableTitle query !search saved-search row-count spec
-                        (when (Browse-mode?) (hfql/suggest (first unpulled)))))
+                        (when (Browse-mode?) (hfql/suggest (Nav unpulled nil (first unpulled))))))
               raw-spec2 (e/server (hfql/unwrap spec2))
               data (e/server (eager-pull-search-sort
                                ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
