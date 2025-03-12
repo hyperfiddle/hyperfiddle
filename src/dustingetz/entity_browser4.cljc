@@ -248,12 +248,13 @@
                                  (Nav o (key nx) (val nx))))
               row-select (e/server (-> (find-spec-prop raw-spec saved-selection) hfql/opts ::hfql/select))
               select (or row-select default-select)]
-          (if select
-            (NextBlock select next-x o)
-            (when browse?
-              (if-some [query-template (e/server (find-default-page *page-defaults next-x))]
-                (NextBlock query-template next-x o)
-                (AnonymousBlock saved-selection next-x)))))))))
+          (rebooting select
+            (if select
+              (NextBlock select next-x o)
+              (when browse?
+                (if-some [query-template (e/server (find-default-page *page-defaults next-x))]
+                  (NextBlock query-template next-x o)
+                  (AnonymousBlock saved-selection next-x))))))))))
 
 (defn ->short-keyword-map [cols-available!]
   (let [k* (filterv keyword? cols-available!)
@@ -396,15 +397,16 @@
       (when saved-selection
         (let [next-x (e/server (->> (find-if #(= saved-selection (or (hfp/identify %) %)) unpulled)
                                  (Nav unpulled nil)))]
-          (if select
-            ;; In ObjectBlock we pass the selected object and the root object.
-            ;; Here the root object is a query fn, or the filtered collection.
-            ;; Do we want/need to pass it? Should we bind it to `%`?
-            (NextBlock select next-x next-x)
-            (when (Browse-mode?)
-              (if-some [query-template (e/server (find-default-page *page-defaults next-x))]
-                (NextBlock query-template next-x next-x)
-                (AnonymousBlock saved-selection next-x)))))))))
+          (rebooting select
+            (if select
+              ;; In ObjectBlock we pass the selected object and the root object.
+              ;; Here the root object is a query fn, or the filtered collection.
+              ;; Do we want/need to pass it? Should we bind it to `%`?
+              (NextBlock select next-x next-x)
+              (when (Browse-mode?)
+                (if-some [query-template (e/server (find-default-page *page-defaults next-x))]
+                  (NextBlock query-template next-x next-x)
+                  (AnonymousBlock saved-selection next-x))))))))))
 
 #?(:clj (defn sitemapify [spec]
           (walk/postwalk
