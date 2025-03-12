@@ -244,7 +244,7 @@
                                             select (or row-select default-select)]
                                         (e/When (e/server (or browse? (and x select))) (e/server (first x))))))))))
       (when saved-selection
-        (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) data)] ; when-some because glitch
+        (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
                                  (Nav o (key nx) (val nx))))
               row-select (e/server (-> (find-spec-prop raw-spec saved-selection) hfql/opts ::hfql/select))
               select (or row-select default-select)]
