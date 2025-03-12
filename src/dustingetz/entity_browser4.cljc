@@ -193,7 +193,8 @@
           (router/pop
             (Block [selection] next-x (e/server []))))))))
 
-#?(:clj (defn find-default-page [page-defaults o]))
+#?(:clj (defn find-default-page [page-defaults o]
+          (some #(% o) page-defaults)))
 
 (e/defn Nav [coll k v] (e/server (with-bindings *hfql-bindings (datafy/nav coll k v))))
 
