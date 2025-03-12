@@ -10,11 +10,12 @@
 (defn suggest [o] (-suggest o))
 
 (defn suggest-fields [^Class clazz]
-  (into [] (map
+  (into [] (keep
              (fn [^java.lang.reflect.Field fld]
-               (let [nm (.getName fld)]
-                 {:label (str ".-" nm)
-                  :entry (list (symbol (str ".-" nm)) (symbol "%"))})))
+               (when-not (java.lang.reflect.Modifier/isStatic (.getModifiers fld))
+                 (let [nm (.getName fld)]
+                   {:label (str ".-" nm)
+                    :entry (list (symbol (str ".-" nm)) (symbol "%"))}))))
     (.getFields clazz)))
 
 (defn suggest-methods [^Class clazz]
@@ -34,7 +35,7 @@
   clojure.lang.IPersistentMap
   (-suggest [m] (into [] (map (fn [k] {:label k, :entry k}) (keys m))))
   Object
-  (-suggest [_])
+  (-suggest [o] (suggest-fields (class o)))
   nil
   (-suggest [_]))
 
@@ -86,15 +87,22 @@
 (defn invoke-reflective [method$ o & args]
   (clojure.lang.Reflector/invokeInstanceMethodOfClass o (class o) (subs (str method$) 1) (into-array args)))
 
+(defn read-reflective [field$ o]
+  (let [fld (.getField (class o) (subs (str field$) 2))]
+    (.get fld o)))
+
+(defn field-access? [f$] (str/starts-with? (str f$) ".-"))
+(defn method-access? [f$] (str/starts-with? (str f$) "."))
+
 (defn pull-object [scope spec o]
   (with-meta
     (reduce (fn [ac viewer]
               (let [k (unwrap viewer)]
                 (if (seq? k)
                   (let [[f$ & args] (replace scope k)
-                        v (if (str/starts-with? (str f$) ".")
-                            (apply invoke-reflective f$ args)
-                            (apply (resolve! f$) args))]
+                        v (cond (field-access? f$)  (read-reflective f$ (first args))
+                                (method-access? f$) (apply invoke-reflective f$ args)
+                                :else               (apply (resolve! f$) args))]
                     (assoc ac k v))
                   (assoc ac k (view viewer o)))))
       {} spec)
@@ -109,14 +117,15 @@
 (def ^:dynamic *test* nil)
 (defn test-times [n] (* *test* n))
 (rcf/tests
-  (pull {} [:a :b] {:a 1 :b 2})              := {:a 1, :b 2}
-  (pull {} [:a :b] [{:a 1 :b 2}])            := [{:a 1, :b 2}]
-  (pull {} [(props :a {}) :b] {:a 1 :b 2})   := {:a 1, :b 2}
-  (pull {} `[(inc ~'%)] 1)                   := {`(inc ~'%) 2}
-  (pull {#'*test* 10} `[(test-times ~'%)] 2) := {`(test-times ~'%) 20}
-  (pull {} `[(inc ~'%)] [1 2])               := `[{(inc ~'%) 2} {(inc ~'%) 3}]
-  (pull {} `[(.get ~'% :a)] {:a 1})          := `{(.get ~'% :a) 1}
-  (pull {} `[(.get ~'% :a)] [{:a 1} {:b 2}]) := `[{(.get ~'% :a) 1} {(.get ~'% :a) nil}]
+  (pull {} [:a :b] {:a 1 :b 2})                                   := {:a 1, :b 2}
+  (pull {} [:a :b] [{:a 1 :b 2}])                                 := [{:a 1, :b 2}]
+  (pull {} [(props :a {}) :b] {:a 1 :b 2})                        := {:a 1, :b 2}
+  (pull {} `[(inc ~'%)] 1)                                        := {`(inc ~'%) 2}
+  (pull {#'*test* 10} `[(test-times ~'%)] 2)                      := {`(test-times ~'%) 20}
+  (pull {} `[(inc ~'%)] [1 2])                                    := `[{(inc ~'%) 2} {(inc ~'%) 3}]
+  (pull {} `[(.get ~'% :a)] {:a 1})                               := `{(.get ~'% :a) 1}
+  (pull {} `[(.get ~'% :a)] [{:a 1} {:b 2}])                      := `[{(.get ~'% :a) 1} {(.get ~'% :a) nil}]
+  (pull {} `[(.-width ~'%)] (new java.awt.Rectangle 10 20 30 40)) := `{(.-width ~'%) 30}
   )
 
 (comment
