@@ -198,6 +198,7 @@
 (e/defn Nav [coll k v] (e/server (with-bindings *hfql-bindings (datafy/nav coll k v))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (hfql/unwrap %)) spec)))
+#?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
 
 (e/defn ObjectBlock [query o spec effect-handlers args]
   (e/client
@@ -213,7 +214,7 @@
                  (into [] (keep (fn [kspec]
                                   (let [k (hfql/unwrap kspec)
                                         v (get pulled k)]
-                                    (when (or (strx/includes-str? k saved-search)
+                                    (when (or (strx/includes-str? (?unlazy k) saved-search)
                                             (strx/includes-str? v saved-search))
                                       (datax/map-entry k v)))))
                    raw-spec))
