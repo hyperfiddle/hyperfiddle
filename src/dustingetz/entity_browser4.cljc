@@ -339,7 +339,7 @@
 
 #?(:clj (defn eager-pull-search-sort [data spec hfql-bindings search sort-spec]
           (let [enriched (hfql/pull hfql-bindings spec data)
-                filtered (eduction (filter #(strx/includes-str? % search)) enriched)]
+                filtered (eduction (filter #(strx/any-matches? (vals %) search)) enriched)]
             (vec (if-some [sorter (->sort-comparator sort-spec)]
                    (sort sorter filtered)
                    filtered)))))
