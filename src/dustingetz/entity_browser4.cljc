@@ -303,7 +303,7 @@
             selected (e/as-vec
                        (e/for [entry (e/diff-by {} new-suggest*)]
                          (dom/label
-                           (dom/text (shorten entry))
+                           (dom/text " " (shorten entry))
                            (dom/input
                              (dom/props {:type "checkbox"})
                              (e/client (set! (.-checked dom/node) pre-checked))
@@ -311,7 +311,7 @@
                                entry)))))]
         (e/for [k (e/diff-by {} (mapv hfql/unwrap (hfql/unwrap spec)))]
           (dom/label
-            (dom/text (shorten k))
+            (dom/text " " (shorten k))
             (dom/input
               (dom/props {:type "checkbox", :checked true, :disabled true}))))
         (hfql/props-update-k spec (fn [raw-spec] (into raw-spec selected)))))))
