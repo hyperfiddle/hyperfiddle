@@ -1,5 +1,6 @@
 (ns dustingetz.entity-browser4
   (:require [contrib.css :as cssx]
+            [contrib.assert :as ca]
             [contrib.data :as datax]
             [contrib.debug :as dbg]
             [dustingetz.str :as strx]
@@ -148,8 +149,9 @@
   (transduce (keep (fn [x] (when (pred x) x))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*))
 
 (defn find-sitemap-spec [sitemap f$]
-  (reduce-kv (fn [_ [k$] v]
-               (when (= f$ k$) (reduced v))) nil sitemap))
+  (ca/is (reduce-kv (fn [_ [k$] v]
+                      (when (= f$ k$) (reduced v))) nil sitemap)
+    some? (str "couldn't find sitemap definition for " (pr-str f$))))
 
 #?(:clj (defn find-spec-prop [raw-spec raw-k]
           (transduce (keep #(when (= raw-k (hfql/unwrap %)) %)) (fn ([v] v) ([_ac nx] (reduced nx))) nil raw-spec)))
