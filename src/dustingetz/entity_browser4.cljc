@@ -397,8 +397,12 @@
                 (e/When search search)
                 (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select))))))
       (when saved-selection
-        (let [next-x (e/server (->> (find-if #(= saved-selection (or (hfp/identify %) %)) unpulled)
-                                 (Nav unpulled nil)))]
+        (let [next-x (e/server
+                       (with-bindings *hfql-bindings
+                         (some #(let [navd (datafy/nav unpulled nil %)]
+                                  (when (= saved-selection (or (hfp/identify %) %))
+                                    navd))
+                           unpulled)))]
           (rebooting select
             (if select
               ;; In ObjectBlock we pass the selected object and the root object.
