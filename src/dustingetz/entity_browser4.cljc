@@ -183,7 +183,7 @@
           (router/pop
             (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))))))))))
 
-#?(:clj (defn not-entity-like? [x] (or (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x)))))
+#?(:clj (defn not-entity-like? [x] (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x)))))
 
 (e/defn AnonymousBlock [selection next-x]
   (e/server
