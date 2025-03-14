@@ -456,6 +456,12 @@
       (reset! !mode (or (e/server (-> spec hfql/opts ::hfql/mode)) default-mode))
       (F query o spec effect-handlers (next router/route)))))
 
+(e/defn ModePicker [mode]
+  (let [edit (forms/RadioPicker! nil (name mode) :Options (e/fn [] (e/amb "crud" "ide" "browse")))]
+    (if (e/Some? edit)
+      (keyword (::forms/value edit))
+      mode)))
+
 (e/defn HfqlRoot [sitemap default]
   (e/client
     (dom/style (dom/text css tooltip/css))
@@ -466,10 +472,7 @@
           (dom/props {:class "Browser"})
           (binding [!mode (atom default-mode)]
             (let [mode (e/watch !mode)]
-              (binding [*mode (let [edit (forms/RadioPicker! nil (name mode) :Options (e/fn [] (e/amb "crud" "ide" "browse")))]
-                                (if (e/Some? edit)
-                                  (keyword (::forms/value edit))
-                                  mode))]
+              (binding [*mode mode #_(ModePicker mode)]
                 (let [[query] router/route]
                   (rebooting query
                     (if-not query
