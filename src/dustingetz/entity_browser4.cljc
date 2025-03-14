@@ -60,13 +60,7 @@
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
 
-#?(:clj
-   (defn remove-opt [spec k]
-     (if-some [opts (hfql/opts spec)]
-       (if (contains? opts k)
-         (hfql/props (hfql/unwrap spec) (dissoc opts k))
-         spec)
-       spec)))
+#?(:clj (defn remove-opt [spec k] (hfql/props-update-opts spec #(dissoc % k))))
 
 (defn column-appender [s] (fn [v] (str (subs v 0 (- (count v) 2)) "\n " s "]\n")))
 
@@ -135,11 +129,6 @@
 
 (e/defn Render [v o spec] (RenderCell v o spec))
 
-(e/defn Search []
-  (dom/input
-    (dom/props {:type "search"})
-    (dom/On "input" #(-> % .-target .-value) "")))
-
 (e/defn Search! [saved-search]
   (let [edit (forms/Input! ::search saved-search)]
     (e/When (not= forms/nil-t (::forms/token edit))
@@ -198,8 +187,7 @@
           (router/pop
             (Block [selection] next-x (e/server []))))))))
 
-#?(:clj (defn find-default-page [page-defaults o]
-          (some #(% o) page-defaults)))
+#?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
 
 (e/defn Nav [coll k v] (e/server (with-bindings *hfql-bindings (datafy/nav coll k v))))
 

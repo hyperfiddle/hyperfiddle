@@ -80,7 +80,10 @@
   (let [raw-props (unwrap props_)]
     (cond-> (f raw-props) (not (identical? props_ raw-props)) (props (opts props_)))))
 (defn props-update-opts [props_ f]
-  (props (unwrap props_) (f (or (opts props_) {}))))
+  (let [raw-props (unwrap props_)]
+    (if (identical? raw-props props_)
+      props_
+      (props raw-props (f (or (opts props_) {}))))))
 
 (defn resolve! [f$] (or (resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
 
