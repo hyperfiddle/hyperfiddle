@@ -292,8 +292,7 @@
         (e/for [col cols]
           (dom/th
             (dom/props {:title (str col)})
-            (when (keyword? col)
-              (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil))
+            (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil)
             (dom/text (shorten col))))))))
 
 (e/defn TableTitle [query !search saved-search row-count spec suggest*]
