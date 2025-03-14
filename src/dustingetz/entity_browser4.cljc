@@ -496,7 +496,7 @@
 .dustingetz-entity-browser3__block .hyperfiddle-electric-forms4__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
 
 "
-)
+  )
 
 (def css
   (str forms/css
@@ -505,12 +505,16 @@
     "
 /* cosmetic defaults */
 .dustingetz-entity-browser3__block legend .title {font-weight:600;}
-.dustingetz-entity-browser3__block table { background-color: white; border: 1px lightgray solid; border-top-left-radius: 0.25rem; border-top-right-radius: 0.25rem; }
-.dustingetz-entity-browser3__block table thead tr { border-bottom: 1px lightgray solid; }
+.dustingetz-entity-browser3__block { padding: 0 0.5em; background-color: white; }
+.dustingetz-entity-browser3__block table { border: 1px solid #f2f2f2; border-top-left-radius: 0.25rem; border-top-right-radius: 0.25rem; }
+.dustingetz-entity-browser3__block table thead tr { background-color: #f2f2f2; border-bottom: 1px lightgray solid; }
 .dustingetz-entity-browser3__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .dustingetz-entity-browser3__block table thead tr th { font-weight: 500; }
 .dustingetz-entity-browser3__block table thead tr th:not(:first-child) { border-left: 1px lightgray solid; }
 .dustingetz-entity-browser3__block table :is(th, td) { padding: 0 0.25em; }
+/* carefully override table-picker - invert default row striping so gray thead is followed by white row first */
+.dustingetz-entity-browser3__block tbody tr:nth-child(odd):not(:is([aria-selected=true],[aria-checked=true])):not(:hover) td { background-color: #f2f2f2; }
+.dustingetz-entity-browser3__block tbody tr:nth-child(even):not(:is([aria-selected=true],[aria-checked=true])):not(:hover) td { background-color: white; }
 /* --------- */
 
 "
