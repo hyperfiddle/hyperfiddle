@@ -199,7 +199,8 @@
     (let [[{saved-search ::search, saved-selection ::selection}] args
           opts (e/server (hfql/opts spec))
           browse? (Browse-mode?)
-          spec2 (e/server (cond-> spec browse? (add-suggestions (hfql/suggest o))))
+          ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker!
+          spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (hfql/suggest o)))))
           raw-spec (e/server (hfql/unwrap spec2))
           default-select (e/server (::hfql/select opts))
           !search (atom nil), search (e/watch !search)
