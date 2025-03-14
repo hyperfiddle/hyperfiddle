@@ -351,7 +351,7 @@
           (let [enriched (hfql/pull hfql-bindings spec data)
                 filtered (eduction (filter #(strx/any-matches? (vals %) search)) enriched)]
             (vec (if-some [sorter (->sort-comparator sort-spec)]
-                   (sort sorter filtered)
+                   (try (sort sorter filtered) (catch Throwable _ filtered))
                    filtered)))))
 
 (e/defn CollectionTableBody [row-count row-height cols data raw-spec saved-selection select]
