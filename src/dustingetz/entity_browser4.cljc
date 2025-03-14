@@ -302,18 +302,23 @@
             shorten (column-shortener (into k* new-suggest*))
             selected (e/as-vec
                        (e/for [entry (e/diff-by {} new-suggest*)]
-                         (dom/label
-                           (dom/text " " (shorten entry))
-                           (dom/input
-                             (dom/props {:type "checkbox"})
-                             (e/client (set! (.-checked dom/node) pre-checked))
-                             (e/When (dom/On "change" #(-> % .-target .-checked) pre-checked)
-                               entry)))))]
+                         (let [id (e/client (random-uuid))]
+                           (e/amb
+                             (dom/input
+                               (dom/props {:type "checkbox", :id id})
+                               (e/client (set! (.-checked dom/node) pre-checked))
+                               (e/When (dom/On "change" #(-> % .-target .-checked) pre-checked)
+                                 entry))
+                             (dom/label
+                               (dom/props {:for id})
+                               (dom/text (shorten entry) " "))))))]
         (e/for [k (e/diff-by {} (mapv hfql/unwrap (hfql/unwrap spec)))]
-          (dom/label
-            (dom/text " " (shorten k))
+          (let [id (e/client (random-uuid))]
             (dom/input
-              (dom/props {:type "checkbox", :checked true, :disabled true}))))
+              (dom/props {:type "checkbox", :checked true, :disabled true, :id id}))
+            (dom/label
+              (dom/props {:for id})
+              (dom/text (shorten k) " "))))
         (hfql/props-update-k spec (fn [raw-spec] (into raw-spec selected)))))))
 
 (e/defn TableBody [row-count row-height cols data raw-spec saved-selection select]
