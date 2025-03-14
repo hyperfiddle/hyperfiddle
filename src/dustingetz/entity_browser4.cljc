@@ -24,12 +24,15 @@
 
 #?(:clj
    (defn ->sort-comparator [sort-spec]
-     (let [[[k _asc-desc]] sort-spec]   ; TODO support multi-sort
+     (let [[[k asc?]] sort-spec
+           order (if asc? neg? pos?)]   ; TODO support multi-sort
        (when k
-         (fn [a b] (neg? (compare (get a k) (get b k))))))))
+         (fn [a b] (order (compare (get a k) (get b k))))))))
 
 (comment
-  (sort (->sort-comparator [[:k :asc]]) [{:k 1} {:k 0} {:k 2}]))
+  (sort (->sort-comparator [[:k true]]) [{:k 1} {:k 0} {:k 2}])
+  (sort (->sort-comparator [[:k false]]) [{:k 1} {:k 0} {:k 2}])
+  )
 
 (e/defn IDE-mode? [] (= *mode :ide))
 (e/defn Browse-mode? [] (= *mode :browse))
@@ -278,6 +281,10 @@
   (e/for [col cols]
     (Render (get m col) o (e/server (col->spec col)))))
 
+(defn toggle-column-sort [sort-spec for-col]
+  (when-some [[col asc?] (first sort-spec)]
+    [[for-col (if (= col for-col) (not asc?) true)]]))
+
 (e/defn TableHeader [cols !sort-spec]
   (dom/thead
     (dom/tr
@@ -286,7 +293,7 @@
           (dom/th
             (dom/props {:title (str col)})
             (when (keyword? col)
-              (dom/On "click" #(reset! !sort-spec [[col :asc]]) nil))
+              (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil))
             (dom/text (shorten col))))))))
 
 (e/defn TableTitle [query !search saved-search row-count spec suggest*]
@@ -372,7 +379,7 @@
   (e/client
     (let [[{saved-search ::search, saved-selection ::selection}] args
           select (e/server (::hfql/select (hfql/opts spec)))
-          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) :asc]]), sort-spec (e/watch !sort-spec)
+          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (e/watch !sort-spec)
           !search (atom nil), search (e/watch !search)
           !row-count (atom 0), row-count (e/watch !row-count)]
       ;; cycle back first column as sort in browse mode
@@ -390,7 +397,7 @@
               column-count (e/server (count raw-spec2))]
           (reset! !row-count (e/server (count data)))
           (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
-            (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) :asc]]))
+            (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) true]]))
           (dom/table
             (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
             (TableHeader cols !sort-spec)
