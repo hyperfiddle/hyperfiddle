@@ -248,9 +248,13 @@
             (if select
               (NextBlock select next-x o)
               (when browse?
-                (if-some [query-template (e/server (find-default-page *page-defaults next-x))]
-                  (NextBlock query-template next-x o)
-                  (AnonymousBlock saved-selection next-x))))))))))
+                (e/server
+                  (let [query-template (find-default-page *page-defaults next-x)]
+                    (rebooting query-template
+                      (e/client
+                        (if query-template
+                          (NextBlock query-template next-x o)
+                          (AnonymousBlock saved-selection next-x))))))))))))))
 
 (defn ->short-keyword-map [cols-available!]
   (let [k* (filterv keyword? cols-available!)
@@ -412,9 +416,13 @@
               ;; Do we want/need to pass it? Should we bind it to `%`?
               (NextBlock select next-x next-x)
               (when (Browse-mode?)
-                (if-some [query-template (e/server (find-default-page *page-defaults next-x))]
-                  (NextBlock query-template next-x next-x)
-                  (AnonymousBlock saved-selection next-x))))))))))
+                (e/server
+                  (let [query-template (find-default-page *page-defaults next-x)]
+                    (rebooting query-template
+                      (e/client
+                        (if query-template
+                          (NextBlock query-template next-x next-x)
+                          (AnonymousBlock saved-selection next-x))))))))))))))
 
 #?(:clj (defn sitemapify [spec]
           (walk/postwalk
