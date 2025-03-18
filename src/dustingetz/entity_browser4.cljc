@@ -182,7 +182,9 @@
 (e/defn AnonymousBlock [selection next-x]
   (e/server
     (rebooting next-x
-      (when-not (and (sequential? next-x) (not-entity-like? (first next-x)))
+      ;; similarity with `infer-block-type`
+      ;; maybe blocks should decide if they handle this object?
+      (when (or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x)))
         (e/client
           (binding [*depth (inc *depth)]
             (Block [selection] next-x (e/server []))))))))
