@@ -19,7 +19,7 @@
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
 
-(e/declare *hfql-bindings *mode !mode *update *sitemap-writer *sitemap !sitemap *page-defaults *block-opts)
+(e/declare *hfql-bindings *mode !mode *update *sitemap-writer *sitemap !sitemap *page-defaults *block-opts *depth)
 (declare css)
 
 #?(:clj
@@ -174,7 +174,7 @@
       (e/client
         (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
               next-o (e/server (query->object *hfql-bindings query))]
-          (router/pop
+          (binding [*depth (inc *depth)]
             (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))))))))))
 
 #?(:clj (defn not-entity-like? [x] (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x)))))
@@ -184,7 +184,7 @@
     (rebooting next-x
       (when-not (and (sequential? next-x) (not-entity-like? (first next-x)))
         (e/client
-          (router/pop
+          (binding [*depth (inc *depth)]
             (Block [selection] next-x (e/server []))))))))
 
 #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
@@ -196,7 +196,7 @@
 
 (e/defn ObjectBlock [query o spec effect-handlers args]
   (e/client
-    (let [[{saved-search ::search, saved-selection ::selection}] args
+    (let [{saved-search ::search, saved-selection ::selection} args
           opts (e/server (hfql/opts spec))
           browse? (Browse-mode?)
           ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker!
@@ -374,7 +374,7 @@
 ;; CollectionBlock is naive, doing N+1 queries and doing work in memory
 (e/defn CollectionBlock [query unpulled spec effect-handlers args]
   (e/client
-    (let [[{saved-search ::search, saved-selection ::selection}] args
+    (let [{saved-search ::search, saved-selection ::selection} args
           select (e/server (::hfql/select (hfql/opts spec)))
           !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (e/watch !sort-spec)
           !search (atom nil), search (e/watch !search)
@@ -459,15 +459,17 @@
             (t)))))
     (let [effect-handlers
           {::search (e/fn [s]
-                      (router/focus [1]
-                        (router/ReplaceState! ['. (assoc router/route ::search s)])
-                        [::forms/ok]))
+                      ;; `update` doesn't work, route is a lazyseq (?)
+                      (router/ReplaceState! ['. (into (conj (into [] (take *depth) router/route)
+                                                        (assoc (nth router/route *depth {}) ::search s))
+                                                  (drop (inc *depth) router/route))])
+                      [::forms/ok])
            ::selection (e/fn [symbolic-x]
-                         (router/pop
-                           (router/ReplaceState! ['. `[~(assoc (first router/route) ::selection symbolic-x)]])
-                           [::forms/ok]))}]
+                         (router/ReplaceState! ['. (conj (into [] (take *depth) router/route)
+                                                     (assoc (nth router/route *depth {}) ::selection symbolic-x))])
+                         [::forms/ok])}]
       (reset! !mode (or (e/server (-> spec hfql/opts ::hfql/mode)) default-mode))
-      (F query o spec effect-handlers (next router/route)))))
+      (F query o spec effect-handlers (nth router/route *depth {})))))
 
 (e/defn ModePicker [mode]
   (let [edit (forms/RadioPicker! nil (name mode) :Options (e/fn [] (e/amb "crud" "ide" "browse")))]
@@ -485,7 +487,8 @@
           (dom/props {:class "Browser"})
           (binding [!mode (atom default-mode)]
             (let [mode (e/watch !mode)]
-              (binding [*mode mode #_(ModePicker mode)]
+              (binding [*mode mode #_(ModePicker mode)
+                        *depth 1]
                 (let [[query] router/route]
                   (rebooting query
                     (if-not query
