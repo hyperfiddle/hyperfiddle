@@ -14,6 +14,7 @@
             [clojure.datafy :as datafy]
             [clojure.string :as str]
             [clojure.pprint]
+            [edamame.core :as eda]
             [clojure.walk :as walk])
   #?(:cljs (:require-macros dustingetz.entity-browser4)))
 
@@ -527,3 +528,38 @@
 "
 
     ))
+
+#?(:clj
+   (defn normalize-sitemap [sitemap]
+     (let [qualify #(symbol (hfql/resolve! %))]
+       (update-keys sitemap
+         (fn [k]
+           (if (symbol? k)
+             (seq (list (qualify k)))
+             (cons (qualify (first k)) (next k))))))))
+
+#?(:clj (defn qualify-sitemap-symbol [s]
+          (if-some [ns-str (namespace s)]
+            (if-some [nso (get (ns-aliases *ns*) (symbol ns-str))]
+              (symbol (str (ns-name nso)) (name s))
+              (if (resolve s)
+                s
+                (throw (ex-info (str "unknown namespace of symbol [" s "]") {:symbol s}))))
+            (cond (hfql/field-access? s)  s
+                  (hfql/method-access? s) s
+                  (#{'% '%v} s)           s
+                  :else                   (symbol (hfql/resolve! s))))))
+#?(:clj
+   (defn auto-resolves [ns]
+     (as-> (ns-aliases ns) $
+       (assoc $ :current (ns-name *ns*), 'hfql 'peternagy.hfql)
+       (zipmap (keys $)
+         (map ns-name (vals $))))))
+
+#?(:clj (defn read-sitemap [file-path]
+          (->> (eda/parse-string (slurp file-path) {:auto-resolve (auto-resolves *ns*)})
+            (walk/postwalk (fn [x] (cond
+                                     (symbol? x)                              (qualify-sitemap-symbol x)
+                                     (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
+                                     :else                                    x)))
+            normalize-sitemap)))
