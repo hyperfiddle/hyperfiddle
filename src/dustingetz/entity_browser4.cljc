@@ -45,10 +45,13 @@
     (fn? x)                                              :query
     :else                                                :object))
 
+(defn unqualify [sym] (symbol (name sym)))
+(defn de-clojure-core [x] (->> x (walk/postwalk #(cond-> % (and (symbol? %) (= (namespace %) "clojure.core")) unqualify))))
 (defn pretty-name [x]
-  (cond
-    (seq? x) (let [[qs & args] x] (list* (datax/unqualify qs) args))
-    () (str x)))
+  (let [x (de-clojure-core x)]
+    (cond
+      (seq? x) (let [[qs & args] x] (list* (datax/unqualify qs) args))
+      () (str x))))
 
 (defn pretty-value [x] (pr-str x))
 
@@ -162,8 +165,8 @@
                           (conj raw-spec nx)))
                 raw-spec suggest*)))))
 
-(e/defn ObjectRow [[k v] o spec]
-  (dom/td (dom/text (e/server (pretty-name k))))
+(e/defn ObjectRow [[k v] o spec shorten]
+  (dom/td (dom/text (e/server (pretty-name (shorten k)))))
   (Render v o spec))
 
 (e/declare Block)
@@ -191,6 +194,20 @@
 
 #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
 
+(defn ->short-map [cols-available! filterer]
+  (let [k* (filterv filterer cols-available!)
+        freq (frequencies (mapv datax/unqualify k*))]
+    (into {} (map #(let [unq (datax/unqualify %)] [% (if (= 1 (freq unq)) unq %)]))
+      k*)))
+
+(defn column-shortener [symbolic-columns filterer]
+  (let [short-map (->short-map symbolic-columns filterer)]
+    (fn [symbolic-column]
+      (cond
+        (filterer symbolic-column) (short-map symbolic-column)
+        (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
+        () symbolic-column))))
+
 (e/defn Nav [coll k v] (e/server (with-bindings *hfql-bindings (datafy/nav coll k v))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (hfql/unwrap %)) spec)))
@@ -204,6 +221,7 @@
           ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker!
           spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (hfql/suggest o)))))
           raw-spec (e/server (hfql/unwrap spec2))
+          shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
           !search (atom nil), search (e/watch !search)
           pulled (e/server (hfql/pull *hfql-bindings raw-spec o))
@@ -232,7 +250,7 @@
                 (e/fn [index] (forms/TablePicker! ::selection index row-count
                                 (e/fn [index] (e/server
                                                 (when-some [kv (nth data index nil)]
-                                                  (ObjectRow kv o (find-key-spec raw-spec (key kv))))))
+                                                  (ObjectRow kv o (find-key-spec raw-spec (key kv)) shorten))))
                                 :row-height row-height
                                 :column-count 2))
                 saved-selection
@@ -258,20 +276,6 @@
                           (NextBlock query-template next-x o)
                           (AnonymousBlock saved-selection next-x))))))))))))))
 
-(defn ->short-keyword-map [cols-available!]
-  (let [k* (filterv keyword? cols-available!)
-        freq (frequencies (mapv datax/unqualify k*))]
-    (into {} (map #(let [unq (datax/unqualify %)] [% (if (= 1 (freq unq)) unq %)]))
-      k*)))
-
-(defn column-shortener [symbolic-columns]
-  (let [short-keyword-map (->short-keyword-map symbolic-columns)]
-    (fn [symbolic-column]
-      (cond
-        (keyword? symbolic-column) (short-keyword-map symbolic-column)
-        (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
-        () (str symbolic-column)))))
-
 (e/defn TableRow [cols col->spec o m]
   (e/for [col cols]
     (Render (get m col) o (e/server (col->spec col)))))
@@ -283,12 +287,12 @@
 (e/defn TableHeader [cols !sort-spec]
   (dom/thead
     (dom/tr
-      (let [shorten (column-shortener (e/as-vec cols))]
+      (let [shorten (column-shortener (e/as-vec cols) ident?)]
         (e/for [col cols]
           (dom/th
             (dom/props {:title (str col)})
             (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil)
-            (dom/text (shorten col))))))))
+            (dom/text (pretty-name (shorten col)))))))))
 
 (e/defn TableTitle [query !search saved-search row-count spec suggest*]
   (dom/legend
@@ -305,7 +309,7 @@
       (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
             pre-checked (empty? k*)
             new-suggest* (into [] (comp (map :entry) (remove k*)) suggest*)
-            shorten (column-shortener (into k* new-suggest*))
+            shorten (column-shortener (into k* new-suggest*) ident?)
             selected (e/as-vec
                        (e/for [entry (e/diff-by {} new-suggest*)]
                          (let [id (e/client (random-uuid))]

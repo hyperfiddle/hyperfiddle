@@ -97,25 +97,30 @@
 (defn field-access? [f$] (str/starts-with? (str f$) ".-"))
 (defn method-access? [f$] (str/starts-with? (str f$) "."))
 
-(defn pull-object [scope spec o]
+(defn pull-view [scope viewer]
+  (let [k (unwrap viewer), o (get scope '%)]
+    (cond
+      (symbol? k) (let [f$ k]
+                    (cond (field-access? f$) (read-reflective f$ o)
+                          (method-access? f$) (invoke-reflective f$ o)
+                          :else ((resolve! f$) o)))
+      (seq? k) (let [[f$ & args] (replace scope k)]
+                 (cond (field-access? f$) (read-reflective f$ (first args))
+                       (method-access? f$) (apply invoke-reflective f$ args)
+                       :else (apply (resolve! f$) args)))
+      (map? k) (let [[k v] (first k)] (pull-view (assoc scope '% (pull-view scope k)) v))
+      :else (view viewer o))))
+
+(defn pull-object [scope spec]
   (with-meta
-    (reduce (fn [ac viewer]
-              (let [k (unwrap viewer)]
-                (if (seq? k)
-                  (let [[f$ & args] (replace scope k)
-                        v (cond (field-access? f$)  (read-reflective f$ (first args))
-                                (method-access? f$) (apply invoke-reflective f$ args)
-                                :else               (apply (resolve! f$) args))]
-                    (assoc ac k v))
-                  (assoc ac k (view viewer o)))))
-      {} spec)
-    {::origin o}))
+    (reduce (fn self [ac viewer] (assoc ac (unwrap viewer) (pull-view scope viewer))) {} spec)
+    {::origin (get scope '%)}))
 
 (defn pull [bindings spec o]
   (with-bindings bindings
     (if (sequential? o)
-      (mapv (fn [x] (pull-object {'% x} spec x)) o)
-      (pull-object {'% o} spec o))))
+      (mapv (fn [x] (pull-object {'% x} spec)) o)
+      (pull-object {'% o} spec))))
 
 (def ^:dynamic *test* nil)
 (defn test-times [n] (* *test* n))
@@ -129,6 +134,9 @@
   (pull {} `[(.get ~'% :a)] {:a 1})                               := `{(.get ~'% :a) 1}
   (pull {} `[(.get ~'% :a)] [{:a 1} {:b 2}])                      := `[{(.get ~'% :a) 1} {(.get ~'% :a) nil}]
   (pull {} `[(.-width ~'%)] (new java.awt.Rectangle 10 20 30 40)) := `{(.-width ~'%) 30}
+  (pull {} `[inc] 41)                                             := `{inc 42}
+  (pull {} `[{:foo inc}] {:foo 41, :bar 0})                       := `{{:foo inc} 42}
+  (pull {} '[{.-x inc}] (new java.awt.Point 41 2))                := '{{.-x inc} 42}
   )
 
 (comment
