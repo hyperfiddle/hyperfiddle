@@ -123,7 +123,7 @@
                 (if (coll? v)
                   (RenderInlineColl v o spec)
                   (let [pretty-v (pretty-value v)
-                        denv {'% o, (hfql/unwrap spec) v}]
+                        denv {'% o, (hfql/unwrap spec) v, '%v v}]
                     (if-some [query (::hfql/link opts)]
                       (router/link ['. [(replace denv query)]] (dom/text pretty-v))
                       (dom/text pretty-v)))))]
