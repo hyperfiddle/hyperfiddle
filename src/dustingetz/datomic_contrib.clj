@@ -368,11 +368,12 @@
 (comment (datomic.api/entity @test-db [:abstractRelease/gid #uuid "320eeca0-a5ff-383f-a66e-b2f559ed0ab6"]))
 
 ;; Patch EntityMap printing to differentiate it from regular maps
-(defonce original-entity-map-print-method (get-method print-method datomic.query.EntityMap))
-(defmethod print-method datomic.query.EntityMap [e writer]
-  (.write writer "#datomic.query.EntityMap ")
-  (binding [*print-namespace-maps* false]
-    (original-entity-map-print-method e writer)))
+;; WARN: already redefined in datomic-contrib2, don't redefine twice
+;; (defonce original-entity-map-print-method (get-method print-method datomic.query.EntityMap))
+;; (defmethod print-method datomic.query.EntityMap [e writer]
+;;   (.write writer "#datomic.query.EntityMap ")
+;;   (binding [*print-namespace-maps* false]
+;;     (original-entity-map-print-method e writer)))
 
 #_ ; BAD FUNCTION, leaving this tombstone to warn the next confused person
 (defn untouch-refs [indexed-schema touched-entity] ; only touched attrs are present
