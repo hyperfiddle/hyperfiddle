@@ -34,7 +34,7 @@
     (dom/props {:class "dustingetz-EasyTable"})
     (Load-css "dustingetz/easy_table.css")
     (let [!search (atom "") search (e/watch !search)
-          xs! (e/server (query search)), n (e/server (count xs!))]
+          xs! (e/server (e/Offload #(query search))), n (e/server (count xs!))]
       (dom/fieldset
         (dom/legend (dom/text title " ")
           (do (reset! !search (Input* "")) (e/amb))
