@@ -104,7 +104,7 @@
 
 (e/defn CollectionRow [cols ?x]
   (e/server
-    (let [?m (datafy ?x)] ; only visible rows
+    (let [?m (e/Offload #(datafy ?x))] ; only visible rows
       (e/for [k cols]
         (dom/td (some-> ?m k pr-str dom/text))))))
 
@@ -113,7 +113,7 @@
   (dom/style (dom/text css)) (Load-css "dustingetz/easy_table.css")
   (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
     (e/server
-      (let [m (datafy x)]
+      (let [m (e/Offload #(datafy x))]
 
         (dom/fieldset (dom/props {:class "entity"})
           (let [xs! (flatten-nested m)]
