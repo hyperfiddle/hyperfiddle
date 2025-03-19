@@ -2,6 +2,8 @@
   (:require [hyperfiddle.electric3 :as e]
             [clojure.string :as str]
             [hyperfiddle.rcf :as rcf]
+            [clojure.core.protocols :as ccp]
+            [clojure.datafy :as datafy]
             [contrib.debug :as dbg])
   (:import [java.io Writer]))
 
@@ -108,7 +110,8 @@
                  (cond (field-access? f$) (read-reflective f$ (first args))
                        (method-access? f$) (apply invoke-reflective f$ args)
                        :else (apply (resolve! f$) args)))
-      (map? k) (let [[k v] (first k)] (pull-view (assoc scope '% (pull-view scope k)) v))
+      (map? k) (let [[k k2] (first k), v (pull-view scope k)]
+                 (pull-view (assoc scope '% (datafy/nav o k v)) k2))
       :else (view viewer o))))
 
 (defn pull-object [scope spec]
@@ -137,7 +140,8 @@
   (pull {} `[inc] 41)                                             := `{inc 42}
   (pull {} `[{:foo inc}] {:foo 41, :bar 0})                       := `{{:foo inc} 42}
   (pull {} '[{.-x inc}] (new java.awt.Point 41 2))                := '{{.-x inc} 42}
-  )
+  (let [data-with-nav (with-meta {:a 1, :b 2} {`ccp/nav (fn [_this k v] (if (= k :a) {:db/ident 42} v))})]
+    (pull {} [{:a :db/ident} :b] data-with-nav))                  := {{:a :db/ident} 42, :b 2}  )
 
 (comment
   (.get {:a 1} :a)
