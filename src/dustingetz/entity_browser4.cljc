@@ -5,22 +5,26 @@
             [contrib.debug :as dbg]
             [dustingetz.str :as strx]
             [peternagy.hfql #?(:clj :as :cljs :as-alias) hfql]
+            #?(:clj [peternagy.file-watcher :as fw])
+            #?(:clj [clojure.java.io :as io])
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms4 :as forms]
             [hyperfiddle.ui.tooltip :as tooltip]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router4 :as router]
             [hyperfiddle.nav0 :as hfp]
+            [missionary.core :as m]
             [clojure.datafy :as datafy]
             [clojure.string :as str]
             [clojure.pprint]
             [edamame.core :as eda]
             [clojure.walk :as walk])
+  #?(:clj (:import [java.io File]))
   #?(:cljs (:require-macros dustingetz.entity-browser4)))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
 
-(e/declare *hfql-bindings *mode !mode *update *sitemap-writer *sitemap !sitemap *page-defaults *block-opts *depth)
+(e/declare *hfql-bindings *mode !mode *update *sitemap-writer *sitemap *page-defaults *block-opts *depth)
 (declare css)
 
 #?(:clj
@@ -448,7 +452,7 @@
           (case (e/server
                   (*sitemap-writer
                     (sitemapify
-                      (swap! !sitemap append-to-query query v)))
+                      (append-to-query (e/Snapshot *sitemap) query v)))
                   #_(*sitemap-writer (sitemapify (update *sitemap (list* query) conj v))))
             (t)))))
     (let [effect-handlers
@@ -556,10 +560,18 @@
        (zipmap (keys $)
          (map ns-name (vals $))))))
 
-#?(:clj (defn read-sitemap [file-path]
-          (->> (eda/parse-string (slurp file-path) {:auto-resolve (auto-resolves *ns*)})
-            (walk/postwalk (fn [x] (cond
-                                     (symbol? x)                              (qualify-sitemap-symbol x)
-                                     (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
-                                     :else                                    x)))
-            normalize-sitemap)))
+#?(:clj (defn read-sitemap [^File file ns]
+          (binding [*ns* ns]
+            (->> (eda/parse-string (slurp file) {:auto-resolve (auto-resolves *ns*)})
+              (walk/postwalk (fn [x] (cond
+                                       (symbol? x)                              (qualify-sitemap-symbol x)
+                                       (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
+                                       :else                                    x)))
+              normalize-sitemap))))
+
+#?(:clj (defn sitemap-incseq [resource-path ns]
+          (let [f (io/file (io/resource resource-path))]
+            (->> (m/ap
+                   (let [f (m/?> (fw/watch-file f))]
+                     (m/? (m/via m/blk (read-sitemap f ns)))))
+              (e/flow->incseq)))))
