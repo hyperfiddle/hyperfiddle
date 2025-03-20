@@ -105,7 +105,8 @@
       (symbol? k) (let [f$ k]
                     (cond (field-access? f$) (read-reflective f$ o)
                           (method-access? f$) (invoke-reflective f$ o)
-                          :else ((resolve! f$) o)))
+                          :else (let [resolved (resolve! f$)]
+                                  (if (var? resolved) (resolved o) (get o f$)))))
       (seq? k) (let [[f$ & args] (replace scope k)]
                  (cond (field-access? f$) (read-reflective f$ (first args))
                        (method-access? f$) (apply invoke-reflective f$ args)
@@ -141,7 +142,10 @@
   (pull {} `[{:foo inc}] {:foo 41, :bar 0})                       := `{{:foo inc} 42}
   (pull {} '[{.-x inc}] (new java.awt.Point 41 2))                := '{{.-x inc} 42}
   (let [data-with-nav (with-meta {:a 1, :b 2} {`ccp/nav (fn [_this k v] (if (= k :a) {:db/ident 42} v))})]
-    (pull {} [{:a :db/ident} :b] data-with-nav))                  := {{:a :db/ident} 42, :b 2}  )
+    (pull {} [{:a :db/ident} :b] data-with-nav))                  := {{:a :db/ident} 42, :b 2}
+  (pull {} '[Number] {'Number Number})                            := {'Number Number}
+  )
+
 
 (comment
   (.get {:a 1} :a)
