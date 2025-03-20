@@ -159,8 +159,8 @@
           (when error? (dom/props input-node {:aria-invalid true}))
           (if waiting?
             (do (dom/props input-node {:aria-busy true})
-                [(fn ([] (t) (reset-typeahead! !state input-node)) ; success: Typeahead's authoritative value is expected to loop back from server
-                   ([err] (t err) (reset-typeahead! !state input-node))) ; todo use forms/after-ack
+                [(e/->Token `Typeahead3 t (fn ([] (reset-typeahead! !state input-node)) ; success: Typeahead's authoritative value is expected to loop back from server
+                                            ([err] (reset-typeahead! !state input-node)))) ; todo use forms/after-ack
                  {name value}])
             (e/amb)))))))
 
