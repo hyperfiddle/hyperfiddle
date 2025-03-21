@@ -156,7 +156,7 @@
 #?(:clj (defn find-spec-prop [raw-spec raw-k]
           (transduce (keep #(when (= raw-k (hfql/unwrap %)) %)) (fn ([v] v) ([_ac nx] (reduced nx))) nil raw-spec)))
 
-#?(:clj (defn query->object [hfql-bindings query]
+#?(:clj (defn query->object [hfql-bindings query] ; run-query!
           (let [[f$ & args] query
                 f (hfql/resolve! f$)]
             (with-bindings hfql-bindings (apply f args)))))
@@ -181,7 +181,7 @@
     (rebooting o
       (e/client
         (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
-              next-o (e/server (query->object *hfql-bindings query))]
+              next-o (e/server (e/Offload #(query->object *hfql-bindings query)))]
           (binding [*depth (inc *depth)]
             (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))))))))))
 
@@ -229,7 +229,7 @@
           shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
           !search (atom nil), search (e/watch !search)
-          pulled (e/server (hfql/pull *hfql-bindings raw-spec o))
+          pulled (e/server (e/Offload #(hfql/pull *hfql-bindings raw-spec o)))
           data (e/server
                  (into [] (keep (fn [kspec]
                                   (let [k (hfql/unwrap kspec)
@@ -385,9 +385,9 @@
                       (TableTitle query !search saved-search row-count spec
                         (when (Browse-mode?) (hfql/suggest (Nav unpulled nil (first unpulled))))))
               raw-spec2 (e/server (hfql/unwrap spec2))
-              data (e/server (eager-pull-search-sort
-                               ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
-                               raw-spec2 *hfql-bindings saved-search sort-spec))
+              data (e/server (e/Offload (fn [] (eager-pull-search-sort
+                                                 ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
+                                                 raw-spec2 *hfql-bindings saved-search sort-spec))))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
               column-count (e/server (count raw-spec2))]
@@ -493,7 +493,7 @@
                     (if-not query
                       (router/ReplaceState! ['. default])
                       (let [f$ (first query)
-                            o (e/server (query->object *hfql-bindings query))]
+                            o (e/server (e/Offload #(query->object *hfql-bindings query)))]
                         (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
                         (dom/props {:class (cssx/css-slugify f$)})
                         (Block query o (e/server (find-sitemap-spec sitemap f$)))))))))))))))
