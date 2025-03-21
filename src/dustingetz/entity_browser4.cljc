@@ -323,6 +323,7 @@
           (forms/Checkbox* true :disabled true :label (shorten k)))
         (hfql/props-update-k spec (fn [raw-spec] (into raw-spec selected)))))))
 
+#_
 (e/defn TableBody [row-count row-height cols data raw-spec saved-selection select]
   (let [col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
     (forms/Intercept (e/fn [index]
