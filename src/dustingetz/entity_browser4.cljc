@@ -1,5 +1,6 @@
 (ns dustingetz.entity-browser4
-  (:require [contrib.css :as cssx]
+  (:require #?(:clj [clojure.java.io :as io])
+            [contrib.css :as cssx]
             [contrib.assert :as ca]
             [contrib.data :as datax]
             [contrib.debug :as dbg]
@@ -558,7 +559,7 @@
          (map ns-name (vals $))))))
 
 #?(:clj (defn read-sitemap [file-path]
-          (->> (eda/parse-string (slurp file-path) {:auto-resolve (auto-resolves *ns*)})
+          (->> (eda/parse-string (slurp (io/resource file-path)) {:auto-resolve (auto-resolves *ns*)})
             (walk/postwalk (fn [x] (cond
                                      (symbol? x)                              (qualify-sitemap-symbol x)
                                      (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
