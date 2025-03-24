@@ -561,18 +561,18 @@
        (zipmap (keys $)
          (map ns-name (vals $))))))
 
-#?(:clj (defn read-sitemap [^File file ns]
+#?(:clj (defn read-sitemap [resource-path ns]
           (binding [*ns* ns]
-            (->> (eda/parse-string (slurp file) {:auto-resolve (auto-resolves *ns*)})
+            (->> (eda/parse-string (slurp (io/resource resource-path)) {:auto-resolve (auto-resolves *ns*)})
               (walk/postwalk (fn [x] (cond
                                        (symbol? x)                              (qualify-sitemap-symbol x)
                                        (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
                                        :else                                    x)))
               normalize-sitemap))))
 
-#?(:clj (defn sitemap-incseq [resource-path ns]
-          (let [f (io/file (io/resource resource-path))]
-            (->> (m/ap
-                   (let [f (m/?> (fw/watch-file f))]
-                     (m/? (m/via m/blk (read-sitemap f ns)))))
-              (e/flow->incseq)))))
+;; #?(:clj (defn sitemap-incseq [resource-path ns]
+;;           (let [f (io/file (io/resource resource-path))]
+;;             (->> (m/ap
+;;                    (let [f (m/?> (fw/watch-file f))]
+;;                      (m/? (m/via m/blk (read-sitemap f ns)))))
+;;               (e/flow->incseq)))))
