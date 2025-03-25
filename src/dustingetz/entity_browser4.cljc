@@ -8,7 +8,7 @@
             #?(:clj [peternagy.file-watcher :as fw])
             #?(:clj [clojure.java.io :as io])
             [hyperfiddle.electric3 :as e]
-            [hyperfiddle.electric-forms4 :as forms]
+            [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.ui.tooltip :as tooltip]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router4 :as router]
@@ -138,9 +138,8 @@
 (e/defn Render [v o spec] (RenderCell v o spec))
 
 (e/defn Search! [saved-search]
-  (let [edit (forms/Input! ::search saved-search)]
-    (e/When (not= forms/nil-t (::forms/token edit))
-      edit)))
+  (->> (forms/Input! ::search saved-search :type :search)
+    (forms/Parse (e/fn [{search ::search}] [`Search! search]))))
 
 (defn find-index [pred x*]
   (transduce (keep-indexed (fn [idx x] (when (pred x) idx))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*))
@@ -223,7 +222,7 @@
     (let [{saved-search ::search, saved-selection ::selection} args
           opts (e/server (hfql/opts spec))
           browse? (Browse-mode?)
-          ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker!
+          ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker! - is the bug present in forms5?
           spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (hfql/suggest o)))))
           raw-spec (e/server (hfql/unwrap spec2))
           shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
@@ -245,25 +244,25 @@
           (dom/legend
             (dom/span (dom/props {:class "title"}) (dom/text (e/server (pretty-title query)) " "))
             ;; TODO remove ugly workaround, solves bug where search travels across navigation
-            (reset! !search (update (Search! saved-search) ::forms/token forms/unify-t
-                              (fn ([] (reset! !search nil)) ([err] (prn 'err err))))))
+            (let [[t search] (Search! saved-search)]
+              (reset! !search (e/When t [(forms/after-ack t #(reset! !search nil)) search]))))
           (dom/props {:style {:--column-count 2 :--row-height row-height}})
           (forms/Interpreter effect-handlers
             (e/amb
               (e/When search search)
-              (forms/Intercept
-                (e/fn [index] (forms/TablePicker! ::selection index row-count
-                                (e/fn [index] (e/server
-                                                (when-some [kv (nth data index nil)]
-                                                  (ObjectRow kv o (find-key-spec raw-spec (key kv)) shorten))))
-                                :row-height row-height
-                                :column-count 2))
-                saved-selection
-                (e/fn ToIndex [selection] (e/server (find-index (fn [[k]] (= k selection)) data)))
-                (e/fn ToSaved [index] (let [x (e/server (nth data index nil))
-                                            row-select (e/server (-> (nth raw-spec index nil) hfql/opts ::hfql/select))
-                                            select (or row-select default-select)]
-                                        (e/When (e/server (or browse? (and x select))) (e/server (first x))))))))))
+              (->> (forms/TablePicker! ::selection
+                     (e/server (find-index (fn [[k]] (= k saved-selection)) data)) row-count
+                     (e/fn [index] (e/server
+                                     (when-some [kv (nth data index nil)]
+                                       (ObjectRow kv o (find-key-spec raw-spec (key kv)) shorten))))
+                     :row-height row-height
+                     :column-count 2)
+                (forms/Parse (e/fn ToSaved [{index ::selection}]
+                               (let [x (e/server (nth data index nil))
+                                     row-select (e/server (-> (nth raw-spec index nil) hfql/opts ::hfql/select))
+                                     select (or row-select default-select)]
+                                 (e/When (e/server (or browse? (and x select))) (e/server (first x))))))
+                (forms/Parse (e/fn ToCommand [saved] [`Select! saved])))))))
       (when saved-selection
         (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
                                  (Nav o (key nx) (val nx))))
@@ -306,9 +305,8 @@
       (dom/text (pretty-title query))
       (dom/text " ")
       ;; TODO remove ugly workaround, solves bug where search travels across navigation
-      (e/client (reset! !search (update (Search! saved-search)
-                                  ::forms/token forms/unify-t
-                                  (fn ([] (reset! !search nil)) ([err] (prn 'err err)))))
+      (e/client (let [[t search] (Search! saved-search)]
+                  (reset! !search (e/When t [(forms/after-ack t #(reset! !search nil)) search])))
                 nil)
       (dom/text " (" row-count " items) ")
       (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
@@ -353,22 +351,20 @@
 
 (e/defn CollectionTableBody [row-count row-height cols data raw-spec saved-selection select]
   (let [col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
-    (forms/Intercept (e/fn [index]
-                       (forms/TablePicker! ::selection index row-count
-                         (e/fn [index] (e/server (some->> (nth data index nil)
-                                                   (TableRow cols col->spec data))))
-                         :row-height row-height
-                         :column-count (e/server (count raw-spec))
-                         :as :tbody))
-      saved-selection
-      (e/fn ToIndex [selection] (e/server
-                                  (find-index #{selection}
-                                    (eduction (map #(let [o (-> % meta ::hfql/origin)]
-                                                      (or (hfp/identify o) o))) data))))
-      (e/fn ToSaved [index] (e/When (or select (Browse-mode?))
-                              (let [x (e/server (-> (nth data index nil) meta ::hfql/origin))
-                                    symbolic-x (e/server (hfp/identify x))]
-                                (e/When symbolic-x symbolic-x)))))))
+    (->> (forms/TablePicker! ::selection
+           (e/server (find-index #{saved-selection} (eduction (map #(let [o (-> % meta ::hfql/origin)] (or (hfp/identify o) o))) data)))
+           row-count
+           (e/fn [index] (e/server (some->> (nth data index nil)
+                                     (TableRow cols col->spec data))))
+           :row-height row-height
+           :column-count (e/server (count raw-spec))
+           :as :tbody)
+      (forms/Parse (e/fn ToSavable [{index ::selection}]
+                     (e/When (or select (Browse-mode?))
+                       (let [x (e/server (-> (nth data index nil) meta ::hfql/origin))
+                             symbolic-x (e/server (hfp/identify x))]
+                         (e/When symbolic-x symbolic-x)))))
+      (forms/Parse (e/fn ToCommand [symbolic-x] [`Select! symbolic-x])))))
 
 ;; CollectionBlock is naive, doing N+1 queries and doing work in memory
 (e/defn CollectionBlock [query unpulled spec effect-handlers args]
@@ -436,6 +432,9 @@
 
 (def default-mode :browse)
 
+(e/defn RoundTrip [v] (identity (e/server (identity v)))) ; Awesome debug tool! Forces a roundtrip to diagnose how many roundtrips it takes to ack a value!
+;; (RoundTrip (RoundTrip :foo)) ; two roundtrips
+
 (e/defn Block [query o spec]
   (when-some [F (e/server (case (infer-block-type o)
                             :object ObjectBlock
@@ -457,16 +456,21 @@
                   #_(*sitemap-writer (sitemapify (update *sitemap (list* query) conj v))))
             (t)))))
     (let [effect-handlers
-          {::search (e/fn [s]
+          {`Search! (e/fn [s]
                       ;; `update` doesn't work, route is a lazyseq (?)
                       (router/ReplaceState! ['. (into (conj (into [] (take *depth) router/route)
                                                         (assoc (nth router/route *depth {}) ::search s))
                                                   (drop (inc *depth) router/route))])
                       [::forms/ok])
-           ::selection (e/fn [symbolic-x]
-                         (router/ReplaceState! ['. (conj (into [] (take *depth) router/route)
-                                                     (assoc (nth router/route *depth {}) ::selection symbolic-x))])
-                         [::forms/ok])}]
+           `Select! (e/fn [symbolic-x]
+                      (router/ReplaceState! ['. (conj (into [] (take *depth) router/route)
+                                                  (assoc (nth router/route *depth {}) ::selection symbolic-x))])
+                      ;; Want the selected row to transition atomically? : (RoundTrip (RoundTrip [::forms/ok]))
+                      ;; Two roundtrids because:
+                      ;;  - one roundtrip because TablePicker! receives the selected index from server (latency)
+                      ;;  - second roundtrip because of an Electric bug leo is fixing
+                      ;;     - Electric produces an extra roundtrip on e/fn call.
+                      [::forms/ok])}]
       (reset! !mode (or (e/server (-> spec hfql/opts ::hfql/mode)) default-mode))
       (F query o spec effect-handlers (nth router/route *depth {})))))
 
@@ -506,7 +510,7 @@
 .dustingetz-entity-browser3__block table thead tr { display: grid; grid-row: 1; grid-column: 1 / -1; grid-template-columns: subgrid;}
 .dustingetz-entity-browser3__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
-.dustingetz-entity-browser3__block .hyperfiddle-electric-forms4__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
+.dustingetz-entity-browser3__block .hyperfiddle-electric-forms5__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
 
 "
   )
