@@ -99,12 +99,15 @@
 
 (e/defn Tap [])
 
+#?(:clj (defn file-exists? [path] (.exists (clojure.java.io/file path))))
+#?(:clj (def git-repo-path (first (filter file-exists? ["./.git" "../.git"]))))
+
 (e/defn Index [_sitemap]
   (e/client
     (dom/props {:class "Index"})
     (dom/text "Nav: ")
     (r/link ['. [[`clojure-all-ns]]] (dom/text "clojure.core"))
-    (r/link ['. [[`dustingetz.datafy-git2/load-repo "../"]]] (dom/text "git"))
+    (r/link ['. [[`dustingetz.datafy-git2/load-repo git-repo-path]]] (dom/text "git"))
     (r/link ['. [['clojure.java.io/file "./"]]] (dom/text "file"))
     (r/link ['. [[`thread-mx]]] (dom/text "thread-mx"))
     ;; (r/link ['. [[`sakila]]] (dom/text "Sakila"))
