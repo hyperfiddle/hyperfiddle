@@ -5,7 +5,7 @@
             [dustingetz.str :refer [includes-str?]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms3 :refer [Input*]]
+            [hyperfiddle.electric-forms5 :refer [Input*]]
             [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing]]))
 
 (e/defn ^:deprecated TableScroll "Deprecated: user hyperfiddle.electric-forms5/TablePicker! instead"
