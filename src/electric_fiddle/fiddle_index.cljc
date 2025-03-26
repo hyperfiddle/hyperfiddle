@@ -4,7 +4,7 @@
             [dustingetz.treelister1 :refer [treelister]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms4 :refer [Input* TablePicker!]]
+            [hyperfiddle.electric-forms5 :refer [Input TablePicker!]]
             [hyperfiddle.router4 :as r]
             [hyperfiddle.rcf :refer [tests]]))
 
@@ -49,7 +49,7 @@
         xs! (Query search)
         n (count xs!)]
     (dom/fieldset (dom/legend (dom/text title " ")
-                    (do (reset! !search (e/client (Input* ""))) nil)
+                    (reset! !search (Input search))
                     (dom/text " (" n " items)"))
       (TablePicker! ::select nil n (e/fn [index] (Row index (nth xs! index nil)))))))
 
@@ -93,7 +93,7 @@
       (r/router (r/HTML5-History)
         (FiddleRoot (merge {`FiddleIndex FiddleIndex} fiddles) props)))))
 
-(def css (str hyperfiddle.electric-forms4/css
+(def css (str hyperfiddle.electric-forms5/css
            "
 /* Cosmetic grid standard */
 .FiddleIndex fieldset { padding: 0; padding-left: 0.5em; background-color: white; }
