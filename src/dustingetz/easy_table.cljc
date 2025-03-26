@@ -8,7 +8,7 @@
             [hyperfiddle.electric-forms3 :refer [Input*]]
             [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing]]))
 
-(e/defn ^:deprecated TableScroll "Deprecated: user hyperfiddle.electric-forms4/TablePicker! instead"
+(e/defn ^:deprecated TableScroll "Deprecated: user hyperfiddle.electric-forms5/TablePicker! instead"
   [record-count Row & [selected]]
   (e/client
     (dom/div (dom/props {:class "Viewport"})
