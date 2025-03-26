@@ -240,7 +240,7 @@
           row-count (e/server (count data)), row-height 24]
       (binding [*block-opts (e/server (hfql/opts spec))]
         (dom/fieldset
-          (dom/props {:class "entity dustingetz-entity-browser3__block"})
+          (dom/props {:class "entity dustingetz-entity-browser4__block"})
           (dom/legend
             (dom/span (dom/props {:class "title"}) (dom/text (e/server (pretty-title query)) " "))
             ;; TODO remove ugly workaround, solves bug where search travels across navigation
@@ -384,7 +384,7 @@
           !search (atom nil), search (e/watch !search)
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
-        (dom/props {:class "entity-children dustingetz-entity-browser3__block"})
+        (dom/props {:class "entity-children dustingetz-entity-browser4__block"})
         (let [spec2 (e/server
                       (TableTitle query !search saved-search row-count spec
                         (when (Browse-mode?) (hfql/suggest (Nav unpulled nil (first unpulled))))))
@@ -514,13 +514,13 @@
 
 (def table-block-css
 "
-.dustingetz-entity-browser3__block table { display: grid; grid-template-columns: repeat(var(--column-count), 1fr);  grid-template-rows: var(--row-height);}
+.dustingetz-entity-browser4__block table { display: grid; grid-template-columns: repeat(var(--column-count), 1fr);  grid-template-rows: var(--row-height);}
 
-.dustingetz-entity-browser3__block table thead { display: contents; }
-.dustingetz-entity-browser3__block table thead tr { display: grid; grid-row: 1; grid-column: 1 / -1; grid-template-columns: subgrid;}
-.dustingetz-entity-browser3__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.dustingetz-entity-browser4__block table thead { display: contents; }
+.dustingetz-entity-browser4__block table thead tr { display: grid; grid-row: 1; grid-column: 1 / -1; grid-template-columns: subgrid;}
+.dustingetz-entity-browser4__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
-.dustingetz-entity-browser3__block .hyperfiddle-electric-forms5__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
+.dustingetz-entity-browser4__block .hyperfiddle-electric-forms5__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
 
 "
   )
@@ -531,17 +531,17 @@
 
     "
 /* cosmetic defaults */
-.dustingetz-entity-browser3__block legend .title {font-weight:600;}
-.dustingetz-entity-browser3__block { padding: 0 0.5em; background-color: white; }
-.dustingetz-entity-browser3__block table { border: 1px solid #f2f2f2; border-top-left-radius: 0.25rem; border-top-right-radius: 0.25rem; }
-.dustingetz-entity-browser3__block table thead tr { background-color: #f2f2f2; border-bottom: 1px lightgray solid; }
-.dustingetz-entity-browser3__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.dustingetz-entity-browser3__block table thead tr th { font-weight: 500; }
-.dustingetz-entity-browser3__block table thead tr th:not(:first-child) { border-left: 1px lightgray solid; }
-.dustingetz-entity-browser3__block table :is(th, td) { padding: 0 0.25em; }
+.dustingetz-entity-browser4__block legend .title {font-weight:600;}
+.dustingetz-entity-browser4__block { padding: 0 0.5em; background-color: white; }
+.dustingetz-entity-browser4__block table { border: 1px solid #f2f2f2; border-top-left-radius: 0.25rem; border-top-right-radius: 0.25rem; }
+.dustingetz-entity-browser4__block table thead tr { background-color: #f2f2f2; border-bottom: 1px lightgray solid; }
+.dustingetz-entity-browser4__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.dustingetz-entity-browser4__block table thead tr th { font-weight: 500; }
+.dustingetz-entity-browser4__block table thead tr th:not(:first-child) { border-left: 1px lightgray solid; }
+.dustingetz-entity-browser4__block table :is(th, td) { padding: 0 0.25em; }
 /* carefully override table-picker - invert default row striping so gray thead is followed by white row first */
-.dustingetz-entity-browser3__block tbody tr:nth-child(odd):not(:is([aria-selected=true],[aria-checked=true])):not(:hover) td { background-color: #f2f2f2; }
-.dustingetz-entity-browser3__block tbody tr:nth-child(even):not(:is([aria-selected=true],[aria-checked=true])):not(:hover) td { background-color: white; }
+.dustingetz-entity-browser4__block tbody tr:nth-child(odd):not(:is([aria-selected=true],[aria-checked=true])):not(:hover) td { background-color: #f2f2f2; }
+.dustingetz-entity-browser4__block tbody tr:nth-child(even):not(:is([aria-selected=true],[aria-checked=true])):not(:hover) td { background-color: white; }
 /* --------- */
 
 "
