@@ -90,7 +90,7 @@
 (defn resolve! [f$] (or (resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
 
 (defn invoke-reflective [method$ o & args]
-  (clojure.lang.Reflector/invokeInstanceMethodOfClass o (class o) (subs (str method$) 1) (into-array args)))
+  (clojure.lang.Reflector/invokeInstanceMethod o (subs (str method$) 1) (into-array args)))
 
 (defn read-reflective [field$ o]
   (let [fld (.getField (class o) (subs (str field$) 2))]
