@@ -130,9 +130,10 @@
                               (keys (datafy (nav xs! nil x0))))))
                 cols (e/diff-by {} colspec)]
             (dom/props {:style {:--col-count (count colspec)}})
-            (TableScroll (count xs!)
-              (e/fn Row [i] (e/server (when-some [x (nth xs! i nil)]
-                                        (CollectionRow cols (nav xs! nil x))))))))))))
+            (e/for [xs! (e/diff-by identity (e/as-vec xs!))] ; temporary conditional glitch workaround
+              (TableScroll (count xs!)
+                (e/fn Row [i] (e/server (when-some [x (nth xs! i nil)]
+                                          (CollectionRow cols (nav xs! nil x)))))))))))))
 
 (e/defn EdnViewer0
   ([] (EdnViewer0 (e/server (Tap)))) ; default to clojure tap> inspector
