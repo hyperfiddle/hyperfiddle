@@ -125,12 +125,14 @@
         (dom/fieldset (dom/props {:class "entity-children"})
           (let [xs! (if (seq ?focus-path) (nav-in m (seq ?focus-path)))
                 colspec (dom/legend (dom/text (pr-str (mapv unqualify ?focus-path)) " ")
-                          (ColumnPicker (some-> xs! first datafy keys)))
+                          (ColumnPicker
+                            (when-some [x0 (first xs!)]
+                              (keys (datafy (nav xs! nil x0))))))
                 cols (e/diff-by {} colspec)]
             (dom/props {:style {:--col-count (count colspec)}})
             (TableScroll (count xs!)
               (e/fn Row [i] (e/server (when-some [x (nth xs! i nil)]
-                                        (CollectionRow cols x)))))))))))
+                                        (CollectionRow cols (nav xs! nil x))))))))))))
 
 (e/defn EdnViewer0
   ([] (EdnViewer0 (e/server (Tap)))) ; default to clojure tap> inspector
