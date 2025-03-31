@@ -250,19 +250,23 @@
           (forms/Interpreter effect-handlers
             (e/amb
               (e/When search search)
-              (->> (forms/TablePicker! ::selection
-                     (e/server (find-index (fn [[k]] (= k saved-selection)) data)) row-count
-                     (e/fn [index] (e/server
-                                     (when-some [kv (nth data index nil)]
-                                       (ObjectRow kv o (find-key-spec raw-spec (key kv)) shorten))))
-                     :row-height row-height
-                     :column-count 2)
-                (forms/Parse (e/fn ToSaved [{index ::selection}]
-                               (let [x (e/server (nth data index nil))
-                                     row-select (e/server (-> (nth raw-spec index nil) hfql/opts ::hfql/select))
-                                     select (or row-select default-select)]
-                                 (e/When (e/server (or browse? (and x select))) (e/server (first x))))))
-                (forms/Parse (e/fn ToCommand [saved] [`Select! saved])))))))
+              (let [!index (e/server (atom nil))]
+                (e/server (reset! !index (find-index (fn [[k]] (= k saved-selection)) data)))
+                (->> (forms/TablePicker! ::selection (e/server (e/watch !index)) row-count
+                       (e/fn [index] (e/server
+                                       (when-some [kv (nth data index nil)]
+                                         (ObjectRow kv o (find-key-spec raw-spec (key kv)) shorten))))
+                       :row-height row-height
+                       :column-count 2)
+                  (forms/Parse (e/fn ToSaved [{index ::selection}]
+                                 (e/server
+                                   (let [x (nth data index nil)
+                                         row-select (-> (nth raw-spec index nil) hfql/opts ::hfql/select)
+                                         select (or row-select default-select)]
+                                     (e/When (or browse? (and x select))
+                                       (reset! !index index)
+                                       (first x))))))
+                  (forms/Parse (e/fn ToCommand [saved] [`Select! saved]))))))))
       (when saved-selection
         (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
                                  (Nav o (key nx) (val nx))))
@@ -350,9 +354,11 @@
                    filtered)))))
 
 (e/defn CollectionTableBody [row-count row-height cols data raw-spec saved-selection select]
-  (let [col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
+  (let [!index (e/server (atom nil))
+        col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
+    (e/server (reset! !index (find-index #{saved-selection} (eduction (map #(let [o (-> % meta ::hfql/origin)] (or (hfp/identify o) o))) data))))
     (->> (forms/TablePicker! ::selection
-           (e/server (find-index #{saved-selection} (eduction (map #(let [o (-> % meta ::hfql/origin)] (or (hfp/identify o) o))) data)))
+           (e/server (e/watch !index))
            row-count
            (e/fn [index] (e/server (some->> (nth data index nil)
                                      (TableRow cols col->spec data))))
@@ -361,9 +367,12 @@
            :as :tbody)
       (forms/Parse (e/fn ToSavable [{index ::selection}]
                      (e/When (or select (Browse-mode?))
-                       (let [x (e/server (-> (nth data index nil) meta ::hfql/origin))
-                             symbolic-x (e/server (hfp/identify x))]
-                         (e/When symbolic-x symbolic-x)))))
+                       (e/server
+                         (let [x (-> (nth data index nil) meta ::hfql/origin)
+                               symbolic-x (hfp/identify x)]
+                           (e/When symbolic-x
+                             (reset! !index index)
+                             symbolic-x))))))
       (forms/Parse (e/fn ToCommand [symbolic-x] [`Select! symbolic-x])))))
 
 ;; CollectionBlock is naive, doing N+1 queries and doing work in memory
