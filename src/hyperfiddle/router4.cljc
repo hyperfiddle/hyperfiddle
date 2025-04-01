@@ -11,7 +11,8 @@
    [hyperfiddle.token-zoo0 :refer [TokenNofail]]
    [hyperfiddle.rcf :refer [tests]]
    [hyperfiddle.history4 :as h]
-   [missionary.core :as m])
+   [missionary.core :as m]
+   [clojure.string :as str])
   #?(:cljs (:import [hyperfiddle.history4.HTML5History]))
   #?(:cljs (:require-macros hyperfiddle.router4)))
 
@@ -364,6 +365,7 @@
 
 ;;; Electric
 
+(e/declare ^{:doc "The router base path. All links will resolve under the base. Defaults to the current browsing context `baseURI`'s pathname if the document contains an explicit <base>, \"/\" otherwise."} basis)
 (e/declare ^{:doc "A stack of paths"} paths)
 (e/declare ^{:doc "The current path"} path)
 (e/declare ^{:doc "Top level route"} root-route)
@@ -508,7 +510,7 @@
     (let [[path' value] (split-link-path path)]
       (dom/a
         (e/input (link-click-handler dom/node (into hyperfiddle.router4/path path))) ; TODO replace with Token/directive
-        (dom/props {::dom/href (encode ($ Route-for path' value))})
+        (dom/props {::dom/href (add-document-basis basis (encode ($ Route-for path' value)))})
         (binding [current-route? ($ Current-route? path')]
           ($ Body))))))
 
@@ -526,6 +528,35 @@
    (defn -get-event-route [^js event]
      (.-hyperfiddle_router_route ^js event)))
 
+#?(:cljs (defn as-directory [path] (-> path (str/replace #"/+$" "") (str "/"))))
+#?(:cljs (defn path-name [url-str] (-> (new js/URL url-str) (.-pathname) (str/replace #"/[^\/]+$" ""))))
+
+#?(:cljs
+   (defn document-basis [current-node]
+     (if (some? (.querySelector js/document "base")) ; return first found node in document. HTML spec says browsers should ignore subsequent <base> nodes.
+       (-> current-node .-baseURI path-name as-directory) ; a base is only defined if it has children, so it's always a directory.
+       "/")))
+
+#?(:cljs
+   (defn strip-document-basis [basis path]
+     (if (str/starts-with? path basis)    ; default basis is "/"
+       (str/replace-first path basis "/") ; noop for default basis
+       ;; Edge case: Document is served at a URL not matching the <base>. This
+       ;; is counter intuitive but not forbidden on the web. Use case: decouple
+       ;; serving a document from resolving relative links of this document. We
+       ;; decide to match on the path as-is anyway and eventually let userland
+       ;; match or show a "not found" page. Redirecting will account for the
+       ;; basis. React-Router has a different approach: it doesn't leverage
+       ;; <base> but require developers to provide a `baseName` prop in jsx,
+       ;; treated as a prefix to all routes. While `baseName` ensures relative
+       ;; links all share a common prefix, it also forces all routes to match
+       ;; the common prefix, thus forces the document to be served at the same
+       ;; location as where it resolves relative links.
+       path)
+     ))
+
+#?(:cljs (defn add-document-basis [basis path] (str basis (str/replace path #"^/" ""))))
+
 (e/defn OnNavigate ; TODO replace with Service/directive
   "Will call `Callback` on internal `router/Link` click. `Callback` takes 2 arguments:
    - the route to navigate to
@@ -540,7 +571,7 @@
 
 (e/defn Navigate!
   ([path]
-   (h/navigate! h/history (encode ($ Route-for path))))
+   (h/navigate! h/history (add-document-basis basis (encode ($ Route-for path)))))
   ([path delay-ms] ; G: questionable feature – matches html redirect with <meta> – is there a use case?
    (case (e/Task (m/sleep delay-ms))
      (Navigate! path))))
@@ -552,7 +583,7 @@
   ([path value delay-ms] (Navigate! (conj path value) delay-ms)))
 
 (e/defn ReplaceState! [path] ;; TODO find a better name
-  (e/client (h/replace-state! h/history (encode ($ Route-for path)))))
+  (e/client (h/replace-state! h/history (add-document-basis basis (encode ($ Route-for path))))))
 
 (e/defn ReplaceState2!
   ([value] (ReplaceState2! ['.] value))
@@ -573,13 +604,14 @@
     (F x)))
 
 (e/defn Router [history BodyFn]
-  (binding [h/history  history
-            root-route (decode (e/watch history))
-            path       []
-            paths      []]
-    ($ OnNavigate dom/node (e/fn [route e] (ForAll e (e/fn [_e] (Navigate! route)))))
-    (focus '/
-      ($ BodyFn))))
+  (binding [basis (e/Reconcile (or basis (document-basis dom/node)))]
+    (binding [h/history  history
+              root-route (decode (strip-document-basis basis (e/watch history)))
+              path       []
+              paths      []]
+      ($ OnNavigate dom/node (e/fn [route e] (ForAll e (e/fn [_e] (Navigate! route)))))
+      (focus '/
+        ($ BodyFn)))))
 
 (defmacro router [history & body]
   `($ Router ~history (e/fn [] ~@body)))
