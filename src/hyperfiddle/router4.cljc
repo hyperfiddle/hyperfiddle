@@ -505,6 +505,8 @@
     (normalize {x nil})
     (normalize x)))
 
+#?(:cljs (defn add-document-basis [basis path] (str basis (str/replace path #"^/" ""))))
+
 (e/defn Link [path Body]
   (e/client
     (let [[path' value] (split-link-path path)]
@@ -554,8 +556,6 @@
        ;; location as where it resolves relative links.
        path)
      ))
-
-#?(:cljs (defn add-document-basis [basis path] (str basis (str/replace path #"^/" ""))))
 
 (e/defn OnNavigate ; TODO replace with Service/directive
   "Will call `Callback` on internal `router/Link` click. `Callback` takes 2 arguments:
