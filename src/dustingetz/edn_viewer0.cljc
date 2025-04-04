@@ -117,7 +117,7 @@
           (let [xs! (flatten-nested m)]
             (dom/legend (dom/text (title m)))
             (e/client
-              (hyperfiddle.electric-forms5/TablePicker! ::_ nil (e/server (count xs!))
+              (hyperfiddle.electric-forms5/TablePicker* nil (e/server (count xs!))
                 (e/fn Row [i] (e/server (when-some [x (nth xs! i nil)]
                                          (DocumentRow x)))))
               (e/amb))))
@@ -132,7 +132,7 @@
             (dom/props {:style {:--col-count (count colspec)}})
             (e/for [xs! (e/diff-by identity (e/as-vec xs!))] ; temporary conditional glitch workaround
               (e/client
-                (hyperfiddle.electric-forms5/TablePicker! ::_ nil (e/server (count xs!))
+                (hyperfiddle.electric-forms5/TablePicker* nil (e/server (count xs!))
                   (e/fn Row [i] (e/server (when-some [x (nth xs! i nil)]
                                             (CollectionRow cols (nav xs! nil x))))))
                 (e/amb)

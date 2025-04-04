@@ -4,7 +4,7 @@
             [dustingetz.treelister1 :refer [treelister]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms5 :refer [Input TablePicker!]]
+            [hyperfiddle.electric-forms5 :refer [Input TablePicker*]]
             [hyperfiddle.router4 :as r]
             [hyperfiddle.rcf :refer [tests]]))
 
@@ -51,7 +51,7 @@
     (dom/fieldset (dom/legend (dom/text title " ")
                     (reset! !search (Input search))
                     (dom/text " (" n " items)"))
-      (TablePicker! ::select nil n (e/fn [index] (Row index (nth xs! index nil)))))))
+      (TablePicker* nil n (e/fn [index] (Row index (nth xs! index nil)))))))
 
 (declare css)
 (e/defn FiddleIndex []
