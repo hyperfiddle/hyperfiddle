@@ -383,7 +383,6 @@
           !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (e/watch !sort-spec)
           !search (atom nil), search (e/watch !search)
           !row-count (atom 0), row-count (e/watch !row-count)]
-      ;; cycle back first column as sort in browse mode
       (dom/fieldset
         (dom/props {:class "entity-children dustingetz-entity-browser3__block"})
         (let [spec2 (e/server
@@ -397,6 +396,7 @@
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
               column-count (e/server (count raw-spec2))]
           (reset! !row-count (e/server (count data)))
+          ;; cycle back first column as sort in browse mode
           (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
             (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) true]]))
           (dom/table
