@@ -3,7 +3,6 @@
   (:require [clojure.datafy :refer [datafy]]
             [clojure.core.protocols :refer [nav]]
             [contrib.data :refer [unqualify]]
-            [dustingetz.easy-table :refer [TableScroll Load-css]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric3-contrib :refer [Tap]]
             [hyperfiddle.electric-dom3 :as dom]
@@ -110,17 +109,18 @@
 
 (declare css)
 (e/defn EntityBrowser [x ?focus-path]
-  (dom/style (dom/text css)) (Load-css "dustingetz/easy_table.css")
-  (dom/div (dom/props {:class (str "Browser dustingetz-EasyTable")})
+  (dom/div (dom/props {:class (str "Browser")})
     (e/server
       (let [m (e/Offload #(datafy x))]
 
         (dom/fieldset (dom/props {:class "entity"})
           (let [xs! (flatten-nested m)]
             (dom/legend (dom/text (title m)))
-            (TableScroll (count xs!)
-              (e/fn Row [i] (when-some [x (nth xs! i nil)]
-                              (DocumentRow x))))))
+            (e/client
+              (hyperfiddle.electric-forms5/TablePicker! ::_ nil (e/server (count xs!))
+                (e/fn Row [i] (e/server (when-some [x (nth xs! i nil)]
+                                         (DocumentRow x)))))
+              (e/amb))))
 
         (dom/fieldset (dom/props {:class "entity-children"})
           (let [xs! (if (seq ?focus-path) (nav-in m (seq ?focus-path)))
@@ -131,15 +131,18 @@
                 cols (e/diff-by {} colspec)]
             (dom/props {:style {:--col-count (count colspec)}})
             (e/for [xs! (e/diff-by identity (e/as-vec xs!))] ; temporary conditional glitch workaround
-              (TableScroll (count xs!)
-                (e/fn Row [i] (e/server (when-some [x (nth xs! i nil)]
-                                          (CollectionRow cols (nav xs! nil x)))))))))))))
+              (e/client
+                (hyperfiddle.electric-forms5/TablePicker! ::_ nil (e/server (count xs!))
+                  (e/fn Row [i] (e/server (when-some [x (nth xs! i nil)]
+                                            (CollectionRow cols (nav xs! nil x))))))
+                (e/amb)
+                ))))))))
 
 (e/defn EdnViewer0
   ([] (EdnViewer0 (e/server (Tap)))) ; default to clojure tap> inspector
   ([x] (e/client (e/Apply EntityBrowser x (or (seq router/route) [nil])))))
 
-(def css "
+(def css (str hyperfiddle.electric-forms5/css "
 .Browser fieldset.entity          { position:fixed; top:0;   bottom:50%; left:0; right:0; }
 .Browser fieldset.entity-children { position:fixed; top:50%; bottom:0;   left:0; right:0; }
 .Browser fieldset.entity          table { grid-template-columns: 15em auto; }
@@ -153,4 +156,4 @@
 .Browser .dustingetz-tooltip > span {
   position: absolute; top: 20px; left: 10px; z-index: 2; /* interaction with row selection z=1 */
   margin-top: 4px; padding: 4px; font-size: smaller;
-  box-shadow: 0 0 .5rem gray; border: 1px whitesmoke solid; border-radius: 3px; background-color: white; }")
+  box-shadow: 0 0 .5rem gray; border: 1px whitesmoke solid; border-radius: 3px; background-color: white; }"))
