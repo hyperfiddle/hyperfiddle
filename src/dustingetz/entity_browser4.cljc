@@ -405,7 +405,8 @@
             (forms/Interpreter effect-handlers
               (e/amb
                 (e/When search search)
-                (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select))))))
+                (binding [*block-opts (e/server (hfql/opts spec))]
+                  (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select)))))))
       (when saved-selection
         (let [next-x (e/server
                        (with-bindings *hfql-bindings
