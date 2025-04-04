@@ -3,14 +3,14 @@
             [deps-deploy.deps-deploy :as dd]))
 
 (def lib 'com.hyperfiddle/hyperfiddle)
-(def version (b/git-process {:git-args "describe --tags --long --always --dirty"}))
-(def basis (b/create-basis {:project "deps.edn", :aliases [:build-deps]}))
+(def version "v0-alpha-SNAPSHOT" #_(b/git-process {:git-args "describe --tags --long --always --dirty"}))
+(def basis (b/create-basis {:project "deps.edn" :aliases [:release]}))
 (def class-dir "target/classes")
 (def defaults {:src-pom "src-build/pom-template.xml" :lib lib :class-dir class-dir})
 
 (defn clean [_opts] (b/delete {:path "target"}))
 
-(defn jar [{:keys [version jar-file] :or {version version}}]
+(defn build [{:keys [version jar-file] :or {version version}}]
   (clean nil)
   (let [jar-file (or (some-> jar-file str) (format "target/%s-%s.jar" (name lib) version))
         opts (assoc defaults

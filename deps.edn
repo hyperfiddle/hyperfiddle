@@ -1,6 +1,7 @@
-{:deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-SNAPSHOT"}
+{:deps {com.hyperfiddle/electric {:local/root "../electric"}
+        com.hyperfiddle/hyperfiddle-contrib {:local/root "../hyperfiddle-contrib"}
+
         com.hyperfiddle/heroicons-electric {:mvn/version "8a08de7"} ; for hyperfiddle.ui components
-        com.hyperfiddle/hyperfiddle-contrib {:mvn/version "v0-alpha-SNAPSHOT"}
         markdown-clj/markdown-clj {:mvn/version "1.11.7"} ; entity-browser
         meander/epsilon {:mvn/version "0.0.650"} ; entity browser
         }
@@ -8,4 +9,6 @@
  :aliases {:build {:extra-paths ["src-build"]
                    :ns-default  build
                    :extra-deps  {io.github.clojure/tools.build {:mvn/version "0.9.6"}
-                                 slipset/deps-deploy           {:mvn/version "0.2.2"}}}}}
+                                 slipset/deps-deploy           {:mvn/version "0.2.2"}}}
+           :release {:override-deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-SNAPSHOT"}
+                                     com.hyperfiddle/hyperfiddle-contrib {:mvn/version "v0-alpha-SNAPSHOT"}}}}}
