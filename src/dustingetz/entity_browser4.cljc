@@ -214,7 +214,7 @@
 
 (e/defn Nav [coll k v] (e/server (with-bindings *hfql-bindings (datafy/nav coll k v))))
 
-#?(:clj (defn find-key-spec [spec k] (find-if #(= k (hfql/unwrap %)) spec)))
+#?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
 
 (e/defn ObjectBlock [query o spec effect-handlers args]
@@ -254,8 +254,9 @@
                 (e/server (reset! !index (find-index (fn [[k]] (= k saved-selection)) data)))
                 (->> (forms/TablePicker! ::selection (e/server (e/watch !index)) row-count
                        (e/fn [index] (e/server
-                                       (when-some [kv (nth data index nil)]
-                                         (ObjectRow kv o (find-key-spec raw-spec (key kv)) shorten))))
+                                       (let [kv (nth data index nil)]
+                                         (when-some [k (#(some-> kv key))] ; TODO simplify, guards glitched if
+                                           (ObjectRow kv o (find-key-spec raw-spec k) shorten)))))
                        :row-height row-height
                        :column-count 2)
                   (forms/Parse (e/fn ToSaved [{index ::selection}]
