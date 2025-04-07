@@ -488,7 +488,9 @@
        (set! (.-hyperfiddle_router_route e) next-route)
        (set! (.-hyperfiddle_router_external_nav e)
          (or (some? (.getAttribute node "download"))
-           (and (some? target) (not= "_self" target))))
+           (and (some? target) (not= "_self" target))
+           (.-ctrlKey e)                ; ctrl+click - open a new tab
+           (.-metaKey e)))              ; cmd+click  - open a new tab on Mac
        nil)))
 
 #?(:cljs
