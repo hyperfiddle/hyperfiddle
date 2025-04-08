@@ -543,9 +543,6 @@
 .dustingetz-entity-browser4__block table thead tr th { font-weight: 500; }
 .dustingetz-entity-browser4__block table thead tr th:not(:first-child) { border-left: 1px lightgray solid; }
 .dustingetz-entity-browser4__block table :is(th, td) { padding: 0 0.25em; }
-/* carefully override table-picker - invert default row striping so gray thead is followed by white row first */
-.dustingetz-entity-browser4__block tbody tr:nth-child(odd):not(:is([aria-selected=true],[aria-checked=true])):not(:hover) td { background-color: #f2f2f2; }
-.dustingetz-entity-browser4__block tbody tr:nth-child(even):not(:is([aria-selected=true],[aria-checked=true])):not(:hover) td { background-color: white; }
 /* --------- */
 
 "
