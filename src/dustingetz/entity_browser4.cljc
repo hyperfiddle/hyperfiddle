@@ -258,6 +258,7 @@
                 (->> (forms/TablePicker! ::selection (e/server (e/watch !index)) row-count
                        (e/fn [index] (e/server
                                        (let [kv (nth data index nil)]
+                                         ;; rebooting kv would solve glitches but degrades performance too severely
                                          (when-some [k (#(some-> kv key))] ; TODO simplify, guards glitched if
                                            (ObjectRow kv o (find-key-spec raw-spec k) shorten)))))
                        :row-height row-height
