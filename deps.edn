@@ -2,7 +2,6 @@
         com.hyperfiddle/hyperfiddle-contrib {:local/root "../hyperfiddle-contrib"}
 
         com.hyperfiddle/heroicons-electric {:mvn/version "8a08de7"} ; for hyperfiddle.ui components
-        markdown-clj/markdown-clj {:mvn/version "1.11.7"} ; entity-browser
         meander/epsilon {:mvn/version "0.0.650"} ; entity browser
         }
  :paths ["src"]
