@@ -64,7 +64,7 @@
                             (fiddles-by-ns-segments pages))))
       (e/fn Row [i [?tab [k v :as ?x]]]
         (when ?x
-          (dom/td (dom/props {:style {:padding-left (some-> ?tab (* 15) (str "px"))}})
+          (dom/td (dom/props {:style {:--tab ?tab}})
                   (dom/text k))
           (dom/td
             (if-not (map? v)
@@ -96,11 +96,12 @@
 (def css (str hyperfiddle.electric-forms5/css
            "
 /* Cosmetic grid standard */
-.FiddleIndex fieldset { padding: 0; padding-left: 0.5em; background-color: white; }
+.FiddleIndex fieldset { padding: 0; padding-left: 0em; background-color: white; }
 
 /* Userland layout */
 .FiddleIndex table td a+a { margin-left: .5em; }
 .FiddleIndex table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.FiddleIndex table td { padding-left: calc(var(--tab, 0) * 15px + 8px); }
 .FiddleIndex table { grid-template-columns: 20em auto; }
 
 /* Full height tables */
