@@ -217,6 +217,8 @@
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
 
+(defn ?sort-by [keyfn v*] (try (sort-by keyfn v*) (catch #?(:clj Throwable :cljs :default) _ v*)))
+
 (e/defn ObjectBlock [query o spec effect-handlers args]
   (e/client
     (let [{saved-search ::search, saved-selection ::selection} args
@@ -230,13 +232,14 @@
           !search (atom nil), search (e/watch !search)
           pulled (e/server (e/Offload #(hfql/pull *hfql-bindings raw-spec o)))
           data (e/server
-                 (into [] (keep (fn [kspec]
-                                  (let [k (hfql/unwrap kspec)
-                                        v (get pulled k)]
-                                    (when (or (strx/includes-str? (?unlazy k) saved-search)
-                                            (strx/includes-str? v saved-search))
-                                      (datax/map-entry k v)))))
-                   raw-spec))
+                 (?sort-by key
+                   (into [] (keep (fn [kspec]
+                                    (let [k (hfql/unwrap kspec)
+                                          v (get pulled k)]
+                                      (when (or (strx/includes-str? (?unlazy k) saved-search)
+                                              (strx/includes-str? v saved-search))
+                                        (datax/map-entry k v)))))
+                     raw-spec)))
           row-count (e/server (count data)), row-height 24]
       (binding [*block-opts (e/server (hfql/opts spec))]
         (dom/fieldset
