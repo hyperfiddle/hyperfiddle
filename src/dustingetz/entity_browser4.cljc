@@ -536,8 +536,8 @@
     "
 /* cosmetic defaults */
 .dustingetz-entity-browser4__block legend .title {font-weight:600;}
-.dustingetz-entity-browser4__block { padding: 0 0.5em; background-color: white; }
-.dustingetz-entity-browser4__block table { border: 1px solid #f2f2f2; border-top-left-radius: 0.25rem; border-top-right-radius: 0.25rem; }
+.dustingetz-entity-browser4__block { padding: 0; background-color: white; }
+.dustingetz-entity-browser4__block table { border: 0px solid #f2f2f2; border-top-left-radius: 0rem; border-top-right-radius: 0rem; }
 .dustingetz-entity-browser4__block table thead tr { background-color: #f2f2f2; border-bottom: 1px lightgray solid; }
 .dustingetz-entity-browser4__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .dustingetz-entity-browser4__block table thead tr th { font-weight: 500; }
