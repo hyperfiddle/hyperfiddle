@@ -129,7 +129,7 @@
                 (when-some [Tooltip (Resolve (::hfql/Tooltip opts) (Resolve (::hfql/Tooltip *block-opts) nil))]
                   (let [show? (dom/Mouse-over?)]
                     (dom/props {:data-tooltip (when show? (Tooltip v o spec))})))
-                (if (coll? v)
+                (if (or (set? v) (sequential? v))
                   (RenderInlineColl v o spec)
                   (let [pretty-v (pretty-value v)
                         denv {'% o, (hfql/unwrap spec) v, '%v v}]
