@@ -221,7 +221,11 @@
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
 
-(defn ?sort-by [keyfn v*] (try (sort-by keyfn v*) (catch #?(:clj Throwable :cljs :default) _ v*)))
+(defn ?sort-by [keyfn v*]
+  (try (sort-by keyfn v*)
+       (catch #?(:clj Throwable :cljs :default) e
+         (prn 'failed-to-sort (type e) (ex-message e))
+         v*)))
 
 (e/defn ObjectBlock [query o spec effect-handlers args]
   (e/client
