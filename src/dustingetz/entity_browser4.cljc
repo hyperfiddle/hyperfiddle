@@ -68,7 +68,8 @@
 (e/declare whitelist)
 (e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
 
-#?(:clj (defn remove-opt [spec k] (hfql/props-update-opts spec #(dissoc % k))))
+;; `and` is glitch guard, TODO remove
+#?(:clj (defn remove-opt [spec k] (and spec (hfql/props-update-opts spec #(dissoc % k)))))
 
 (defn column-appender [s] (fn [v] (str (subs v 0 (- (count v) 2)) "\n " s "]\n")))
 
@@ -111,8 +112,11 @@
          (str base (clojure.pprint/cl-format false " ~d element~:p" coll-count))
          base))))
 
+;; TODO removeme, glitch guard
+(defn as-coll [v] (if (coll? v) v [v]))
+
 (e/defn RenderInlineColl [v o spec]
-  (let [pretty-v (str-inline-coll v)
+  (let [pretty-v (str-inline-coll (as-coll v))
         opts (hfql/opts spec)]
     (if-some [query (::hfql/link opts)]
       (router/link ['. [query]] (dom/text pretty-v))
