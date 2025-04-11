@@ -121,7 +121,7 @@
         (#{:db/id :db/ident} k) entity
         ; TODO cache schema?
         (and (keyword? v) (ref? (index-schema (query-schema (.-db entity))) k)) (d/entity (.-db entity) v) ; traverse ident refs
-        (= :identity unique?) (d/entity (.-db entity) [k v]) ; resolve lookup ref, todo cleanup
+        (= :identity unique?) (if (instance? datomic.query.EntityMap v) v (d/entity (.-db entity) [k v])) ; resolve lookup ref, todo cleanup
         () (k entity v) ; traverse refs or return value
         )))
   Datafiable
