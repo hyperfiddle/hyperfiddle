@@ -4,7 +4,7 @@
         com.hyperfiddle/heroicons-electric {:mvn/version "8a08de7"} ; for hyperfiddle.ui components
         meander/epsilon {:mvn/version "0.0.650"} ; entity browser
         }
- :paths ["src"]
+ :paths ["src" "resources"]
  :aliases {:build {:extra-paths ["src-build"]
                    :ns-default  build
                    :extra-deps  {io.github.clojure/tools.build {:mvn/version "0.9.6"}
