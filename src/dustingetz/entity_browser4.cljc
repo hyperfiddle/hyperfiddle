@@ -559,40 +559,36 @@
     ))
 
 #?(:clj
-   (defn normalize-sitemap [sitemap]
-     (let [qualify #(symbol (hfql/resolve! %))]
+   (defn normalize-sitemap [ns sitemap]
+     (let [qualify #(symbol (hfql/resolve! % ns))]
        (update-keys sitemap
          (fn [k]
            (if (symbol? k)
              (seq (list (qualify k)))
              (cons (qualify (first k)) (next k))))))))
 
-#?(:clj (defn qualify-sitemap-symbol [s]
-          (if-some [ns-str (namespace s)]
-            (if-some [nso (get (ns-aliases *ns*) (symbol ns-str))]
-              (symbol (str (ns-name nso)) (name s))
-              (if (resolve s)
-                s
-                (throw (ex-info (str "unknown namespace of symbol [" s "]") {:symbol s}))))
+#?(:clj (defn qualify-sitemap-symbol [ns s]
+          (if (qualified-symbol? s)
+            (symbol (hfql/resolve! s ns))
             (cond (hfql/field-access? s)  s
                   (hfql/method-access? s) s
                   (#{'% '%v} s)           s
-                  :else                   (symbol (hfql/resolve! s))))))
+                  :else                   (symbol (hfql/resolve! s ns))))))
 #?(:clj
-   (defn auto-resolves [ns]
+   (defn auto-resolves [ns]             ; to resolve ::keywords based on the caller ns
      (as-> (ns-aliases ns) $
-       (assoc $ :current (ns-name *ns*), 'hfql 'peternagy.hfql)
+       (assoc $ :current (ns-name ns), 'hfql 'peternagy.hfql)
        (zipmap (keys $)
          (map ns-name (vals $))))))
 
 #?(:clj (defn read-sitemap [resource-path ns]
           (binding [*ns* ns]
-            (->> (eda/parse-string (slurp (io/resource resource-path)) {:auto-resolve (auto-resolves *ns*)})
+            (->> (eda/parse-string (slurp (io/resource resource-path)) {:auto-resolve (auto-resolves ns)})
               (walk/postwalk (fn [x] (cond
-                                       (symbol? x)                              (qualify-sitemap-symbol x)
+                                       (symbol? x)                              (qualify-sitemap-symbol ns x)
                                        (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
                                        :else                                    x)))
-              normalize-sitemap))))
+              (normalize-sitemap ns)))))
 
 ;; #?(:clj (defn sitemap-incseq [resource-path ns]
 ;;           (let [f (io/file (io/resource resource-path))]

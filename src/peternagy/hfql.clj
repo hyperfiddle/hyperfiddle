@@ -87,7 +87,11 @@
       props_
       (props raw-props (f (or (opts props_) {}))))))
 
-(defn resolve! [f$] (or (resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
+(defn resolve!
+  ([f$] (or (resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
+  ([f$ ns] (if (qualified-symbol? f$)
+             (or (ns-resolve ns f$) (requiring-resolve f$))
+             (or (ns-resolve ns f$) (throw (ex-info (str "Failed to resolve " f$) {}))))))
 
 (defn invoke-reflective [method$ o & args]
   (clojure.lang.Reflector/invokeInstanceMethod o (subs (str method$) 1) (into-array args)))
