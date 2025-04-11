@@ -23,7 +23,7 @@
     (println "Writing pom.xml")
     (b/write-pom opts)
     (println "Copying resources to" class-dir)
-    (b/copy-dir {:src-dirs ["src"], :target-dir class-dir})
+    (b/copy-dir {:src-dirs ["src" "resources"], :target-dir class-dir})
     (println "Building jar" jar-file)
     (b/jar opts)))
 
