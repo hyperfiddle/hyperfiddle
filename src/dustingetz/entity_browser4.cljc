@@ -86,7 +86,7 @@
     (e/When (IDE-mode?)
       (dom/div
         (dom/text "suggestions:")
-        (let [suggestions (e/server (collect-suggestions o *hfql-bindings)
+        (let [suggestions (e/server (e/Offload #(collect-suggestions o *hfql-bindings))
                                     #_(or (with-bindings *hfql-bindings (hfql/suggest o))
                                       (when (or (coll? o) (sequential? o))
                                         (with-bindings *hfql-bindings (hfql/suggest (nth o 0 nil))))))]
@@ -195,7 +195,7 @@
     (rebooting next-x
       ;; similarity with `infer-block-type`
       ;; maybe blocks should decide if they handle this object?
-      (when (or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x)))
+      (when (e/Offload #(or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x))))
         (e/client
           (binding [*depth (inc *depth)]
             (Block [selection] next-x (e/server []))))))))
@@ -216,7 +216,7 @@
         (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
         () symbolic-column))))
 
-(e/defn Nav [coll k v] (e/server (with-bindings *hfql-bindings (datafy/nav coll k v))))
+(e/defn Nav [coll k v] (e/server (e/Offload #(with-bindings *hfql-bindings (datafy/nav coll k v)))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
@@ -233,7 +233,7 @@
           opts (e/server (hfql/opts spec))
           browse? (Browse-mode?)
           ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker! - is the bug present in forms5?
-          spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (hfql/suggest o)))))
+          spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (e/Offload #(hfql/suggest o))))))
           raw-spec (e/server (hfql/unwrap spec2))
           shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
@@ -400,7 +400,9 @@
         (dom/props {:class "entity-children dustingetz-entity-browser4__block"})
         (let [spec2 (e/server
                       (TableTitle query !search saved-search row-count spec
-                        (when (Browse-mode?) (hfql/suggest (Nav unpulled nil (first unpulled))))))
+                        (when (Browse-mode?)
+                          (let [navd (Nav unpulled nil (first unpulled))]
+                            (e/Offload #(hfql/suggest navd))))))
               raw-spec2 (e/server (hfql/unwrap spec2))
               data (e/server (e/Offload (fn [] (eager-pull-search-sort
                                                  ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
@@ -422,11 +424,11 @@
                   (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select)))))))
       (when saved-selection
         (let [next-x (e/server
-                       (with-bindings *hfql-bindings
-                         (some #(let [navd (datafy/nav unpulled nil %)]
-                                  (when (= saved-selection (or (hfp/identify %) %))
-                                    navd))
-                           unpulled)))]
+                       (e/Offload (fn [] (with-bindings *hfql-bindings
+                                           (some #(let [navd (datafy/nav unpulled nil %)]
+                                                    (when (= saved-selection (or (hfp/identify %) %))
+                                                      navd))
+                                             unpulled)))))]
           (rebooting select
             (if select
               ;; In ObjectBlock we pass the selected object and the root object.
