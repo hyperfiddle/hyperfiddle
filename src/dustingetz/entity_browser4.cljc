@@ -9,6 +9,7 @@
             #?(:clj [clojure.java.io :as io])
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
+            [hyperfiddle.incseq :as i]
             [hyperfiddle.ui.tooltip :as tooltip]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router4 :as router]
@@ -81,12 +82,46 @@
                   jvm* (hfql/suggest-jvm o)]
               (into innate* jvm*)))))
 
+(defn now-ms []
+  #?(:clj (System/currentTimeMillis)
+     :cljs (.getTime (new js/Date))))
+
+#?(:clj (def timed* (i/spine)))
+
+(e/defn QueryMonitor []
+  (dom/div
+    (dom/props {:class "hyperfiddle-query-monitor"})
+    (e/server
+      (dom/div
+        (dom/props {:style {:display "flex", :flex-direction "column-reverse"}})
+        (e/for [[nm start-time end-time] (e/join timed*)]
+          (dom/div
+            (dom/props {:style {:display "flex", :justify-content "space-between"}})
+            (dom/span (dom/text nm))
+            (dom/span
+              (dom/text (let [!time (atom 0)]
+                          (reset! !time (- (or end-time (e/System-time-ms)) start-time))
+                          (e/watch !time)) "ms"))))))))
+
+(let [!cache (atom {::idx 0})
+      ->idx (fn [nm]
+              (-> (swap! !cache (fn [{i ::idx :as c}]
+                                  (if (contains? c nm)
+                                    c
+                                    (-> c (update ::idx inc) (assoc nm (inc i))))))
+                (get nm)))]
+  (e/defn Timing [nm f]
+    (let [v (e/Offload f)]
+      (when f (timed* (->idx nm) {} [nm (now-ms)]))
+      ((fn [_v] (timed* (->idx nm) conj (now-ms))) v)
+      v)))
+
 (e/defn Suggestions [o]
   (e/client
     (e/When (IDE-mode?)
       (dom/div
         (dom/text "suggestions:")
-        (let [suggestions (e/server (e/Offload #(collect-suggestions o *hfql-bindings))
+        (let [suggestions (e/server (Timing 'suggestions #(collect-suggestions o *hfql-bindings))
                                     #_(or (with-bindings *hfql-bindings (hfql/suggest o))
                                       (when (or (coll? o) (sequential? o))
                                         (with-bindings *hfql-bindings (hfql/suggest (nth o 0 nil))))))]
@@ -184,7 +219,7 @@
     (rebooting o
       (e/client
         (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
-              next-o (e/server (e/Offload #(query->object *hfql-bindings query)))]
+              next-o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))]
           (binding [*depth (inc *depth)]
             (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))))))))))
 
@@ -195,7 +230,7 @@
     (rebooting next-x
       ;; similarity with `infer-block-type`
       ;; maybe blocks should decide if they handle this object?
-      (when (e/Offload #(or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x))))
+      (when (Timing 'should-next-block-mount #(or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x))))
         (e/client
           (binding [*depth (inc *depth)]
             (Block [selection] next-x (e/server []))))))))
@@ -216,7 +251,7 @@
         (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
         () symbolic-column))))
 
-(e/defn Nav [coll k v] (e/server (e/Offload #(with-bindings *hfql-bindings (datafy/nav coll k v)))))
+(e/defn Nav [coll k v] (e/server (Timing 'Nav #(with-bindings *hfql-bindings (datafy/nav coll k v)))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
@@ -233,12 +268,12 @@
           opts (e/server (hfql/opts spec))
           browse? (Browse-mode?)
           ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker! - is the bug present in forms5?
-          spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (e/Offload #(hfql/suggest o))))))
+          spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (Timing 'add-suggestions #(hfql/suggest o))))))
           raw-spec (e/server (hfql/unwrap spec2))
           shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
           !search (atom nil), search (e/watch !search)
-          pulled (e/server (e/Offload #(hfql/pull *hfql-bindings raw-spec o)))
+          pulled (e/server (Timing (cons 'pull (pretty-title query)) #(hfql/pull *hfql-bindings raw-spec o)))
           data (e/server
                  (?sort-by key
                    (into [] (keep (fn [kspec]
@@ -402,11 +437,12 @@
                       (TableTitle query !search saved-search row-count spec
                         (when (Browse-mode?)
                           (let [navd (Nav unpulled nil (first unpulled))]
-                            (e/Offload #(hfql/suggest navd))))))
+                            (Timing 'infer-columns #(hfql/suggest navd))))))
               raw-spec2 (e/server (hfql/unwrap spec2))
-              data (e/server (e/Offload (fn [] (eager-pull-search-sort
-                                                 ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
-                                                 raw-spec2 *hfql-bindings saved-search sort-spec))))
+              data (e/server (Timing (cons 'pull (pretty-title query))
+                               (fn [] (eager-pull-search-sort
+                                        ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
+                                        raw-spec2 *hfql-bindings saved-search sort-spec))))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
               column-count (e/server (count raw-spec2))]
@@ -424,11 +460,12 @@
                   (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select)))))))
       (when saved-selection
         (let [next-x (e/server
-                       (e/Offload (fn [] (with-bindings *hfql-bindings
-                                           (some #(let [navd (datafy/nav unpulled nil %)]
-                                                    (when (= saved-selection (or (hfp/identify %) %))
-                                                      navd))
-                                             unpulled)))))]
+                       (Timing 'next-object
+                         (fn [] (with-bindings *hfql-bindings
+                                  (some #(let [navd (datafy/nav unpulled nil %)]
+                                           (when (= saved-selection (or (hfp/identify %) %))
+                                             navd))
+                                    unpulled)))))]
           (rebooting select
             (if select
               ;; In ObjectBlock we pass the selected object and the root object.
@@ -513,6 +550,7 @@
         (tooltip/Tooltip)
         (dom/div
           (dom/props {:class "Browser"})
+          (QueryMonitor)
           (binding [!mode (atom default-mode)]
             (let [mode (e/watch !mode)]
               (binding [*mode mode #_(ModePicker mode)
@@ -522,7 +560,7 @@
                     (if-not query
                       (router/ReplaceState! ['. default])
                       (let [f$ (first query)
-                            o (e/server (e/Offload #(query->object *hfql-bindings query)))]
+                            o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))]
                         (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
                         (dom/props {:class (cssx/css-slugify f$)})
                         (Block query o (e/server (find-sitemap-spec sitemap f$)))))))))))))))
@@ -556,9 +594,27 @@
 .dustingetz-entity-browser4__block table :is(th, td) { padding: 0 0.25em; }
 /* --------- */
 
-"
-
-    ))
+/* query monitor */
+.hyperfiddle-query-monitor {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  height: 200px;
+  width: 500px;
+  overflow-y: auto;
+  z-index: 999;
+  background-color: rgba(44, 62, 80, 0.85);
+  color: #ecf0f1;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  padding: 8px 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+"))
 
 #?(:clj
    (defn normalize-sitemap [ns sitemap]
