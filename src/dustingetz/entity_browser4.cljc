@@ -94,14 +94,34 @@
     (e/server
       (dom/div
         (dom/props {:style {:display "flex", :flex-direction "column-reverse"}})
-        (e/for [[nm start-time end-time] (e/join timed*)]
+        (e/for [[nm start-time end-time killed?] (e/join timed*)]
           (dom/div
             (dom/props {:style {:display "flex", :justify-content "space-between"}})
             (dom/span (dom/text nm))
             (dom/span
-              (dom/text (let [!time (atom 0)]
-                          (reset! !time (- (or end-time (e/System-time-ms)) start-time))
-                          (e/watch !time)) "ms"))))))))
+              (when killed? (dom/strong (dom/props {:style {:color "red"}}) (dom/text "killed ")))
+              (dom/text
+                (let [!time (atom 0)]
+                  (reset! !time (- (or end-time (e/System-time-ms)) start-time))
+                  (e/watch !time))
+                "ms"))))))))
+
+
+(defn offload-latch-timeout [<f executor timeout-ms timeout-v]
+  (i/diff-by {}
+    (m/reductions {} []
+      (m/ap
+        (try [(m/? (m/timeout (m/via-call executor (m/?< <f)) timeout-ms timeout-v))]
+             (catch #?(:clj Throwable :cljs :default) e
+               ;; Swallow all exceptions if current Thread is already interrupted - rethrow otherwise.
+               ;; Catching InterruptedException is not enough, because Datomic (at least) will throw a
+               ;; domain-specific exception on thread interruption.
+               (try (m/!) (catch missionary.Cancelled _ (m/amb)))
+               (throw e)))))))
+
+;; like e/Offload but can time out
+(e/defn Offload [f! executor timeout-ms timeout-v]
+  (e/join (offload-latch-timeout (e/join (i/items (e/pure f!))) executor timeout-ms timeout-v)))
 
 (let [!cache (atom {::idx 0})
       ->idx (fn [nm]
@@ -109,22 +129,28 @@
                                   (if (contains? c nm)
                                     c
                                     (-> c (update ::idx inc) (assoc nm (inc i))))))
-                (get nm)))]
-  (e/defn Timing [nm f]
-    (let [v (e/Offload f)]
+                (get nm)))
+      save (fn save [v nm]
+             #?(:clj
+                (if (and (vector? v) (= ::timeout (first v)))
+                  (do (timed* (->idx nm) into [(now-ms) 'killed]) (second v))
+                  (do (timed* (->idx nm) conj (now-ms)) v))))]
+  (e/defn Timing [nm f timeout-ms timeout-v]
+    (let [v (Offload f m/blk timeout-ms [::timeout timeout-v])]
       (when f (timed* (->idx nm) {} [nm (now-ms)]))
-      ((fn [_v] (timed* (->idx nm) conj (now-ms))) v)
-      v)))
+      (save v nm))))
+
+(def default-timeout 15000)
 
 (e/defn Suggestions [o]
   (e/client
     (e/When (IDE-mode?)
       (dom/div
         (dom/text "suggestions:")
-        (let [suggestions (e/server (Timing 'suggestions #(collect-suggestions o *hfql-bindings))
+        (let [suggestions (e/server (Timing 'suggestions #(collect-suggestions o *hfql-bindings) default-timeout nil)
                                     #_(or (with-bindings *hfql-bindings (hfql/suggest o))
-                                      (when (or (coll? o) (sequential? o))
-                                        (with-bindings *hfql-bindings (hfql/suggest (nth o 0 nil))))))]
+                                        (when (or (coll? o) (sequential? o))
+                                          (with-bindings *hfql-bindings (hfql/suggest (nth o 0 nil))))))]
           (e/When suggestions
             (dom/div
               (e/for [{:keys [label entry]} (e/diff-by {} suggestions)]
@@ -219,9 +245,10 @@
     (rebooting o
       (e/client
         (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
-              next-o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))]
-          (binding [*depth (inc *depth)]
-            (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))))))))))
+              next-o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query) default-timeout nil))]
+          (when (e/server (some? next-o))
+            (binding [*depth (inc *depth)]
+              (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template)))))))))))
 
 #?(:clj (defn not-entity-like? [x] (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x)))))
 
@@ -230,7 +257,7 @@
     (rebooting next-x
       ;; similarity with `infer-block-type`
       ;; maybe blocks should decide if they handle this object?
-      (when (Timing 'should-next-block-mount #(or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x))))
+      (when (Timing 'should-next-block-mount #(or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x))) default-timeout nil)
         (e/client
           (binding [*depth (inc *depth)]
             (Block [selection] next-x (e/server []))))))))
@@ -251,7 +278,7 @@
         (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
         () symbolic-column))))
 
-(e/defn Nav [coll k v] (e/server (Timing 'Nav #(with-bindings *hfql-bindings (datafy/nav coll k v)))))
+(e/defn Nav [coll k v] (e/server (Timing 'Nav #(with-bindings *hfql-bindings (datafy/nav coll k v)) default-timeout coll)))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
@@ -268,12 +295,12 @@
           opts (e/server (hfql/opts spec))
           browse? (Browse-mode?)
           ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker! - is the bug present in forms5?
-          spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (Timing 'add-suggestions #(hfql/suggest o))))))
+          spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (Timing 'add-suggestions #(hfql/suggest o) default-timeout [])))))
           raw-spec (e/server (hfql/unwrap spec2))
           shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
           !search (atom nil), search (e/watch !search)
-          pulled (e/server (Timing (cons 'pull (pretty-title query)) #(hfql/pull *hfql-bindings raw-spec o)))
+          pulled (e/server (Timing (cons 'pull (pretty-title query)) #(hfql/pull *hfql-bindings raw-spec o) default-timeout o))
           data (e/server
                  (?sort-by key
                    (into [] (keep (fn [kspec]
@@ -437,12 +464,13 @@
                       (TableTitle query !search saved-search row-count spec
                         (when (Browse-mode?)
                           (let [navd (Nav unpulled nil (first unpulled))]
-                            (Timing 'infer-columns #(hfql/suggest navd))))))
+                            (Timing 'infer-columns #(hfql/suggest navd) default-timeout nil)))))
               raw-spec2 (e/server (hfql/unwrap spec2))
               data (e/server (Timing (cons 'pull (pretty-title query))
                                (fn [] (eager-pull-search-sort
                                         ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
-                                        raw-spec2 *hfql-bindings saved-search sort-spec))))
+                                        raw-spec2 *hfql-bindings saved-search sort-spec))
+                               default-timeout unpulled))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
               column-count (e/server (count raw-spec2))]
@@ -465,7 +493,8 @@
                                   (some #(let [navd (datafy/nav unpulled nil %)]
                                            (when (= saved-selection (or (hfp/identify %) %))
                                              navd))
-                                    unpulled)))))]
+                                    unpulled)))
+                         default-timeout nil))]
           (rebooting select
             (if select
               ;; In ObjectBlock we pass the selected object and the root object.
@@ -560,7 +589,7 @@
                     (if-not query
                       (router/ReplaceState! ['. default])
                       (let [f$ (first query)
-                            o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))]
+                            o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query) default-timeout []))]
                         (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
                         (dom/props {:class (cssx/css-slugify f$)})
                         (Block query o (e/server (find-sitemap-spec sitemap f$)))))))))))))))
