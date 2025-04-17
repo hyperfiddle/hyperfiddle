@@ -101,9 +101,7 @@
             (dom/span
               (when killed? (dom/strong (dom/props {:style {:color "red"}}) (dom/text "killed ")))
               (dom/text
-                (let [!time (atom 0)]
-                  (reset! !time (- (or end-time (e/System-time-ms)) start-time))
-                  (e/watch !time))
+                (- (or end-time (e/System-time-ms)) start-time)
                 "ms"))))))))
 
 
