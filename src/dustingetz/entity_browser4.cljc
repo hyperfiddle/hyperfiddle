@@ -181,13 +181,16 @@
       (router/link ['. [query]] (dom/text pretty-v))
       (dom/text pretty-v))))
 
+(e/defn RenderTooltip [k opts v o spec]
+  (when-some [Tooltip (Resolve (get opts k) (Resolve (get *block-opts k) nil))]
+    (let [show? (dom/Mouse-over?)]
+      (dom/props {:data-tooltip (when show? (Tooltip v o spec))}))))
+
 (e/defn RenderCell [v o spec]
   (let [opts (hfql/opts spec)]
     (dom/td                          ; custom renderer runs in context of a cell
       (let [K (e/fn [v o spec]
-                (when-some [Tooltip (Resolve (::hfql/Tooltip opts) (Resolve (::hfql/Tooltip *block-opts) nil))]
-                  (let [show? (dom/Mouse-over?)]
-                    (dom/props {:data-tooltip (when show? (Tooltip v o spec))})))
+                (RenderTooltip ::hfql/Tooltip opts v o spec)
                 (if (or (set? v) (sequential? v))
                   (RenderInlineColl v o spec)
                   (let [pretty-v (pretty-value v)
@@ -365,13 +368,14 @@
   (when-some [[col asc?] (first sort-spec)]
     [[for-col (if (= col for-col) (not asc?) true)]]))
 
-(e/defn TableHeader [cols !sort-spec]
+(e/defn TableHeader [cols !sort-spec spec]
   (dom/thead
     (dom/tr
       (let [shorten (column-shortener (e/as-vec cols) ident?)]
         (e/for [col cols]
           (dom/th
             (dom/props {:title (str col)})
+            (e/server (RenderTooltip ::hfql/TitleTooltip (hfql/opts spec) col nil col))
             (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil)
             (dom/text (pretty-name (shorten col)))))))))
 
@@ -478,7 +482,7 @@
             (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) true]]))
           (dom/table
             (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-            (TableHeader cols !sort-spec)
+            (TableHeader cols !sort-spec spec)
             (forms/Interpreter effect-handlers
               (e/amb
                 (e/When search search)
