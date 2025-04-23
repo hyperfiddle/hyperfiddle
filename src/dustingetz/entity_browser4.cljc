@@ -379,10 +379,10 @@
             (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil)
             (dom/text (pretty-name (shorten col)))))))))
 
-(e/defn TableTitle [query !search saved-search row-count spec suggest*]
+(e/defn TableTitle [query !search saved-search row-count spec query-meta suggest*]
   (dom/legend
     (dom/span
-      (dom/props {:class "title"})
+      (dom/props {:class "title" :title (e/server (pr-str query-meta))})
       (dom/text (pretty-title query))
       (dom/text " ")
       ;; TODO remove ugly workaround, solves bug where search travels across navigation
@@ -463,7 +463,7 @@
       (dom/fieldset
         (dom/props {:class "entity-children dustingetz-entity-browser4__block"})
         (let [spec2 (e/server
-                      (TableTitle query !search saved-search row-count spec
+                      (TableTitle query !search saved-search row-count spec (dissoc (meta unpulled) `clojure.core.protocols/nav)
                         (when (Browse-mode?)
                           (let [navd (Nav unpulled nil (first unpulled))]
                             (Timing 'infer-columns #(hfql/suggest navd) default-timeout nil)))))
