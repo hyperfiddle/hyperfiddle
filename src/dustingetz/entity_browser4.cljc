@@ -21,7 +21,9 @@
             [clojure.string :as str]
             [clojure.pprint]
             [edamame.core :as eda]
-            [clojure.walk :as walk])
+            [clojure.walk :as walk]
+            [dustingetz.offload-ui :as oui]
+            #?(:clj [peternagy.hfql :as hfql]))
   #?(:clj (:import [java.io File]))
   #?(:cljs (:require-macros dustingetz.entity-browser4)))
 
@@ -410,23 +412,23 @@
                                      (e/When (or browse? (and x select))
                                        (reset! !index index)
                                        (first x))))))
-                  (forms/Parse (e/fn ToCommand [saved] [`Select! saved]))))))))
-      (when saved-selection
-        (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
-                                 (Nav o (key nx) (val nx))))
-              row-select (e/server (-> (find-spec-prop raw-spec saved-selection) hfql/opts ::hfql/select))
-              select (or row-select default-select)]
-          (rebooting select
-            (if select
-              (NextBlock select next-x o)
-              (when browse?
-                (e/server
-                  (let [query-template (find-default-page *page-defaults next-x)]
-                    (rebooting query-template
-                      (e/client
-                        (if query-template
-                          (NextBlock query-template next-x o)
-                          (AnonymousBlock saved-selection next-x))))))))))))))
+                  (forms/Parse (e/fn ToCommand [saved] [`Select! saved])))))))
+        (when saved-selection
+          (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
+                                   (Nav o (key nx) (val nx))))
+                row-select (e/server (-> (find-spec-prop raw-spec saved-selection) hfql/opts ::hfql/select))
+                select (or row-select default-select)]
+            (rebooting select
+              (if select
+                (NextBlock select next-x o)
+                (when browse?
+                  (e/server
+                    (let [query-template (find-default-page *page-defaults next-x)]
+                      (rebooting query-template
+                        (e/client
+                          (if query-template
+                            (NextBlock query-template next-x o)
+                            (AnonymousBlock saved-selection next-x)))))))))))))))
 
 (e/defn TableRow [cols col->spec o m]
   (e/for [col cols]
@@ -447,7 +449,7 @@
             (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil)
             (dom/text (pretty-name (shorten col)))))))))
 
-(e/defn TableTitle [query !search saved-search row-count spec query-meta suggest*]
+(e/defn TableTitle [query !search saved-search row-count spec query-meta Suggest*]
   (dom/legend
     (dom/span
       (dom/props {:class "title" :title (e/server (pr-str query-meta))})
@@ -460,7 +462,7 @@
       (dom/text " (" row-count " items) ")
       (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
             pre-checked (empty? k*)
-            new-suggest* (into [] (comp (map :entry) (remove k*)) suggest*)
+            new-suggest* (into [] (comp (map :entry) (remove k*)) (Suggest*))
             shorten (column-shortener (into k* new-suggest*) ident?)
             selected (e/as-vec
                        (e/for [entry (e/diff-by {} new-suggest*)]
@@ -521,12 +523,16 @@
                              symbolic-x))))))
       (forms/Parse (e/fn ToCommand [symbolic-x] [`Select! symbolic-x])))))
 
+(defn timef [label f]
+  (pr label)
+  (time (f)))
+
 ;; CollectionBlock is naive, doing N+1 queries and doing work in memory
 (e/defn CollectionBlock [query unpulled spec effect-handlers args]
   (e/client
     (let [{saved-search ::search, saved-selection ::selection} args
           select (e/server (::hfql/select (hfql/opts spec)))
-          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (e/watch !sort-spec)
+          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (oui/Latch (e/Filter ffirst  (e/watch !sort-spec)))
           !search (atom nil), search (e/watch !search)
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
@@ -574,7 +580,7 @@
                 (e/server
                   (let [query-template (find-default-page *page-defaults next-x)]
                     (rebooting query-template
-                      (e/client
+                      (e/client 
                         (if query-template
                           (NextBlock query-template next-x next-x)
                           (AnonymousBlock saved-selection next-x))))))))))))))
@@ -646,7 +652,7 @@
     (tooltip/TooltipArea
       (e/fn []
         (tooltip/Tooltip)
-        (dom/div
+        #_(dom/div
           (dom/props {:class "Browser"})
           ;; (QueryMonitor)
           (binding [!mode (atom default-mode)]
@@ -661,7 +667,8 @@
                             o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))]
                         (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
                         (dom/props {:class (cssx/css-slugify f$)})
-                        (Block query o (e/server (find-sitemap-spec sitemap f$)))))))))))))))
+                        (rebooting query
+                          (Block query o (e/server (find-sitemap-spec sitemap f$))))))))))))))))
 
 (def table-block-css
 "
@@ -713,6 +720,7 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
+
 "))
 
 #?(:clj
