@@ -4,6 +4,7 @@
             [contrib.data :as datax]
             [contrib.debug :as dbg]
             [dustingetz.str :as strx]
+            [dustingetz.offload-ui :as oui]
             [peternagy.hfql #?(:clj :as :cljs :as-alias) hfql]
             #?(:clj [peternagy.file-watcher :as fw])
             #?(:clj [clojure.java.io :as io])
@@ -149,7 +150,7 @@
       (?keep !x f v)
       (e/diff-by {} (e/watch !x)))))
 
-(let [!cache (atom {::idx 0})
+#_(let [!cache (atom {::idx 0})
       ->idx (fn [nm]
               (-> (swap! !cache (fn [{i ::idx :as c}]
                                   (if (contains? c nm)
@@ -177,6 +178,35 @@
         (timed-started nm f dfv)
         (timed-finished nm t)
         (Keep keep-ok tv)))))
+
+(letfn [(started [_f !s]
+          (swap! !s (fn [ac]
+                      (case (:state ac)
+                        (:re-ended) (assoc ac :start (:end ac), :state :ended)
+                        (:re-killed) (assoc ac :start (:end ac), :state :killed)
+                        #_else (-> ac (dissoc :end) (assoc :start (now-ms), :state :started))))))
+        (finished [t !s] ((if (= :ok t) ended killed) !s))
+        (killed [!s] (swap! !s (fn [ac] (assoc ac :end (now-ms), :state (case (:state ac) (:killed :ended) :re-killed #_else :killed)))))
+        (ended [!s] (swap! !s (fn [ac] (assoc ac :end (now-ms), :state (case (:state ac) (:killed :ended) :re-ended #_else :ended)))))
+        (run-fn [f dfv] (m/race (m/sp [:killed (m/? dfv)]) (m/sp [:ok (m/? (m/via-call m/blk f))])))
+        (keep-ok [[t v]] (when (= t :ok) v))]
+  (e/defn Timing [nm f]
+    (let [!s (atom {}), {:keys [state start end]} (e/watch !s)
+          dfv ((fn [_] (m/dfv)) f)
+          [t _v :as tv] (e/Task (run-fn f dfv))]
+      (started f !s)
+      (finished t !s)
+      (e/client
+        (dom/button (dom/text "×")
+          (dom/props {:class "cancel", :disabled (not= state :started)})
+          (when-some [t (tok/TokenNofail (dom/On "click" identity nil))]
+            (t (e/server (dfv true))))))
+      (dom/props {:data-timing-label nm
+                  :data-timing-duration (oui/format-duration (- (or end (e/System-time-ms)) start))
+                  :data-timing-status ({:started "running", nil "running"
+                                        :ended "done", :re-ended "done"
+                                        :killed "interrupted", :re-killed "interrupted"} state)})
+      (Keep keep-ok tv))))
 
 (e/defn Suggestions [o]
   (e/client
@@ -618,7 +648,7 @@
         (tooltip/Tooltip)
         (dom/div
           (dom/props {:class "Browser"})
-          (QueryMonitor)
+          ;; (QueryMonitor)
           (binding [!mode (atom default-mode)]
             (let [mode (e/watch !mode)]
               (binding [*mode mode #_(ModePicker mode)
@@ -648,6 +678,7 @@
 
 (def css
   (str forms/css
+    oui/css
     table-block-css
 
     "

@@ -23,12 +23,15 @@
     (reset! !prev [x])
     (e/diff-by {} (e/watch !prev))))
 
-#?(:cljs
-   (defn format-duration [ms]
-     (cond
-       (< ms 1000) (str ms "ms")
-       (< ms 10000) (-> (/ ms 100) (Math/floor) (/ 10) (.toFixed 1) (str "s"))
-       () (str (Math/round (/ ms 1000)) "s"))))
+(defn to-fixed [num decimal-places]
+  #?(:cljs (.toFixed num decimal-places)
+     :clj (format (str "%." decimal-places "f") (double num))))
+
+(defn format-duration [ms]
+  (cond
+    (< ms 1000) (str ms "ms")
+    (< ms 10000) (-> (/ ms 100) (Math/floor) (/ 10) (to-fixed 1) (str "s"))
+    () (str (Math/round (/ ms 1000)) "s")))
 
 (e/defn Interruptible [F]
   (e/fn [x]
