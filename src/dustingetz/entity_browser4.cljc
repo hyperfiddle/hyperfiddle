@@ -89,9 +89,23 @@
 
 #?(:clj (def timed* (i/spine)))
 
+(e/defn Draggable []
+  (e/client
+    (let [[mouse-x mouse-y] (dom/On "mousedown" (fn [e] (when (zero? (.-button e)) [(.-x e) (.-y e)])) nil)
+          t (tok/TokenNofail mouse-x)
+          stl (.-style dom/node)]
+      ;; (dom/props {:style {:cursor (if t "grabbing" "grab")}})
+      (when t
+        (let [[left top] (let [rect (.getBoundingClientRect dom/node)] [(.-left rect) (.-top rect)])
+              [mouse-x2 mouse-y2] (dom/On "mousemove" (fn [e] [(.-x e) (.-y e)]) [mouse-x mouse-y])]
+          (set! (.-left stl) (str (+ left (- mouse-x2 mouse-x)) "px"))
+          (set! (.-top stl) (str (+ top (- mouse-y2 mouse-y)) "px"))
+          (dom/On "mouseup" t nil))))))
+
 (e/defn QueryMonitor []
   (dom/div
     (dom/props {:class "hyperfiddle-query-monitor"})
+    (Draggable)
     (e/server
       (dom/div
         (dom/props {:style {:display "flex", :flex-direction "column-reverse"}})
