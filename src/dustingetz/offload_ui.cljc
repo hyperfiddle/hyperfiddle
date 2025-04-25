@@ -66,20 +66,24 @@
     (let [electric-start (e/server (Always now-ms f))
           electric-end (e/Reconcile
                          (case status
-                           ::running (e/System-time-ms)
+                           ::running (e/server #_(now-ms) (e/System-time-ms))
                            (::done ::interrupted) (e/server (now-ms))))]
       (binding [dom/node node]
-        (e/Reconcile (when-let [e (forms/Button :label "×" :class "cancel" :disabled (not= status ::running))]
-                       (let [h (hash e)]
-                         (e/server
-                           (Always interrupt! h)))))
-        (dom/props {:data-timing-label (pr-str nm)
-                    :data-timing-duration (str "Total: " (format-duration (time-delta electric-start electric-end))
-                                            " | Query: " (case status ::running "…", (::done ::interrupted) (format-duration (time-delta query-start query-end))))
-                    :data-timing-status (name status)
-                    :data-timing-start electric-start
-                    :data-timing-end electric-end
-                    })))))
+        (dom/div (dom/props {:class "timing"})
+          (dom/span (dom/text (pr-str nm)
+                              (str " Total: " (format-duration (time-delta electric-start electric-end))
+                                " | Query: " (case status ::running "…", (::done ::interrupted) (format-duration (time-delta query-start query-end))))))
+          (e/Reconcile (when-let [e (forms/Button :label "×" :class "cancel" :disabled (not= status ::running))]
+                         (let [h (hash e)]
+                           (e/server
+                             (Always interrupt! h)))))
+          (dom/props {#_#_:data-timing-label (pr-str nm)
+                      #_#_:data-timing-duration (str "Total: " (format-duration (time-delta electric-start electric-end))
+                                              " | Query: " (case status ::running "…", (::done ::interrupted) (format-duration (time-delta query-start query-end))))
+                      :data-timing-status (name status)
+                      :data-timing-start electric-start
+                      :data-timing-end electric-end
+                      }))))))
 
 (e/defn OffloadUI
   ([nm f] (OffloadUI (e/client dom/node) nm f))
@@ -94,49 +98,41 @@
 "
 
 
-[data-timing-label]{--color: orange; will-change: outline-color;}
-[data-timing-label][data-timing-status=interrupted]{--color: crimson;}
-[data-timing-label][data-timing-status=done]{--color: green; animation: timing-fade-out 1s ease-out forwards;}
-[data-timing-label][data-timing-status]:not([data-timing-status=done])::before{display: block;}
+:has(>.timing){--color: orange; will-change: outline-color;}
+:has(>.timing[data-timing-status=interrupted]){--color: crimson;}
+:has(>.timing[data-timing-status=done]){--color: green; /*animation: timing-fade-out 1s ease-out forwards;*/}
+/*.timing[data-timing-status]:not([data-timing-status=done])::before{display: block;}*/
 
 @keyframes timing-fade-out{
   from { outline-color: var(--color); }
   to   { outline-color: transparent; }
 }
 
-[data-timing-label]{ position: relative; outline: 1px var(--color) solid;}
-[data-timing-label]:has(input:hover):not(:has(label:hover))::before { opacity: 0.2; }
-[data-timing-label]::before{
-  display: none;
+:has(>.timing) > .timing + *:not(.timing){ position: relative; outline: 1px var(--color) solid;}
+/*.timing:has(input:hover):not(:has(label:hover))::before { opacity: 0.2; }*/
+.timing{
   /*pointer-events: none;*/
-  transition: 0.2s ease-in opacity;
   box-sizing: border-box;
   background-color: var(--color);
   color: white;
-  content: attr(data-timing-label) \" \" attr(data-timing-duration);
-  padding: 0 0.5rem 0 1.5rem;
+  padding-left: 0.5rem;
   font-size: 0.75rem;
   font-weight: normal;
   height: 1.1rem;
-  position: absolute;
+  width: fit-content;
   z-index: 1;
-  bottom: 100%;
-  margin: auto;
   border-top-left-radius: 3px;
   border-top-right-radius: 3px;
+  overflow: clip;
 }
 
-[data-timing-label]:hover:not(:has([data-timing-label]:hover)) { outline: 1px var(--color) solid; animation: none; }
-[data-timing-label]:hover::before{ display: block; }
 
-[data-timing-label]:hover:not(:has([data-timing-label]:hover)) > button.cancel{display: block;}
+/*:has(>.timing):hover:not(:has(.timing:hover)) { outline: 1px var(--color) solid; animation: none; }*/
+:has(>.timing):hover > .timing { display: block; }
 
-[data-timing-label] > button.cancel{
-  display: none;
-  position: absolute;
-  z-index: 2;
-  bottom: 100%;
-  left: -1px;
+/* .timing:hover:not(:has(.timing:hover)) > button.cancel{display: block;} */
+
+.timing > button{
   width: 1.1rem;
   height: 1.1rem;
   padding: 0;
@@ -148,16 +144,23 @@
   background-color: var(--color);
   color: white;
   border: none;
-
 }
 
 
-[data-timing-label] button.cancel:hover{
+.timing button.cancel:hover{
   background-color: #ffbf00;
   cursor: pointer;
 }
 
-[data-timing-label] button.cancel:disabled{
+.timing button.cancel:disabled{
   color: gray;
 }
+
+
+/* Tweaks */
+
+legend:has(.timing){ border: 2px #e9e9e9 groove; }
+
+.timing[data-timing-status] ~ *:not(.timing) td[data-empty]::before { content: \"⏳\"; }
+
 ")

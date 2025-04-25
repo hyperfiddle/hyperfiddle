@@ -63,7 +63,7 @@
       (seq? x) (let [[qs & args] x] (list* (datax/unqualify qs) args))
       () (str x))))
 
-(defn pretty-value [x] (pr-str x))
+(defn pretty-value [x] (if (= ::not-found x) "" (pr-str x)))
 
 (defn pretty-title [query]
   (let [?f$ (first query)]
@@ -181,7 +181,7 @@
         (timed-finished nm t)
         (Keep keep-ok tv)))))
 
-(letfn [(started [_f !s]
+#_(letfn [(started [_f !s]
           (swap! !s (fn [ac]
                       (case (:state ac)
                         (:re-ended) (assoc ac :start (:end ac), :state :ended)
@@ -209,6 +209,10 @@
                                         :ended "done", :re-ended "done"
                                         :killed "interrupted", :re-killed "interrupted"} state)})
       (Keep keep-ok tv))))
+
+(e/defn Timing [nm f]
+  #_(e/Offload f)
+  (oui/OffloadUI nm f))
 
 (e/defn Suggestions [o]
   (e/client
@@ -263,11 +267,13 @@
                 (RenderTooltip ::hfql/Tooltip opts v o spec)
                 (if (or (set? v) (sequential? v))
                   (RenderInlineColl v o spec)
-                  (let [pretty-v (pretty-value v)
-                        denv {'% o, (hfql/unwrap spec) v, '%v v}]
-                    (if-some [query (::hfql/link opts)]
-                      (router/link ['. [(replace denv query)]] (dom/text pretty-v))
-                      (dom/text pretty-v)))))]
+                  (if (= ::not-found v)
+                    (dom/props {:data-empty true})
+                    (let [pretty-v (pretty-value v)
+                          denv {'% o, (hfql/unwrap spec) v, '%v v}]
+                      (if-some [query (::hfql/link opts)]
+                        (router/link ['. [(replace denv query)]] (dom/text pretty-v))
+                        (dom/text pretty-v))))))]
         (binding [Render K]
           (e/call (Resolve (::hfql/Render opts) K) v o (remove-opt spec ::hfql/Render)))))))
 
@@ -316,7 +322,7 @@
     (rebooting o
       (e/client
         (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
-              next-o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))]
+              next-o (e/server (oui/Initialized (Timing (pretty-title query) #(query->object *hfql-bindings query)) nil))]
           (when (e/server (some? next-o))
             (binding [*depth (inc *depth)]
               (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template)))))))))))
@@ -432,7 +438,7 @@
 
 (e/defn TableRow [cols col->spec o m]
   (e/for [col cols]
-    (Render (get m col) o (e/server (col->spec col)))))
+    (Render (get m col ::not-found) o (e/server (col->spec col)))))
 
 (defn toggle-column-sort [sort-spec for-col]
   (when-some [[col asc?] (first sort-spec)]
@@ -466,15 +472,16 @@
       (dom/text " (" row-count " items) ")
       (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
             pre-checked (empty? k*)
-            new-suggest* (into [] (comp (map :entry) (remove k*)) (Suggest*))
-            shorten (column-shortener (into k* new-suggest*) ident?)
-            selected (e/as-vec
-                       (e/for [entry (e/diff-by {} new-suggest*)]
-                         (e/When (forms/Checkbox* pre-checked :label (shorten entry))
-                           entry)))]
-        (e/for [k (e/diff-by {} (mapv hfql/unwrap (hfql/unwrap spec)))]
-          (forms/Checkbox* true :disabled true :label (shorten k)))
-        (hfql/props-update-k spec (fn [raw-spec] (into raw-spec selected)))))))
+            new-suggest* (into [] (comp (map :entry) (remove k*)) (Suggest*))]
+        (dom/span
+          (let [shorten (column-shortener (into k* new-suggest*) ident?)
+                selected (e/as-vec
+                           (e/for [entry (e/diff-by {} new-suggest*)]
+                             (e/When (forms/Checkbox* pre-checked :label (shorten entry))
+                               entry)))]
+            (e/for [k (e/diff-by {} (mapv hfql/unwrap (hfql/unwrap spec)))]
+              (forms/Checkbox* true :disabled true :label (shorten k)))
+            (hfql/props-update-k spec (fn [raw-spec] (into raw-spec selected)))))))))
 
 #_
 (e/defn TableBody [row-count row-height cols data raw-spec saved-selection select]
@@ -498,7 +505,7 @@
                                 (e/When symbolic-x symbolic-x)))))))
 
 #?(:clj (defn eager-pull-search-sort [data spec hfql-bindings search sort-spec]
-          ;; (Thread/sleep 1500)
+          #_(Thread/sleep 3000)
           (let [enriched (hfql/pull hfql-bindings spec data)
                 filtered (eduction (filter #(strx/any-matches? (vals %) search)) enriched)]
             (vec (if-some [sorter (->sort-comparator sort-spec)]
@@ -543,14 +550,16 @@
         (dom/props {:class "entity-children dustingetz-entity-browser4__block"})
         (let [spec2 (e/server
                       (TableTitle query !search saved-search row-count spec (dissoc (meta unpulled) `clojure.core.protocols/nav)
-                        (when (Browse-mode?)
-                          (let [navd (Nav unpulled nil (first unpulled))]
-                            (Timing 'infer-columns #(hfql/suggest navd))))))
+                        (e/fn []
+                          (when (Browse-mode?)
+                            (let [navd (Nav unpulled nil (first unpulled))]
+                              (Timing 'infer-columns #(hfql/suggest navd)))))))
               raw-spec2 (e/server (hfql/unwrap spec2))
-              data (e/server (Timing (cons 'pull (pretty-title query))
-                               (fn [] (eager-pull-search-sort
-                                        ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
-                                        raw-spec2 *hfql-bindings saved-search sort-spec))))
+              data (e/server (oui/Initialized (Timing (cons 'pull (pretty-title query))
+                                                (fn [] (eager-pull-search-sort
+                                                         ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
+                                                         raw-spec2 *hfql-bindings saved-search sort-spec)))
+                               []))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
               column-count (e/server (count raw-spec2))]
@@ -568,12 +577,13 @@
                   (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select)))))))
       (when saved-selection
         (let [next-x (e/server
-                       (Timing 'next-object
-                         (fn [] (with-bindings *hfql-bindings
-                                  (some #(let [navd (datafy/nav unpulled nil %)]
-                                           (when (= saved-selection (or (hfp/identify %) %))
-                                             navd))
-                                    unpulled)))))]
+                       (oui/Initialized (Timing 'next-object
+                                          (fn [] (with-bindings *hfql-bindings
+                                                   (some #(let [navd (datafy/nav unpulled nil %)]
+                                                            (when (= saved-selection (or (hfp/identify %) %))
+                                                              navd))
+                                                     unpulled))))
+                         nil))]
           (rebooting select
             (if select
               ;; In ObjectBlock we pass the selected object and the root object.
@@ -656,19 +666,19 @@
     (tooltip/TooltipArea
       (e/fn []
         (tooltip/Tooltip)
-        #_(dom/div
-          (dom/props {:class "Browser"})
-          ;; (QueryMonitor)
-          (binding [!mode (atom default-mode)]
-            (let [mode (e/watch !mode)]
-              (binding [*mode mode #_(ModePicker mode)
-                        *depth 1]
-                (let [[query] router/route]
-                  (rebooting query
+        (binding [!mode (atom default-mode)]
+          (let [mode (e/watch !mode)]
+            (binding [*mode mode #_(ModePicker mode)
+                      *depth 1]
+              (let [[query] router/route]
+                (rebooting query
+                  (dom/div
+                    (dom/props {:class "Browser"})
+                    ;; (QueryMonitor)
                     (if-not query
                       (router/ReplaceState! ['. default])
                       (let [f$ (first query)
-                            o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))]
+                            o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))] ; initial value is not clear as page could be table or tree.
                         (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
                         (dom/props {:class (cssx/css-slugify f$)})
                         (rebooting query
