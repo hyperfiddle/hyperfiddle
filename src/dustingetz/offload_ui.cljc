@@ -38,7 +38,7 @@
           ack!       (fn [status] (when t (t status)))
           v          (Latch (e/When t (F x)))]
       (Always (partial ack! ::done) v)
-      [(e/call (e/fn [] (e/pure v))) ;; HACK FIXME (e/pure v) rebuilds a new flow on v change, causing e/join to emit a shrink/grow. https://hf-inc.slack.com/archives/C015XRSRDT4/p1745496350296829
+      [(e/pure v)
        (e/Reconcile (or status ::running))
        (Stable-fn (partial ack! ::interrupted))])))
 
