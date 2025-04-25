@@ -449,11 +449,15 @@
             (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil)
             (dom/text (pretty-name (shorten col)))))))))
 
+(defn format-query-meta [query-meta]
+  (some-> query-meta not-empty dustingetz.str/pprint-str))
+
 (e/defn TableTitle [query !search saved-search row-count spec query-meta Suggest*]
   (dom/legend
     (dom/span
-      (dom/props {:class "title" :title (e/server (pr-str query-meta))})
-      (dom/text (pretty-title query))
+      (dom/span
+        (dom/props {:class "title" :data-tooltip (e/server (format-query-meta query-meta))})
+        (dom/text (pretty-title query)))
       (dom/text " ")
       ;; TODO remove ugly workaround, solves bug where search travels across navigation
       (e/client (let [[t search] (Search! saved-search)]
