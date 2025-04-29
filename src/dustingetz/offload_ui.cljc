@@ -1,7 +1,8 @@
 (ns dustingetz.offload-ui
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms5 :as forms]))
+            [hyperfiddle.electric-forms5 :as forms]
+            ))
 
 (defn now-ms []
   #?(:clj (System/currentTimeMillis)
@@ -11,11 +12,6 @@
 
 (e/defn Stable-fn [f] ((e/capture-fn) f))
 (e/defn Always [f & args] ((always (Stable-fn f)) args))
-
-(e/defn Tap-diffs [label x] (e/Tap-diffs (partial prn label) x))
-
-(defn retain [pred]
-  (partial swap! (atom nil) (fn [old new] (if (pred new) new old))))
 
 (e/defn Latch [x]
   (let [!prev (atom [])]
@@ -42,12 +38,11 @@
        (e/Reconcile (or status ::running))
        (Stable-fn (partial ack! ::interrupted))])))
 
-(defn timed [f]
-  (fn [& args]
-    (let [start (now-ms)
-          result (apply f args)
-          end (now-ms)]
-      [result start end])))
+(defn timed [f & args]
+  (let [start (now-ms)
+        result (apply f args)
+        end (now-ms)]
+    [result start end]))
 
 (e/defn Initialized [x init-v]
   (let [!v (atom init-v)]
@@ -66,7 +61,7 @@
     (let [electric-start (e/server (Always now-ms f))
           electric-end (e/Reconcile
                          (case status
-                           ::running (e/server #_(now-ms) (e/System-time-ms))
+                           ::running #_(e/server (now-ms)) (e/System-time-ms)
                            (::done ::interrupted) (e/server (now-ms))))]
       (binding [dom/node node]
         (dom/div (dom/props {:class "timing"})
@@ -77,10 +72,7 @@
                          (let [h (hash e)]
                            (e/server
                              (Always interrupt! h)))))
-          (dom/props {#_#_:data-timing-label (pr-str nm)
-                      #_#_:data-timing-duration (str "Total: " (format-duration (time-delta electric-start electric-end))
-                                              " | Query: " (case status ::running "…", (::done ::interrupted) (format-duration (time-delta query-start query-end))))
-                      :data-timing-status (name status)
+          (dom/props {:data-timing-status (name status)
                       :data-timing-start electric-start
                       :data-timing-end electric-end
                       }))))))
@@ -89,10 +81,24 @@
   ([nm f] (OffloadUI (e/client dom/node) nm f))
   ([node nm f]
    (e/server
-     (let [[v< status interrupt!] (e/call (Interruptible e/Offload-reset) (timed f))
+     (let [[v< status interrupt!] (e/call (Interruptible e/Offload-reset) (partial timed f))
            [v start end] (e/join v<)]
        (OffloadUI* node nm f start end status interrupt!)
        v))))
+
+;; (def ground (constantly nil))
+
+#_(e/defn OffloadUI [_nm x] ; FIXME this impl triggers a conditional glitch at a distance in entity-browser3
+  ;; (ground x) ; works
+  ;; (e/server (ground x)) ; works
+  ;; (e/client (e/server (ground x))) ; works
+  ;; (e/client (identity (e/server (ground x)))) ; works
+  ;; (e/client (ground (e/server (ground x)))) ; works
+  ;; (e/client (ground (e/pure (e/server (ground x))))) ; works
+  ;; (e/client (e/call (e/fn [] (e/server (ground x))))) ; FAIL
+  ;; (e/client (e/join (e/pure (e/server (ground x))))) ; FAIL
+  (e/server x))
+
 
 (def css
 "

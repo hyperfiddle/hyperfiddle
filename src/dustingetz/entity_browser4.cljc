@@ -129,57 +129,11 @@
                 (- (or end (e/System-time-ms)) start)
                 "ms"))))))))
 
-
-(defn offload-latch-timeout [<f executor timeout-ms timeout-v]
-  (i/diff-by {}
-    (m/reductions {} []
-      (m/ap
-        (try [(m/? (m/timeout (m/via-call executor (m/?< <f)) timeout-ms timeout-v))]
-             (catch #?(:clj Throwable :cljs :default) e
-               ;; Swallow all exceptions if current Thread is already interrupted - rethrow otherwise.
-               ;; Catching InterruptedException is not enough, because Datomic (at least) will throw a
-               ;; domain-specific exception on thread interruption.
-               (try (m/!) (catch missionary.Cancelled _ (m/amb)))
-               (throw e)))))))
-
-;; like e/Offload but can time out
-(e/defn Offload [f! executor timeout-ms timeout-v]
-  (e/join (offload-latch-timeout (e/join (i/items (e/pure f!))) executor timeout-ms timeout-v)))
-
 (letfn [(?keep [!x f v] (when-some [x (f v)] (reset! !x [x])))]
   (e/defn Keep [f v]
     (let [!x (atom [])]
       (?keep !x f v)
       (e/diff-by {} (e/watch !x)))))
-
-#_(let [!cache (atom {::idx 0})
-      ->idx (fn [nm]
-              (-> (swap! !cache (fn [{i ::idx :as c}]
-                                  (if (contains? c nm)
-                                    c
-                                    (-> c (update ::idx inc) (assoc nm (inc i))))))
-                (get nm)))]
-  (letfn [(timed-started [nm _ dfv]
-            #?(:clj
-               (timed* (->idx nm) (fn [ac _]
-                                    (case (:state ac)
-                                      (:re-ended) (assoc ac :start (:end ac), :state :ended)
-                                      (:re-killed) (assoc ac :start (:end ac), :state :killed)
-                                      #_else (-> ac (dissoc :end) (assoc :name nm, :start (now-ms), :state :started, :kill-fn dfv)))) nil)))
-          (timed-finished [nm t] ((if (= :ok t) timed-ended timed-killed) nm))
-          (timed-killed [nm] #?(:clj (timed* (->idx nm) (fn [ac _] (-> ac (dissoc :kill-fn) (assoc :end (now-ms), :state (case (:state ac) (:killed :ended) :re-killed #_else :killed)))) nil)))
-          (timed-ended [nm] #?(:clj (timed* (->idx nm) (fn [ac _] (-> ac (dissoc :kill-fn) (assoc :end (now-ms), :state (case (:state ac) (:killed :ended) :re-ended #_else :ended)))) nil)))
-          (run-fn [f dfv]
-            (m/race
-              (m/sp [:killed (m/? dfv)])
-              (m/sp [:ok (m/? (m/via-call m/blk f))])))
-          (keep-ok [[t v]] (when (= t :ok) v))]
-    (e/defn Timing [nm f]
-      (let [dfv ((fn [_] (m/dfv)) f)
-            [t _v :as tv] (e/Task (run-fn f dfv))]
-        (timed-started nm f dfv)
-        (timed-finished nm t)
-        (Keep keep-ok tv)))))
 
 #_(letfn [(started [_f !s]
           (swap! !s (fn [ac]
@@ -210,9 +164,7 @@
                                         :killed "interrupted", :re-killed "interrupted"} state)})
       (Keep keep-ok tv))))
 
-(e/defn Timing [nm f]
-  #_(e/Offload f)
-  (oui/OffloadUI nm f))
+(e/defn Timing [nm f] (oui/OffloadUI nm f))
 
 (e/defn Suggestions [o]
   (e/client
@@ -674,7 +626,7 @@
                 (rebooting query
                   (dom/div
                     (dom/props {:class "Browser"})
-                    ;; (QueryMonitor)
+                    #_(QueryMonitor)
                     (if-not query
                       (router/ReplaceState! ['. default])
                       (let [f$ (first query)
