@@ -4,7 +4,6 @@
             [contrib.data :as datax]
             [contrib.debug :as dbg]
             [dustingetz.str :as strx]
-            [dustingetz.offload-ui :as oui]
             [peternagy.hfql #?(:clj :as :cljs :as-alias) hfql]
             #?(:clj [peternagy.file-watcher :as fw])
             #?(:clj [clojure.java.io :as io])
@@ -164,7 +163,8 @@
                                         :killed "interrupted", :re-killed "interrupted"} state)})
       (Keep keep-ok tv))))
 
-(e/defn Timing [nm f] (oui/OffloadUI nm f))
+(e/defn Timing ; bind this to dustingetz.offload-ui/OffloadUI to enable long-running query monitoring
+  [nm f] (e/Offload f))
 
 (e/defn Suggestions [o]
   (e/client
