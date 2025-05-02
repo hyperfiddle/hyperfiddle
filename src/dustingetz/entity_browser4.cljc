@@ -428,13 +428,13 @@
             new-suggest* (into [] (comp (map :entry) (remove k*)) (Suggest*))]
         (dom/span
           (let [shorten (column-shortener (into k* new-suggest*) ident?)
-                selected (e/as-vec
-                           (e/for [entry (e/diff-by {} new-suggest*)]
-                             (e/When (forms/Checkbox* pre-checked :label (shorten entry))
-                               entry)))]
-            (e/for [k (e/diff-by {} (mapv hfql/unwrap (hfql/unwrap spec)))]
-              (forms/Checkbox* true :disabled true :label (shorten k)))
-            (hfql/props-update-k spec (fn [raw-spec] (into raw-spec selected)))))))))
+                selected (e/as-vec (e/for [entry (e/diff-by {} new-suggest*)]
+                                     (e/When (forms/Checkbox* pre-checked :label (shorten entry))
+                                       entry)))
+                from-spec (e/as-vec (e/for [spec (e/diff-by {} (hfql/unwrap spec))]
+                                      (e/When (forms/Checkbox* true :label (shorten (hfql/unwrap spec)))
+                                        spec)))]
+            (hfql/props-update-k spec (fn [_] (into from-spec selected)))))))))
 
 #_
 (e/defn TableBody [row-count row-height cols data raw-spec saved-selection select]
