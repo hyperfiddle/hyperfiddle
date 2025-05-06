@@ -193,7 +193,7 @@ body:has(.Browser) { font-family: 'Open Sans', Arial, Verdana, sans-serif; backg
 :is(:has(nav), :has(.Browser)){ display: flex; flex-direction: column; }
 
 html:has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
- {height: 100dvh; scrollbar-gutter: unset;}
+ {height: 100dvh;}
 
 :has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
 , .hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail
