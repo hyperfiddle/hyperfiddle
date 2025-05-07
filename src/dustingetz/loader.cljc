@@ -103,7 +103,6 @@
 (def css
 "
 
-
 :has(>.data-loader){--color: orange; will-change: outline-color;}
 :has(>.data-loader[data-loader-status=interrupted]){--color: crimson;}
 :has(>.data-loader[data-loader-status=done]){--color: green; /*animation: data-loader-fade-out 1s ease-out forwards;*/}
@@ -172,3 +171,26 @@ legend:has(.data-loader){ border: 2px #e9e9e9 groove; }
 .data-loader[data-loader-status] ~ *:not(.data-loader) td[data-empty]::before { content: \"⏳\"; }
 
 ")
+
+(e/defn Constantly [x] (e/fn [& args] x))
+
+(defn either [f & args]
+  (try [(apply f args) ::nil]
+       (catch #?(:clj Throwable, :cljs :default) t
+         [::nil t])))
+
+(e/defn Loader ; TODO provide interrupt affordance and timing stats
+  ([f {:keys [Busy Failed] :as props}] (Loader (e/amb) f props))
+  ([init f {:keys [Busy Failed] :or {Busy (Constantly (e/amb)), Failed (Constantly (e/amb))}}]
+   (e/server
+     (binding [OffloadUI (e/fn [node label f start-time end-time status interrupt!]
+                           (e/Reconcile
+                             (case status
+                               ::running (Busy)
+                               nil))
+                           (e/amb))]
+       (let [[v error] (Offload (partial either f))]
+         (e/Reconcile
+           (if (e/Some? v)
+             (e/Reconcile (if (not= ::nil error) (do (Failed error) (e/amb)) v))
+             init)))))))

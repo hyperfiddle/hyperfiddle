@@ -2,7 +2,6 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router4 :as r]
-            [hyperfiddle.electric3-contrib :as ex]
             [hyperfiddle.nav0 :as hfp]
             electric-fiddle.fiddle-index
             [peternagy.hfql #?(:clj :as :cljs :as-alias) hfql]
@@ -16,7 +15,7 @@
             [edamame.core :as eda]
             [contrib.debug :as dbg]
             [clojure.tools.reader :as ctr]
-            [dustingetz.offload-ui]
+            [dustingetz.loader :refer [Loader]]
             #?(:clj [datomic.api :as d])
             #?(:clj [dustingetz.datomic-contrib2 :as datomicx])))
 
@@ -159,7 +158,7 @@
               eb/*sitemap (e/server (eb/read-sitemap sitemap-path this-ns))
               eb/*sitemap-writer (e/server (sitemap-writer sitemap-path))
               eb/*page-defaults (e/server [route-to-entity-detail])
-              #_#_eb/Timing dustingetz.offload-ui/OffloadUI] ; enable long-running queries monitoring
+              #_#_eb/Timing dustingetz.loader/Offload] ; enable long-running queries monitoring
       (let [sitemap eb/*sitemap]
         (dom/style (dom/text css))
         (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/electric-forms.css"}))
@@ -216,24 +215,14 @@ html:has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-brow
 ;; body.electric-fiddle { height: 100dvh; box-sizing: border-box; }
 ;; :not(body):has(.hyperfiddle-electric-forms5__table-picker) { height: 100%; }
 
+(e/defn ConnectDatomic [datomic-uri]
+  (e/server
+    (Loader #(d/connect datomic-uri)
+      {:Busy (e/fn [] (dom/h1 (dom/text "Waiting for Datomic connection ...")))
+       :Failed (e/fn [error]
+                 (dom/h1 (dom/text "Datomic transactor not found, see Readme.md"))
+                 (dom/pre (dom/text (pr-str error))))})))
 
-(e/defn Inject [?x #_& {:keys [Busy Failed Ok]}]
-                                        ; todo needs to be a lot more sophisticated to inject many dependencies concurrently and report status in batch
-  (cond
-    (ex/None? ?x) (Busy)
-    (or (some? (ex-message ?x)) (nil? ?x)) (Failed ?x)
-    () (Ok ?x)))
-
-(e/defn Inject-datomic [datomic-uri F]
-  (e/fn []
-    (e/server
-      (Inject (e/Task (m/via m/blk
-                        (try #_(check) (d/connect datomic-uri)
-                             (catch Exception e #_(log/error e) e))))
-        {:Busy (e/fn [] (dom/h1 (dom/text "Waiting for Datomic connection ...")))
-         :Failed (e/fn [err] (dom/h1 (dom/text "Datomic transactor not found, see Readme.md"))
-                   (dom/pre (dom/text (pr-str err))))
-         :Ok F}))))
 
 (comment
   (require '[clojure.edn :as edn])
