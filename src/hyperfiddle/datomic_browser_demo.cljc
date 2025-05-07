@@ -158,7 +158,7 @@
               eb/*sitemap (e/server (eb/read-sitemap sitemap-path this-ns))
               eb/*sitemap-writer (e/server (sitemap-writer sitemap-path))
               eb/*page-defaults (e/server [route-to-entity-detail])
-              #_#_eb/Timing dustingetz.loader/Offload] ; enable long-running queries monitoring
+              #_#_eb/Timing (e/fn [label f] (dustingetz.loader/Offload f {:label label}))] ; enable long-running queries monitoring
       (let [sitemap eb/*sitemap]
         (dom/style (dom/text css))
         (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/electric-forms.css"}))

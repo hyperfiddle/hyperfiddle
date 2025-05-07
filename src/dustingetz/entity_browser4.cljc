@@ -21,7 +21,7 @@
             [clojure.pprint]
             [edamame.core :as eda]
             [clojure.walk :as walk]
-            [dustingetz.offload-ui :as oui]
+            [dustingetz.loader :as loader]
             #?(:clj [peternagy.hfql :as hfql]))
   #?(:clj (:import [java.io File]))
   #?(:cljs (:require-macros dustingetz.entity-browser4)))
@@ -157,13 +157,13 @@
           (when-some [t (tok/TokenNofail (dom/On "click" identity nil))]
             (t (e/server (dfv true))))))
       (dom/props {:data-timing-label nm
-                  :data-timing-duration (oui/format-duration (- (or end (e/System-time-ms)) start))
+                  :data-timing-duration (loader/format-duration (- (or end (e/System-time-ms)) start))
                   :data-timing-status ({:started "running", nil "running"
                                         :ended "done", :re-ended "done"
                                         :killed "interrupted", :re-killed "interrupted"} state)})
       (Keep keep-ok tv))))
 
-(e/defn Timing ; bind this to dustingetz.offload-ui/OffloadUI to enable long-running query monitoring
+(e/defn Timing ; bind this to (e/fn [label f] (dustingetz.loader/Offload f {:label label})) to enable long-running query monitoring
   [nm f] (e/Offload f))
 
 (e/defn Suggestions [o]
@@ -274,7 +274,7 @@
     (rebooting o
       (e/client
         (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
-              next-o (e/server (oui/Initialized (Timing (pretty-title query) #(query->object *hfql-bindings query)) nil))]
+              next-o (e/server (loader/Initialized (Timing (pretty-title query) #(query->object *hfql-bindings query)) nil))]
           (when (e/server (some? next-o))
             (binding [*depth (inc *depth)]
               (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template)))))))))))
@@ -496,7 +496,7 @@
   (e/client
     (let [{saved-search ::search, saved-selection ::selection} args
           select (e/server (::hfql/select (hfql/opts spec)))
-          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (oui/Latch (e/Filter ffirst  (e/watch !sort-spec)))
+          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (loader/Latch (e/Filter ffirst  (e/watch !sort-spec)))
           !search (atom nil), search (e/watch !search)
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
@@ -508,7 +508,7 @@
                             (let [navd (Nav unpulled nil (first unpulled))]
                               (Timing 'infer-columns #(hfql/suggest navd)))))))
               raw-spec2 (e/server (hfql/unwrap spec2))
-              data (e/server (oui/Initialized (Timing (cons 'pull (pretty-title query))
+              data (e/server (loader/Initialized (Timing (cons 'pull (pretty-title query))
                                                 (fn [] (eager-pull-search-sort
                                                          ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
                                                          raw-spec2 *hfql-bindings saved-search sort-spec)))
@@ -530,7 +530,7 @@
                   (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select)))))))
       (when saved-selection
         (let [next-x (e/server
-                       (oui/Initialized (Timing 'next-object
+                       (loader/Initialized (Timing 'next-object
                                           (fn [] (with-bindings *hfql-bindings
                                                    (some #(let [navd (datafy/nav unpulled nil %)]
                                                             (when (= saved-selection (or (hfp/identify %) %))
@@ -652,7 +652,7 @@
 
 (def css
   (str forms/css
-    oui/css
+    loader/css
     table-block-css
 
     "

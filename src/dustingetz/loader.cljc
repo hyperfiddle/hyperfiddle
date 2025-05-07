@@ -62,7 +62,7 @@
                          (case status
                            ::running #_(e/server (now-ms)) (e/System-time-ms)
                            (::done ::interrupted) (e/server (now-ms))))]
-      (binding [dom/node node]
+      (binding [dom/node (e/Reconcile (or node dom/node))]
         (dom/div (dom/props {:class "data-loader"})
                  (dom/span (dom/text (#(when (and % (not= "" %)) (str (pr-str %) " ")) label)
                               (str "Total: " (format-duration (time-delta electric-start electric-end))
@@ -76,15 +76,17 @@
                       :data-loader-end electric-end
                       }))))))
 
+(defn delayed [delay-ms f & args]
+  #?(:clj (Thread/sleep delay-ms))
+  (apply f args))
+
 (e/defn Offload
-  ([f] (Offload (e/client dom/node) "" f))
-  ([label f] (Offload (e/client dom/node) label f))
-  ([node label f]
-   (e/server
-     (let [[v< status interrupt!] (e/call (Interruptible e/Offload-reset) (partial timed f))
-           [v start end] (e/join v<)]
-       (OffloadUI node label f start end status interrupt!)
-       v))))
+  [f & {:keys [label node delay-ms] :or {delay-ms 0}}]
+  (e/server
+    (let [[v< status interrupt!] (e/call (Interruptible e/Offload-reset) (partial timed (partial delayed delay-ms f)))
+          [v start end] (e/join v<)]
+      (OffloadUI node label f start end status interrupt!)
+      v)))
 
 ;; (def ground (constantly nil))
 
