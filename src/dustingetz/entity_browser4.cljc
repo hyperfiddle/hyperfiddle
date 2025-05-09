@@ -28,7 +28,7 @@
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
 
-(e/declare *hfql-bindings *mode !mode *update *sitemap-writer *sitemap *page-defaults *block-opts *depth)
+(e/declare *hfql-bindings *mode !mode *update *sitemap-writer *sitemap *page-defaults *block-opts *depth *server-pretty)
 (declare css)
 
 #?(:clj
@@ -62,7 +62,11 @@
       (seq? x) (let [[qs & args] x] (list* (datax/unqualify qs) args))
       () (str x))))
 
-(defn pretty-value [x] (if (= ::not-found x) "" (pr-str x)))
+#?(:clj
+   (defn pretty-value [x server-pretty]
+     (if (= ::not-found x)
+       ""
+       ((get server-pretty (class x) pr-str) x))))
 
 (defn pretty-title [query]
   (let [?f$ (first query)]
@@ -185,23 +189,26 @@
 
 (e/declare Render)
 
+#?(:clj (defn map-keep-coll [f coll]
+          (cond-> (into (empty coll) (map f) coll)
+            (seq? coll) reverse)))
+
 #?(:clj
-   (defn str-inline-coll [coll]
+   (defn str-inline-coll [coll server-pretty]
      (let [coll-count (count coll)
-           base (binding [*print-length* 1
-                          *print-level* 2]
-                  (-> (strx/pprint-str coll)
+           base (binding [*print-length* 1, *print-level* 2]
+                  ;; `symbol` removes double quotes from the strings inside the collection
+                  (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
+                    str
                     (str/replace (str \newline) (str \space))
                     (str/trim)))]
-       (if (pos? (dec coll-count))
-         (str base (clojure.pprint/cl-format false " ~d element~:p" coll-count))
-         base))))
+       (cond-> base (> coll-count 1) (str " " coll-count " elements")))))
 
 ;; TODO removeme, glitch guard
 (defn as-coll [v] (if (coll? v) v [v]))
 
 (e/defn RenderInlineColl [v o spec]
-  (let [pretty-v (str-inline-coll (as-coll v))
+  (let [pretty-v (str-inline-coll (as-coll v) *server-pretty)
         opts (hfql/opts spec)]
     (if-some [query (::hfql/link opts)]
       (router/link ['. [query]] (dom/text pretty-v))
@@ -221,7 +228,7 @@
                   (RenderInlineColl v o spec)
                   (if (= ::not-found v)
                     (dom/props {:data-empty true})
-                    (let [pretty-v (pretty-value v)
+                    (let [pretty-v (pretty-value v *server-pretty)
                           denv {'% o, (hfql/unwrap spec) v, '%v v}]
                       (if-some [query (::hfql/link opts)]
                         (router/link ['. [(replace denv query)]] (dom/text pretty-v))
@@ -619,7 +626,8 @@
     (tooltip/TooltipArea
       (e/fn []
         (tooltip/Tooltip)
-        (binding [!mode (atom default-mode)]
+        (binding [!mode (atom default-mode)
+                  *server-pretty (e/server (#(or *server-pretty {})))]
           (let [mode (e/watch !mode)]
             (binding [*mode mode #_(ModePicker mode)
                       *depth 1]

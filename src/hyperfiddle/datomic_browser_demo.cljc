@@ -158,6 +158,7 @@
               eb/*sitemap (e/server (eb/read-sitemap sitemap-path this-ns))
               eb/*sitemap-writer (e/server (sitemap-writer sitemap-path))
               eb/*page-defaults (e/server [route-to-entity-detail])
+              eb/*server-pretty (e/server (assoc eb/*server-pretty datomic.query.EntityMap (fn [em] (str "EntityMap" (pr-str em)))))
               #_#_eb/Timing (e/fn [label f] (dustingetz.loader/Offload f {:label label}))] ; enable long-running queries monitoring
       (let [sitemap eb/*sitemap]
         (dom/style (dom/text css))
