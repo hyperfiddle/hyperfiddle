@@ -510,13 +510,13 @@
 #?(:cljs (defn add-document-basis [basis path] (str basis (str/replace path #"^/" ""))))
 
 (e/defn Link [path Body]
-  (e/client
-    (let [[path' value] (split-link-path path)]
-      (dom/a
-        (e/input (link-click-handler dom/node (into hyperfiddle.router4/path path))) ; TODO replace with Token/directive
-        (dom/props {::dom/href (add-document-basis basis (encode ($ Route-for path' value)))})
-        (binding [current-route? ($ Current-route? path')]
-          ($ Body))))))
+  (let [path&value (e/client (split-link-path path)) ; cannot destructure, would force coloring of let body
+        path' (e/client (first path&value)), value (e/client (second path&value))]
+    (dom/a
+      (e/client (e/input (link-click-handler dom/node (into hyperfiddle.router4/path path)))) ; TODO replace with Token/directive
+      (e/client (dom/props {::dom/href (add-document-basis basis (encode ($ Route-for path' value)))}))
+      (binding [current-route? (e/client ($ Current-route? path'))]
+        ($ Body)))))
 
 (defmacro link [path & body]
   `($ Link ~path (e/fn [] ~@body)))
