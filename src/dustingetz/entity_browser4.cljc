@@ -167,8 +167,10 @@
                                         :killed "interrupted", :re-killed "interrupted"} state)})
       (Keep keep-ok tv))))
 
-(e/defn Timing ; bind this to (e/fn [label f] (dustingetz.loader/Offload f {:label label})) to enable long-running query monitoring
-  [nm f] (e/Offload f))
+#_(binding [e/Timing (e/fn [label f] (dustingetz.loader/Offload f {:label label}))]) ; can override from userland
+(e/defn Timing [label f]
+  #_(dustingetz.loader/Offload f {:label label}) ; query monitoring, currently unstable
+  (e/Offload f))
 
 (e/defn Suggestions [o]
   (e/client
