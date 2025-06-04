@@ -155,11 +155,11 @@
      {:label 'log, :entry `log}])
   RevCommit
   (-suggest [_]
-    [{:label 'name, :entry `.getName}
+    [#_{:label 'name, :entry `.getName}
      {:label 'short-name, :entry `commit-short-name}
      {:label 'msg, :entry '.getShortMessage}
-     {:label 'author, :entry '.getAuthorIdent}
-     {:label 'committer, :entry '.getCommitterIdent}])
+     {:label 'author, :entry '{.getAuthorIdent .getName}}
+     #_{:label 'committer, :entry '{.getCommitterIdent .getName}}])
   PersonIdent
   (-suggest [_]
     [{:label 'name, :entry '.getName}
@@ -169,10 +169,10 @@
   Ref
   (-suggest [_]
     [{:label 'short-name, :entry `ref-short-name}
-     {:label 'commit, :entry `ref-commit}
+     #_{:label 'commit, :entry `ref-commit}
      {:label 'commit-short, :entry `ref-commit-short}
      {:label 'type, :entry `ref-type}
-     {:label 'object-id, :entry '.getObjectId}])
+     #_{:label 'object-id, :entry '.getObjectId}])
   ObjectId
   (-suggest [_]
     [{:label 'toString, :entry `str}
