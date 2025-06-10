@@ -29,6 +29,7 @@ form dl dt {
 form dl dd {
     grid-column: 2;
     display: flex; gap: 0.5rem; flex-wrap: nowrap; align-items: center;
+    margin:0;
 }
 
 /* inputs */
@@ -78,6 +79,10 @@ form dl[role=radiogroup] dd{
 form dl[role=radiogroup] dd input{
     vertical-align: baseline;
     margin-right: 0.5rem;
+}
+
+form input[type=checkbox]{
+    margin:0;
 }
 
 /* Validation */
