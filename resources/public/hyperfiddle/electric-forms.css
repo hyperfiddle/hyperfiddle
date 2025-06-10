@@ -139,11 +139,15 @@ form [role=radiogroup][data-errormessage]::after{
     grid-row: 1 / -1;
 }
 
-form dd:has(:invalid:required){
+form *:has(:invalid:required){
     /* Note browsers never flag :disabled inputs as :invalid.
        There are no safe way to detect an invalid disabled input from CSS.
      */
     --error-message: "Required";
+}
+
+form *:has(:invalid:required)[data-errormessage]{
+    --error-message: attr(data-errormessage);
 }
 
 form dd :is([role=radiogroup], input)[data-errormessage]{
