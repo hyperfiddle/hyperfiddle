@@ -1,5 +1,6 @@
 (ns dustingetz.entity-browser4
-  (:require [contrib.css :as cssx]
+  (:require [hyperfiddle.api :as hf]
+            [contrib.css :as cssx]
             [contrib.assert :as ca]
             [contrib.data :as datax]
             [contrib.debug :as dbg]
@@ -22,7 +23,8 @@
             [edamame.core :as eda]
             [clojure.walk :as walk]
             [dustingetz.loader :as loader]
-            #?(:clj [peternagy.hfql :as hfql]))
+            #?(:clj [peternagy.hfql :as hfql])
+            #?(:clj [clojure.tools.logging :as log]))
   #?(:clj (:import [java.io File]))
   #?(:cljs (:require-macros dustingetz.entity-browser4)))
 
@@ -63,11 +65,13 @@
       (seq? x) (let [[qs & args] x] (list* (datax/unqualify qs) args))
       () (str x))))
 
-#?(:clj
-   (defn pretty-value [x server-pretty]
-     (if (= ::not-found x)
-       ""
-       ((get server-pretty (class x) pr-str) x))))
+(defmulti pretty-print (fn [object & _opts] (type object)))
+(defmethod pretty-print :default [object & args]
+  (case object
+    ::not-found ""
+    (apply hf/pretty-print object args)))
+
+(def ^:deprecated pretty-value pretty-print)
 
 (defn pretty-title [query]
   (let [?f$ (first query)]
@@ -201,7 +205,7 @@
      (let [coll-count (count coll)
            base (binding [*print-length* 1, *print-level* 2]
                   ;; `symbol` removes double quotes from the strings inside the collection
-                  (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
+                  (-> (map-keep-coll #(symbol (#_(get server-pretty (class %) strx/pprint-str) pretty-print %)) coll)
                     str
                     (str/replace (str \newline) (str \space))
                     (str/trim)))]
@@ -231,7 +235,7 @@
                   (RenderInlineColl v o spec)
                   (if (= ::not-found v)
                     (dom/props {:data-empty true})
-                    (let [pretty-v (pretty-value v *server-pretty)
+                    (let [pretty-v (pretty-print v *server-pretty)
                           denv {'% o, (hfql/unwrap spec) v, '%v v}]
                       (if-some [query (::hfql/link opts)]
                         (router/link ['. [(replace denv query)]] (dom/text pretty-v))
@@ -263,7 +267,7 @@
           (try (let [[f$ & args] query
                      f (hfql/resolve! f$)]
                  (with-bindings hfql-bindings (apply f args)))
-               (catch Throwable e (prn e) (throw e))))) ; swallowed exception possible here, `prn` guards it
+               (catch Throwable e (log/error e "Failed to run query" {:query (seq query)}) (throw e))))) ; swallowed exception possible here, `prn` guards it
 
 #?(:clj (defn add-suggestions [spec suggest*]
           (hfql/props-update-k spec
@@ -317,7 +321,8 @@
                         *hfql-bindings (e/server (assoc *hfql-bindings (find-var `*search) search))]
                 (Block [selection] next-x (e/server []) Search)))))))))
 
-#?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
+;; #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
+#?(:clj (defn find-default-page [_page-defaults o] (prn `find-default-page o) (hf/resolve o) #_(some #(% o) page-defaults)))
 
 (defn ->short-map [cols-available! filterer]
   (let [k* (filterv filterer cols-available!)
@@ -633,27 +638,31 @@
       mode)))
 
 (e/defn HfqlRoot [sitemap default]
-  (e/client
-    (dom/style (dom/text css tooltip/css))
-    (tooltip/TooltipArea
-      (e/fn []
-        (tooltip/Tooltip)
-        (binding [!mode (atom default-mode)
-                  *server-pretty (e/server (#(or *server-pretty {})))]
-          (let [mode (e/watch !mode)]
-            (binding [*mode mode #_(ModePicker mode)
-                      *depth 0]
-              (let [[query] router/route]
-                (rebooting query
-                  (dom/div
-                    (dom/props {:class "Browser"})
-                    #_(QueryMonitor)
-                    (if-not query
-                      (router/ReplaceState! ['. default])
-                      (let [f$ (first query)]
-                        (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
-                        (dom/props {:class (cssx/css-slugify f$)})
-                        (NextBlock query nil nil)))))))))))))
+  (binding [whitelist hf/*exports*
+            hf/*bindings* (e/server (merge {(find-var `hf/*db*) hf/*db*, (find-var `hf/*conn*) hf/*conn*} hf/*bindings*))]
+    (binding [*hfql-bindings hf/*bindings*]
+      (e/client
+        (dom/style (dom/text css tooltip/css))
+        (tooltip/TooltipArea
+          (e/fn []
+            (tooltip/Tooltip)
+            (binding [!mode (atom default-mode)
+                      *server-pretty (e/server (#(or *server-pretty {})))
+                      *sitemap sitemap]
+              (let [mode (e/watch !mode)]
+                (binding [*mode mode #_(ModePicker mode)
+                          *depth 0]
+                  (let [[query] router/route]
+                    (rebooting query
+                      (dom/div
+                        (dom/props {:class "Browser"})
+                        #_(QueryMonitor)
+                        (if-not query
+                          (router/ReplaceState! ['. default])
+                          (let [f$ (first query)]
+                            (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
+                            (dom/props {:class (cssx/css-slugify f$)})
+                            (NextBlock query nil nil)))))))))))))))
 
 (def table-block-css
 "

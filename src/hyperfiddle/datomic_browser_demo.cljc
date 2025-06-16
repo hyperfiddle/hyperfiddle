@@ -1,221 +1,106 @@
-(ns hyperfiddle.datomic-browser-demo
-  (:require [hyperfiddle.electric3 :as e]
+(ns hyperfiddle.datomic-browser-demo ; ?
+  (:require [hyperfiddle.api :as hf]
+            [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router4 :as r]
-            [hyperfiddle.nav0 :as hfp]
-            electric-fiddle.fiddle-index
             [peternagy.hfql #?(:clj :as :cljs :as-alias) hfql]
             [clojure.string :as str]
-            [clojure.walk]
-            [clojure.datafy :as datafy]
-            [clojure.core.protocols :as ccp]
-            [dustingetz.entity-browser4 :as eb]
-            [dustingetz.str :as strx]
-            [missionary.core :as m]
-            [edamame.core :as eda]
-            [contrib.debug :as dbg]
-            [clojure.tools.reader :as ctr]
+            [dustingetz.str :refer [pprint-str]]
             [dustingetz.loader :refer [Loader]]
+            [dustingetz.entity-browser4 :as entity-browser :refer [HfqlRoot]]
+            [hyperfiddle.sitemap :refer [Index]]
             #?(:clj [datomic.api :as d])
-            #?(:clj [dustingetz.datomic-contrib2 :as datomicx])))
+            #?(:clj [dustingetz.datomic-contrib2 :as dx])))
 
-(e/declare ^:dynamic conn)
-(e/declare ^:dynamic db)
-(e/declare ^:dynamic db-stats)
-
-#?(:clj
-   (extend-protocol hfql/Suggestable
-     datomic.query.EntityMap
-     (-suggest [!e]
-       (mapv (fn [k]
-               {:label k, :entry k})
-         (into [:db/id] cat [(keys (d/touch !e))
-                             (into [] (comp (map first) (distinct) (map datomicx/invert-attribute))
-                               (datomicx/reverse-refs (d/entity-db !e) (:db/id !e)))])))))
-
-;;;;;;;;;;;;;
-;; QUERIES ;;
-;;;;;;;;;;;;;
-
-#?(:clj
-   (defn datomic-query [io-context query & args]
-     (assert (qualified-keyword? io-context))
-     (let [{:keys [ret] :as out} (d/query {:io-context io-context, :query-stats io-context, :args args, :query query})]
-       (with-meta ret (dissoc out :ret)))))
+(e/declare ^:dynamic *conn*)
+(e/declare ^:dynamic *db*)
+(e/declare ^:dynamic *db-stats*) ; shared for perfs – safe to compute only once
 
 #?(:clj (defn attributes []
-          (prn 'attributes-search-string eb/*search)
-          (vary-meta
-            (datomic-query ::attributes '[:find [?e ...] :in $ :where [?e :db/valueType]] db)
-            merge {`clojure.core.protocols/nav (fn [xs k v] (d/entity db v))})))
-#?(:clj (defn attribute-count [!e] (-> db-stats :attrs (get (:db/ident !e)) :count)))
+          (prn 'attributes-search-string entity-browser/*search)
+          (->> (d/query {:query '[:find [?e ...] :in $ :where [?e :db/valueType]] :args [*db*] :io-context ::attributes, :query-stats ::attributes})
+               (dx/query-stats-as-meta)
+               (hf/navigable (fn [?e] (d/entity *db* ?e))))))
 
-#?(:clj
-   (comment
-     (require '[dustingetz.mbrainz :refer [test-db lennon pour-lamour yanne cobblestone]])
-     (datafy/nav (d/entity @test-db pour-lamour) :abstractRelease/type :abstractRelease/type)
-     (first ((binding [db @test-db] (attributes)) "artists" [[:db/ident :asc]]))
-     (attribute-count (d/entity @test-db :abstractRelease/type))
-     (eb/->sort-comparator [[:db/ident :asc]])
-     (time (count (->> (attributes @test-db) (hfql-search-sort {#'db @test-db} [:db/ident `(summarize-attr* ~'%) #_'*] "sys")))) := 3))
-
-#?(:clj (defn datom->map [[e a v tx added]]
-          (let [db db]
-            (with-meta {:e e, :a a, :v v, :tx tx, :added added}
-              {`hfp/-identify hash
-               `ccp/nav (fn [_this k v] (if (= :a k) (d/entity db a) v))}))))
+#?(:clj (defn attribute-count [!e] (-> *db-stats* :attrs (get (:db/ident !e)) :count)))
 
 #?(:clj (defn attribute-detail [a]
-          (let [db db]
-            (vary-meta (datomic-query ::attribute-detail '[:find [?e ...] :in $ ?a :where [?e ?a]] db a)
-              merge {`ccp/nav (fn [_this _k v] (d/entity db v))}))))
+          (->> (d/query {:query '[:find [?e ...] :in $ ?a :where [?e ?a]] :args [*db* a], :io-context ::attribute-detail, :query-stats ::attribute-detail})
+               (dx/query-stats-as-meta)
+               (hf/navigable (fn [?e] (d/entity *db* ?e))))))
 
-#?(:clj (defn tx-detail [e] (->> (d/tx-range (d/log conn) e (inc e)) (into [] (comp (mapcat :data) (map datom->map))))))
+#?(:clj (defn summarize-attr [db k] (->> (dx/easy-attr db k) (remove nil?) (map name) (str/join " "))))
+#?(:clj (defn summarize-attr* [?!a] (when ?!a (summarize-attr *db* (:db/ident ?!a)))))
 
-#?(:clj (defn summarize-attr [db k] (->> (datomicx/easy-attr db k) (remove nil?) (map name) (str/join " "))))
-#?(:clj (defn summarize-attr* [?!a] #_[db] (when ?!a (summarize-attr db (:db/ident ?!a)))))
+#?(:clj (defn datom->map [[e a v tx added]]
+          (->> {:e e, :a a, :v v, :tx tx, :added added}
+            (hf/identifiable hash)
+            (hf/navigable-indexed (fn [key value] (if (= :a key) (d/entity *db* a) value))))))
 
-#?(:clj (defn entity-history [e] #_[db]
-          (let [history (d/history db)]
+#?(:clj (defn tx-detail [e] (->> (d/tx-range (d/log *conn*) e (inc e)) (into [] (comp (mapcat :data) (map datom->map))))))
+
+#?(:clj (defn entity-detail [e] (d/entity *db* e)))
+
+#?(:clj (defn entity-history [e]
+          (let [history (d/history *db*)]
             (into [] (comp cat (map datom->map))
               [(d/datoms history :eavt (:db/id e e)) ; resolve both data and object repr, todo revisit
                (d/datoms history :vaet (:db/id e e))]))))
 
-#?(:clj (defn entity-detail [e] (d/entity db e)))
+(e/defn EntityTooltip [value query-result attribute] (e/server (pprint-str (d/pull *db* ['*] value))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; PROGRESSIVE ENHANCEMENTS ;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(e/defn EntityTooltip [v o spec]
-  (e/server (strx/pprint-str (e/server (d/pull db ['*] v)))))
-
-(e/defn SemanticTooltip [v o spec]
+(e/defn ^::e/export SemanticTooltip [value entity attribute]
   (e/server
-    (when-not (coll? v)
-      ;; `and` is glitch guard, TODO remove
-      (let [k (and spec (hfql/unwrap spec))
-            [typ _ unique?] (datomicx/easy-attr db k)]
+    (when-not (coll? value)
+      (let [attr (and attribute (hfql/unwrap attribute)) ; `and` is glitch guard, TODO remove
+            [typ _ unique?] (dx/easy-attr *db* attr)]
         (cond
-          (= :db/id k) (EntityTooltip v o spec)
-          (= :ref typ) (strx/pprint-str (d/pull db ['*] v))
-          (= :identity unique?) (strx/pprint-str (d/pull db ['*] [(hfql/unwrap spec) #_(:db/ident (d/entity db a)) v])) ; resolve lookup ref
+          (= :db/id attr) (EntityTooltip value entity attribute)
+          (= :ref typ) (pprint-str (d/pull *db* ['*] value))
+          (= :identity unique?) (pprint-str (d/pull *db* ['*] [(hfql/unwrap attribute) #_(:db/ident (d/entity db a)) value])) ; resolve lookup ref
           () nil)))))
 
-(e/defn SummarizeDatomicAttribute [v o spec]
+(e/defn SummarizeDatomicAttribute [v o attribute]
   (e/server
-    ((fn [spec] (try (summarize-attr db (hfql/unwrap spec)) (catch Throwable _))) spec)))
+    ((fn [attribute] (try (summarize-attr *db* (hfql/unwrap attribute)) (catch Throwable _))) attribute)))
 
-(e/defn TxDetailValueTooltip [v o spec]
-  (e/server
-    (let [a (get v :a)
-          [typ _ unique?] (datomicx/easy-attr db a)]
-      (cond
-        (= :ref typ) (strx/pprint-str (d/pull db ['*] v))
-        (= :identity unique?) (strx/pprint-str (d/pull db ['*] [a #_(:db/ident (d/entity db a)) v])) ; resolve lookup ref
-        () nil))))
-
-;; glitch guard, TODO remove
-#?(:clj (defn safe-long [v] (if (number? v) v 1)))
+#?(:clj (defn safe-long [v] (if (number? v) v 1))) ; glitch guard, TODO remove
 (e/defn EntityDbidCell [v o spec]
   (let [v2 (e/server (safe-long v))]
     (dom/span (dom/text v2 " ") (r/link ['. [`(entity-history ~v2)]] (dom/text "entity history")))))
 
-#?(:clj (defn route-to-entity-detail [o] (when (instance? datomic.query.EntityMap o) (list `entity-detail (:db/id o)))))
+#?(:clj (defmethod hf/-resolve datomic.query.EntityMap [entity-map & _opts] (list `entity-detail (:db/id entity-map))))
+#?(:clj (defmethod hf/-pretty-print datomic.query.EntityMap [entity-map & _opts] (str "EntityMap" (pr-str entity-map))))
 
-;;;;;;;;;;;;;
-;; SITEMAP ;;
-;;;;;;;;;;;;;
+#?(:clj ; list all attributes of an entity – including reverse refs.
+   (extend-protocol hfql/Suggestable
+     datomic.query.EntityMap
+     (-suggest [entity]
+       (let [attributes (cons :db/id (keys (d/touch entity)))
+             reverse-refs (dx/reverse-refs (d/entity-db entity) (:db/id entity))
+             reverse-attributes (->> reverse-refs (map first) (distinct) (map dx/invert-attribute))]
+         (->> (concat attributes reverse-attributes)
+              (mapv (fn [k] {:label k, :entry k})))))))
 
-#?(:clj (def sitemap-path "hyperfiddle/datomic_browser_demo.edn"))
-#?(:clj (defn sitemap-writer [file-path] (fn [v] (spit file-path (strx/pprint-str v)))))
-#?(:clj (def this-ns *ns*))
+;;; ENTRYPOINT
 
-;;;;;;;;;;;;;;;;
-;; ENTRYPOINT ;;
-;;;;;;;;;;;;;;;;
-
-(defn find-context-free-pages [sitemap]
-  (sort-by first (filterv #(not (next %)) (keys sitemap))))
-
-(e/defn Index [sitemap]
-  (dom/nav
-    (dom/props {:class "Index"})
-    (dom/text "Nav:")
-    (e/for [view (e/diff-by {} (e/server (find-context-free-pages sitemap)))]
-      (dom/text " ") (r/link ['. [view]] (dom/text (name (first view)))))
-    (dom/text " — Datomic Browser")))
-
-(declare css)
-(e/defn DatomicBrowser [conn]
-  (binding [eb/whitelist {`EntityTooltip EntityTooltip
-                          `TxDetailValueTooltip TxDetailValueTooltip
-                          `SummarizeDatomicAttribute SummarizeDatomicAttribute
-                          `SemanticTooltip SemanticTooltip
-                          `EntityDbidCell EntityDbidCell}
-            conn conn
-            db (e/server (e/Offload #(d/db conn)))] ; electric binding
-    (binding [eb/*hfql-bindings (e/server {(find-var `db) db, (find-var `conn) conn, (find-var `db-stats) (e/server (d/db-stats db))})
-              eb/*sitemap (e/server (eb/read-sitemap sitemap-path this-ns))
-              eb/*sitemap-writer (e/server (sitemap-writer sitemap-path))
-              eb/*page-defaults (e/server [route-to-entity-detail])
-              eb/*server-pretty (e/server (assoc eb/*server-pretty datomic.query.EntityMap (fn [em] (str "EntityMap" (pr-str em)))))
-              #_#_eb/Timing (e/fn [label f] (dustingetz.loader/Offload f {:label label}))] ; enable long-running queries monitoring
-      (let [sitemap eb/*sitemap]
-        (dom/style (dom/text css))
-        (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/electric-forms.css"}))
-        (Index sitemap)
-        (eb/HfqlRoot sitemap `[(attributes)])))))
-
-(def css "
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700;800&display=swap');
-
-html { scrollbar-gutter: stable; } /* prevent layout jump when scrollbar shows/hide */
-
-*:has(.Browser), .Browser, .Browser * { box-sizing: border-box; }
-body:has(.Browser) { font-family: 'Open Sans', Arial, Verdana, sans-serif; background-color: rgb(248 250 252)}
-
-/* Explicit table height - there are alternatives */
-.Browser fieldset.dustingetz-entity-browser4__block:not(.entity-children) table { height: calc(16 * var(--row-height)); }  /* 15 rows + header row */
-.Browser fieldset.dustingetz-entity-browser4__block.entity-children tbody { height: calc(15 * var(--row-height)); }  /* 15 rows , header row outside */
-.Browser fieldset.dustingetz-entity-browser4__block { height: fit-content; }
-
-/* Progressive enhancement */
-.Browser fieldset.entity table { grid-template-columns: 15em auto; }
-.Browser.hyperfiddle-datomic-browser-demo-DbStats .entity-children table { grid-template-columns: 36ch auto;}
-
-/* Resize handle */
-
-:where(.Browser fieldset.dustingetz-entity-browser4__block table) {height: inherit; resize: vertical; }
-:where(.Browser fieldset.dustingetz-entity-browser4__block.entity-children tbody) { height: inherit; resize: vertical; }
-
-/* Special full-screen pages */
-
-:is(:has(nav), :has(.Browser)){ display: flex; flex-direction: column; }
-
-html:has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
- {height: 100dvh;}
-
-:has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
-, .hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail
-, :is(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
-     fieldset.dustingetz-entity-browser4__block
-{ height: 100%; box-sizing: border-box; }
-
-.Browser:is(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
-    fieldset.dustingetz-entity-browser4__block :is(table, tbody)
- { height: inherit; resize: none;}
-
-"
-  )
-
-;; /*
-;;  Let table pickers fill available vertical space.
-;;  Table pickers will expand to fill available vertical space by default, unless given an explicit CSS height or max-height.
-;;  Here we make sure their parent containers do provide available space for pickers to expand in.
-;; */
-;; body.electric-fiddle { height: 100dvh; box-sizing: border-box; }
-;; :not(body):has(.hyperfiddle-electric-forms5__table-picker) { height: 100%; }
+(e/defn DatomicBrowser [sitemap entrypoint conn]
+  (let [db (e/server (e/Offload #(d/db conn)))
+        db-stats (e/server (e/Offload #(d/db-stats db)))]
+    (binding [*conn* conn
+              *db* db
+              *db-stats* db-stats
+              hf/*bindings* (e/server (merge hf/*bindings* {(find-var `*conn*)    (e/server conn)
+                                                            (find-var `*db*)       (e/server db)
+                                                            (find-var `*db-stats*) (e/server db-stats)}))
+              hf/*exports* {`EntityTooltip EntityTooltip
+                            `SummarizeDatomicAttribute SummarizeDatomicAttribute
+                            `SemanticTooltip SemanticTooltip
+                            `EntityDbidCell EntityDbidCell}]
+      (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/electric-forms.css"}))
+      (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/datomic-browser.css"}))
+      (Index sitemap)
+      (HfqlRoot sitemap entrypoint))))
 
 (e/defn ConnectDatomic [datomic-uri]
   (e/server
@@ -224,21 +109,3 @@ html:has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-brow
        :Failed (e/fn [error]
                  (dom/h1 (dom/text "Datomic transactor not found, see Readme.md"))
                  (dom/pre (dom/text (pr-str error))))})))
-
-
-(comment
-  (require '[clojure.edn :as edn])
-  (edn/read-string (pr-str '{a 1}))
-  (require '[edamame.core :as eda])
-  (eda/parse-string (slurp "./src/datomic_browser/datomic_browser4.edn")
-    {:auto-resolve (fn [x] (if (= :current x) *ns* (get (ns-aliases *ns*) x)))})
-  (let [db @dustingetz.mbrainz/test-db]
-    (reduce (fn [[_e kc :as ac] nx]
-              (let [mp (d/touch (d/entity db nx))
-                    k* (keys mp)]
-                (if (> (count k*) kc)
-                  [nx (count k*)]
-                  ac)))
-      [0 0] (d/q '[:find [?e ...] :in $ :where [?e :release/name]] db)))
-  [17592186077296 15]
-  )

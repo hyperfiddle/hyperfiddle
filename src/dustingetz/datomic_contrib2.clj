@@ -242,3 +242,8 @@
     (-> (datafy !france) :release/_country count) := 574
     (-> (datafy !france) :artist/_country count) := 140
     (-> (datafy !france) :label/_country count) := 59))
+
+(defn query-stats-as-meta [d-query-result]
+  (if-let [ret (:ret d-query-result)]
+    (with-meta ret (dissoc d-query-result :ret))
+    d-query-result))
