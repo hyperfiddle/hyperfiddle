@@ -6,8 +6,9 @@
 (e/declare apps)
 
 (e/defn Index []
-  (dom/ul
-    (e/for [[app-name App] (e/diff-by key apps)]
+  (dom/h1 (dom/text "Hyperfiddle"))
+  (dom/menu
+    (e/for [[app-name App] (e/diff-by key (dissoc apps `Index))]
       (dom/li (r/link ['/ [app-name]] (dom/text (name app-name)))))))
 
 (e/defn NotFoundPage [& args]
@@ -18,6 +19,8 @@
 (e/defn DefaultApps []
   {`Index Index})
 
+(defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body)) ; TODO remove
+
 (e/defn Hyperfiddle [user-apps & {:keys [default] :or {default `(Index)}}]
   (r/router (r/HTML5-History)
     (let [[app-name & _] r/route]
@@ -27,5 +30,6 @@
               App (get apps app-name NotFoundPage)]
           (set! (.-title js/document) (str (some-> app-name name (str " – ")) "Hyperfiddle"))
           (binding [hyperfiddle.entrypoint/apps apps]
-            (r/pop (App))))))))
+            (rebooting App ; FIXME navigation can crash
+              (r/pop (App)))))))))
 
