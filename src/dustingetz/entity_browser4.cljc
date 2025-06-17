@@ -1,6 +1,5 @@
 (ns dustingetz.entity-browser4
-  (:require [hyperfiddle.api :as hf]
-            [contrib.css :as cssx]
+  (:require [contrib.css :as cssx]
             [contrib.assert :as ca]
             [contrib.data :as datax]
             [contrib.debug :as dbg]
@@ -69,7 +68,7 @@
 (defmethod pretty-print :default [object & args]
   (case object
     ::not-found ""
-    (apply hf/pretty-print object args)))
+    (pr-str object)))
 
 (def ^:deprecated pretty-value pretty-print)
 
@@ -322,7 +321,7 @@
                 (Block [selection] next-x (e/server []) Search)))))))))
 
 ;; #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
-#?(:clj (defn find-default-page [_page-defaults o] (prn `find-default-page o) (hf/resolve o) #_(some #(% o) page-defaults)))
+#?(:clj (defn find-default-page [_page-defaults o] (prn `find-default-page o) (hfp/resolve o) #_(some #(% o) page-defaults)))
 
 (defn ->short-map [cols-available! filterer]
   (let [k* (filterv filterer cols-available!)
