@@ -70,7 +70,6 @@
     (dom/span (dom/text v2 " ") (r/link ['. [`(entity-history ~v2)]] (dom/text "entity history")))))
 
 #?(:clj (defmethod hf-nav/-resolve datomic.query.EntityMap [entity-map & _opts] (list `entity-detail (:db/id entity-map))))
-#?(:clj (defmethod entity-browser/pretty-print datomic.query.EntityMap [entity-map & _opts] (str "EntityMap" (pr-str entity-map))))
 
 #?(:clj ; list all attributes of an entity – including reverse refs.
    (extend-protocol hfql/Suggestable
@@ -97,7 +96,8 @@
               *db* db
               *db-stats* db-stats
               e/*bindings* (e/server (merge e/*bindings* {#'*conn* conn, #'*db* db, #'*db-stats* db-stats}))
-              e/*exports*  (e/exports)]
+              e/*exports*  (e/exports)
+              entity-browser/*server-pretty (e/server {datomic.query.EntityMap (e/fn [entity] (str "EntityMap" (pr-str entity)))})]
       (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/electric-forms.css"}))
       (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/datomic-browser.css"}))
       (HfqlRoot sitemap entrypoint))))

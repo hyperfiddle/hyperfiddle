@@ -62,21 +62,18 @@
       (seq? x) (let [[qs & args] x] (list* (datax/unqualify qs) args))
       () (str x))))
 
-(defmulti pretty-print (fn [object & _opts] (type object)))
-(defmethod pretty-print :default [object & args]
-  (case object
-    ::not-found ""
-    (pr-str object)))
-
-(def ^:deprecated pretty-value pretty-print)
+#?(:clj
+   (defn pretty-value [x server-pretty]
+     (if (= ::not-found x)
+       ""
+       ((get server-pretty (class x) pr-str) x))))
 
 (defn pretty-title [query]
   (let [?f$ (first query)]
     (cons (cond-> ?f$ (qualified-symbol? ?f$) datax/unqualify)
       (mapv #(or (hfp/identify %) %) (next query)))))
 
-(e/declare whitelist)
-(e/defn Resolve [fq-sym fallback] (get whitelist fq-sym fallback))
+(e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
 
 ;; `and` is glitch guard, TODO remove
 #?(:clj (defn remove-opt [spec k] (and spec (hfql/props-update-opts spec #(dissoc % k)))))
@@ -202,7 +199,7 @@
      (let [coll-count (count coll)
            base (binding [*print-length* 1, *print-level* 2]
                   ;; `symbol` removes double quotes from the strings inside the collection
-                  (-> (map-keep-coll #(symbol (#_(get server-pretty (class %) strx/pprint-str) pretty-print %)) coll)
+                  (-> (map-keep-coll #(symbol (#_(get server-pretty (class %) strx/pprint-str) pretty-value % server-pretty)) coll)
                     str
                     (str/replace (str \newline) (str \space))
                     (str/trim)))]
@@ -232,7 +229,7 @@
                   (RenderInlineColl v o spec)
                   (if (= ::not-found v)
                     (dom/props {:data-empty true})
-                    (let [pretty-v (pretty-print v *server-pretty)
+                    (let [pretty-v (pretty-value v *server-pretty)
                           denv {'% o, (hfql/unwrap spec) v, '%v v}]
                       (if-some [query (::hfql/link opts)]
                         (router/link ['. [(replace denv query)]] (dom/text pretty-v))
@@ -635,30 +632,28 @@
       mode)))
 
 (e/defn HfqlRoot [sitemap default]
-  (binding [whitelist e/*exports*]
-    (e/client
-      (dom/style (dom/text css tooltip/css))
-      (sitemap/Index sitemap)
-      (tooltip/TooltipArea
-        (e/fn []
-          (tooltip/Tooltip)
-          (binding [!mode (atom default-mode)
-                    *server-pretty (e/server (#(or *server-pretty {})))
-                    *sitemap sitemap]
-            (let [mode (e/watch !mode)]
-              (binding [*mode mode #_(ModePicker mode)
-                        *depth 0]
-                (let [[query] router/route]
-                  (rebooting query
-                    (dom/div
-                      (dom/props {:class "Browser"})
-                      #_(QueryMonitor)
-                      (if-not query
-                        (router/ReplaceState! ['. default])
-                        (let [f$ (first query)]
-                          (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
-                          (dom/props {:class (cssx/css-slugify f$)})
-                          (NextBlock query nil nil))))))))))))))
+  (e/client
+    (dom/style (dom/text css tooltip/css))
+    (sitemap/Index sitemap)
+    (tooltip/TooltipArea
+      (e/fn []
+        (tooltip/Tooltip)
+        (binding [!mode (atom default-mode)
+                  *server-pretty (e/server (#(or *server-pretty {})))
+                  *sitemap sitemap]
+          (binding [*mode (e/watch !mode) #_(ModePicker mode)
+                    *depth 0]
+            (let [[query] router/route]
+              (rebooting query
+                (dom/div
+                  (dom/props {:class "Browser"})
+                  #_(QueryMonitor)
+                  (if-not query
+                    (router/ReplaceState! ['. default])
+                    (let [f$ (first query)]
+                      (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
+                      (dom/props {:class (cssx/css-slugify f$)})
+                      (NextBlock query nil nil))))))))))))
 
 (def table-block-css
 "
