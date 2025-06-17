@@ -44,6 +44,7 @@
        (with-meta ret (dissoc out :ret)))))
 
 #?(:clj (defn attributes []
+          (prn 'attributes-search-string eb/*search)
           (vary-meta
             (datomic-query ::attributes '[:find [?e ...] :in $ :where [?e :db/valueType]] db)
             merge {`clojure.core.protocols/nav (fn [xs k v] (d/entity db v))})))

@@ -29,6 +29,7 @@
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
 
 (e/declare *hfql-bindings *mode !mode *update *sitemap-writer *sitemap *page-defaults *block-opts *depth *server-pretty)
+(e/declare ^:dynamic *search)
 (declare css)
 
 #?(:clj
@@ -259,9 +260,10 @@
           (transduce (keep #(when (= raw-k (hfql/unwrap %)) %)) (fn ([v] v) ([_ac nx] (reduced nx))) nil raw-spec)))
 
 #?(:clj (defn query->object [hfql-bindings query] ; run-query!
-          (let [[f$ & args] query
-                f (hfql/resolve! f$)]
-            (with-bindings hfql-bindings (apply f args)))))
+          (try (let [[f$ & args] query
+                     f (hfql/resolve! f$)]
+                 (with-bindings hfql-bindings (apply f args)))
+               (catch Throwable e (prn e) (throw e))))) ; swallowed exception possible here, `prn` guards it
 
 #?(:clj (defn add-suggestions [spec suggest*]
           (hfql/props-update-k spec
@@ -278,15 +280,26 @@
 
 (e/declare Block)
 
+(e/defn Searcher [saved]
+  (e/client
+    (let [!s (atom (e/Snapshot saved))] ; currently we're the only writer so snapshotting is OK
+      [(e/fn [] (->> (forms/Input! ::search saved :type :search)
+                  (forms/Parse (e/fn [{search ::search}] (reset! !s search) [`Search! search]))))
+       (e/watch !s)])))
+
 (e/defn NextBlock [query-template next-x o]
   (e/server
     (rebooting o
       (e/client
-        (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
-              next-o (e/server (loader/Initialized (Timing (pretty-title query) #(query->object *hfql-bindings query)) nil))]
-          (when (e/server (some? next-o))
-            (binding [*depth (inc *depth)]
-              (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template)))))))))))
+        (binding [*depth (inc *depth)]
+          (let [{saved-search ::search} (nth router/route *depth {})
+                [Search search] (Searcher saved-search)]
+            (binding [*search search
+                      *hfql-bindings (e/server (assoc *hfql-bindings (find-var `*search) search))]
+              (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
+                    next-o (e/server (loader/Initialized (Timing (pretty-title query) #(query->object *hfql-bindings query)) nil))]
+                (when (e/server (some? next-o))
+                  (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))) Search))))))))))
 
 #?(:clj (defn not-entity-like? [x] (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x)))))
 
@@ -298,7 +311,11 @@
       (when (Timing 'should-next-block-mount #(or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x))))
         (e/client
           (binding [*depth (inc *depth)]
-            (Block [selection] next-x (e/server []))))))))
+            (let [{saved-search ::search} (nth router/route *depth {})
+                  [Search search] (Searcher saved-search)]
+              (binding [*search search
+                        *hfql-bindings (e/server (assoc *hfql-bindings (find-var `*search) search))]
+                (Block [selection] next-x (e/server []) Search)))))))))
 
 #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
 
@@ -327,9 +344,9 @@
          (prn 'failed-to-sort (type e) (ex-message e))
          v*)))
 
-(e/defn ObjectBlock [query o spec effect-handlers args]
+(e/defn ObjectBlock [query o spec effect-handlers Search args]
   (e/client
-    (let [{saved-search ::search, saved-selection ::selection} args
+    (let [{saved-selection ::selection} args
           opts (e/server (hfql/opts spec))
           browse? (Browse-mode?)
           ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker! - is the bug present in forms5?
@@ -337,49 +354,46 @@
           raw-spec (e/server (hfql/unwrap spec2))
           shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
-          !search (atom nil), search (e/watch !search)
           pulled (e/server (Timing (cons 'pull (pretty-title query)) #(hfql/pull *hfql-bindings raw-spec o)))
           data (e/server
                  (?sort-by key
                    (into [] (keep (fn [kspec]
                                     (let [k (hfql/unwrap kspec)
                                           v (get pulled k)]
-                                      (when (or (strx/includes-str? (?unlazy k) saved-search)
-                                              (strx/includes-str? v saved-search))
+                                      (when (or (strx/includes-str? (?unlazy k) *search)
+                                              (strx/includes-str? v *search))
                                         (datax/map-entry k v)))))
                      raw-spec)))
           row-count (e/server (count data)), row-height 24]
       (binding [*block-opts (e/server (hfql/opts spec))]
         (dom/fieldset
           (dom/props {:class "entity dustingetz-entity-browser4__block"})
-          (dom/legend
-            (dom/span (dom/props {:class "title"}) (dom/text (e/server (pretty-title query)) " "))
-            ;; TODO remove ugly workaround, solves bug where search travels across navigation
-            (let [[t search] (Search! saved-search)]
-              (reset! !search (e/When t [(forms/after-ack t #(reset! !search nil)) search]))))
-          (dom/props {:style {:--column-count 2 :--row-height row-height}})
-          (forms/Interpreter effect-handlers
-            (e/amb
-              (e/When search search)
-              (let [!index (e/server (atom nil))]
-                (e/server (reset! !index (find-index (fn [[k]] (= k saved-selection)) data)))
-                (->> (forms/TablePicker! ::selection (e/server (e/watch !index)) row-count
-                       (e/fn [index] (e/server
-                                       (let [kv (nth data index nil)]
-                                         ;; rebooting kv would solve glitches but degrades performance too severely
-                                         (when-some [k (#(some-> kv key))] ; TODO simplify, guards glitched if
-                                           (ObjectRow kv o (find-key-spec raw-spec k) shorten)))))
-                       :row-height row-height
-                       :column-count 2)
-                  (forms/Parse (e/fn ToSaved [{index ::selection}]
-                                 (e/server
-                                   (let [x (nth data index nil)
-                                         row-select (-> (nth raw-spec index nil) hfql/opts ::hfql/select)
-                                         select (or row-select default-select)]
-                                     (e/When (or browse? (and x select))
-                                       (reset! !index index)
-                                       (first x))))))
-                  (forms/Parse (e/fn ToCommand [saved] [`Select! saved])))))))
+          (let [search-cmd (dom/legend
+                             (dom/span (dom/props {:class "title"}) (dom/text (e/server (pretty-title query)) " "))
+                             (Search))]
+            (dom/props {:style {:--column-count 2 :--row-height row-height}})
+            (forms/Interpreter effect-handlers
+              (e/amb
+                (e/When search-cmd search-cmd)
+                (let [!index (e/server (atom nil))]
+                  (e/server (reset! !index (find-index (fn [[k]] (= k saved-selection)) data)))
+                  (->> (forms/TablePicker! ::selection (e/server (e/watch !index)) row-count
+                         (e/fn [index] (e/server
+                                         (let [kv (nth data index nil)]
+                                           ;; rebooting kv would solve glitches but degrades performance too severely
+                                           (when-some [k (#(some-> kv key))] ; TODO simplify, guards glitched if
+                                             (ObjectRow kv o (find-key-spec raw-spec k) shorten)))))
+                         :row-height row-height
+                         :column-count 2)
+                    (forms/Parse (e/fn ToSaved [{index ::selection}]
+                                   (e/server
+                                     (let [x (nth data index nil)
+                                           row-select (-> (nth raw-spec index nil) hfql/opts ::hfql/select)
+                                           select (or row-select default-select)]
+                                       (e/When (or browse? (and x select))
+                                         (reset! !index index)
+                                         (first x))))))
+                    (forms/Parse (e/fn ToCommand [saved] [`Select! saved]))))))))
         (when saved-selection
           (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
                                    (rebooting nx
@@ -420,17 +434,12 @@
 (defn format-query-meta [query-meta]
   (some-> query-meta not-empty dustingetz.str/pprint-str))
 
-(e/defn TableTitle [query !search saved-search row-count spec query-meta Suggest*]
+(e/defn TableTitle [query row-count spec query-meta Suggest*]
   (dom/legend
     (dom/span
       (dom/span
         (dom/props {:class "title" :data-tooltip (e/server (format-query-meta query-meta))})
         (dom/text (pretty-title query)))
-      (dom/text " ")
-      ;; TODO remove ugly workaround, solves bug where search travels across navigation
-      (e/client (let [[t search] (Search! saved-search)]
-                  (reset! !search (e/When t [(forms/after-ack t #(reset! !search nil)) search])))
-                nil)
       (dom/text " (" row-count " items) ")
       (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
             pre-checked (empty? k*)
@@ -501,40 +510,41 @@
   (time (f)))
 
 ;; CollectionBlock is naive, doing N+1 queries and doing work in memory
-(e/defn CollectionBlock [query unpulled spec effect-handlers args]
+(e/defn CollectionBlock [query unpulled spec effect-handlers Search args]
   (e/client
-    (let [{saved-search ::search, saved-selection ::selection} args
+    (let [{saved-selection ::selection} args
           select (e/server (::hfql/select (hfql/opts spec)))
           !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (loader/Latch (e/Filter ffirst  (e/watch !sort-spec)))
-          !search (atom nil), search (e/watch !search)
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
         (dom/props {:class "entity-children dustingetz-entity-browser4__block"})
         (let [spec2 (e/server
-                      (TableTitle query !search saved-search row-count spec (dissoc (meta unpulled) `clojure.core.protocols/nav)
+                      (TableTitle query row-count spec (dissoc (meta unpulled) `clojure.core.protocols/nav)
                         (e/fn []
                           (when (Browse-mode?)
                             (let [navd (Nav unpulled nil (first unpulled))]
                               (Timing 'infer-columns #(hfql/suggest navd)))))))
               raw-spec2 (e/server (hfql/unwrap spec2))
               data (e/server (loader/Initialized (Timing (cons 'pull (pretty-title query))
-                                                (fn [] (eager-pull-search-sort
-                                                         ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
-                                                         raw-spec2 *hfql-bindings saved-search sort-spec)))
+                                                   (fn [] (eager-pull-search-sort
+                                                            ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
+                                                            raw-spec2 *hfql-bindings *search sort-spec)))
                                []))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
-              column-count (e/server (count raw-spec2))]
+              column-count (e/server (count raw-spec2))
+              search-cmd (Search)]
           (reset! !row-count (e/server (count data)))
           ;; cycle back first column as sort in browse mode
           (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
             (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) true]]))
+          search-cmd                    ; force order
           (dom/table
             (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
             (TableHeader cols !sort-spec spec)
             (forms/Interpreter effect-handlers
               (e/amb
-                (e/When search search)
+                (e/When search-cmd search-cmd)
                 (binding [*block-opts (e/server (hfql/opts spec))]
                   (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select)))))))
       (when saved-selection
@@ -577,7 +587,7 @@
 (e/defn RoundTrip [v] (identity (e/server (identity v)))) ; Awesome debug tool! Forces a roundtrip to diagnose how many roundtrips it takes to ack a value!
 ;; (RoundTrip (RoundTrip :foo)) ; two roundtrips
 
-(e/defn Block [query o spec]
+(e/defn Block [query o spec Search]
   (when-some [F (e/server (case (infer-block-type o)
                             :object ObjectBlock
                             :collection CollectionBlock
@@ -614,7 +624,7 @@
                       ;;     - Electric produces an extra roundtrip on e/fn call.
                       [::forms/ok])}]
       (reset! !mode (or (e/server (-> spec hfql/opts ::hfql/mode)) default-mode))
-      (F query o spec effect-handlers (nth router/route *depth {})))))
+      (F query o spec effect-handlers Search (nth router/route *depth {})))))
 
 (e/defn ModePicker [mode]
   (let [edit (forms/RadioPicker! nil (name mode) :Options (e/fn [] (e/amb "crud" "ide" "browse")))]
@@ -632,7 +642,7 @@
                   *server-pretty (e/server (#(or *server-pretty {})))]
           (let [mode (e/watch !mode)]
             (binding [*mode mode #_(ModePicker mode)
-                      *depth 1]
+                      *depth 0]
               (let [[query] router/route]
                 (rebooting query
                   (dom/div
@@ -640,12 +650,10 @@
                     #_(QueryMonitor)
                     (if-not query
                       (router/ReplaceState! ['. default])
-                      (let [f$ (first query)
-                            o (e/server (Timing (pretty-title query) #(query->object *hfql-bindings query)))] ; initial value is not clear as page could be table or tree.
+                      (let [f$ (first query)]
                         (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
                         (dom/props {:class (cssx/css-slugify f$)})
-                        (rebooting query
-                          (Block query o (e/server (find-sitemap-spec sitemap f$))))))))))))))))
+                        (NextBlock query nil nil)))))))))))))
 
 (def table-block-css
 "
