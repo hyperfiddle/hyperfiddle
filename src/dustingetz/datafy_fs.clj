@@ -6,7 +6,7 @@
             [hyperfiddle.nav0 :refer [Identifiable NavContext nav-context]]
             [hyperfiddle.rcf :refer [tests]]
             [clojure.java.io :as io]
-            [hyperfiddle.hfql :as hfql]
+            [hyperfiddle.hfql0 :as hfql]
             [clojure.core.protocols :as ccp])
   (:import [java.nio.file Path Paths Files]
            java.io.File

@@ -2,7 +2,7 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router4 :as r]
-            [hyperfiddle.hfql #?(:clj :as :cljs :as-alias) hfql]
+            [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             [clojure.string :as str]
             [dustingetz.str :refer [pprint-str]]
             [dustingetz.loader :refer [Loader]]

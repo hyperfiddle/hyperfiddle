@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql
+(ns hyperfiddle.hfql0
   (:require [hyperfiddle.electric3 :as e]
             [clojure.string :as str]
             [hyperfiddle.rcf :as rcf]

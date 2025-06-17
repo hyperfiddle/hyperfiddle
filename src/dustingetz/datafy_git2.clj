@@ -3,7 +3,7 @@
             clj-jgit.util
             [clojure.core.protocols :refer [nav Datafiable Navigable]]
             [dustingetz.datafy-fs :as fs]
-            [hyperfiddle.hfql :as hfql]
+            [hyperfiddle.hfql0 :as hfql]
             [hyperfiddle.nav0 :refer [Identifiable]])
   (:import (org.eclipse.jgit.api Git)
            (org.eclipse.jgit.internal.storage.file FileRepository)
