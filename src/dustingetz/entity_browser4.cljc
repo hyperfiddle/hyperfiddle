@@ -638,9 +638,8 @@
       mode)))
 
 (e/defn HfqlRoot [sitemap default]
-  (binding [whitelist hf/*exports*
-            hf/*bindings* (e/server (merge {(find-var `hf/*db*) hf/*db*, (find-var `hf/*conn*) hf/*conn*} hf/*bindings*))]
-    (binding [*hfql-bindings hf/*bindings*]
+  (binding [whitelist e/*exports*]
+    (binding [*hfql-bindings e/*bindings*]
       (e/client
         (dom/style (dom/text css tooltip/css))
         (tooltip/TooltipArea
