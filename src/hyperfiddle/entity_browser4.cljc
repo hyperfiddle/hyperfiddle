@@ -27,7 +27,7 @@
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
 
-(e/declare *hfql-bindings *mode !mode *update *sitemap-writer *sitemap *page-defaults *block-opts *depth *server-pretty)
+(e/declare *mode !mode *update *sitemap-writer *sitemap *page-defaults *block-opts *depth *server-pretty)
 (e/declare ^:dynamic *search)
 (declare css)
 
@@ -179,10 +179,10 @@
     (e/When (IDE-mode?)
       (dom/div
         (dom/text "suggestions:")
-        (let [suggestions (e/server (Timing 'suggestions #(collect-suggestions o *hfql-bindings))
-                                    #_(or (with-bindings *hfql-bindings (hfql/suggest o))
+        (let [suggestions (e/server (Timing 'suggestions #(collect-suggestions o e/*bindings*))
+                                    #_(or (with-bindings e/*bindings* (hfql/suggest o))
                                         (when (or (coll? o) (sequential? o))
-                                          (with-bindings *hfql-bindings (hfql/suggest (nth o 0 nil))))))]
+                                          (with-bindings e/*bindings* (hfql/suggest (nth o 0 nil))))))]
           (e/When suggestions
             (dom/div
               (e/for [{:keys [label entry]} (e/diff-by {} suggestions)]
@@ -296,9 +296,9 @@
           (let [{saved-search ::search} (nth router/route *depth {})
                 [Search search] (Searcher saved-search)]
             (binding [*search search
-                      *hfql-bindings (e/server (assoc *hfql-bindings (find-var `*search) search))]
+                      e/*bindings* (e/server (assoc e/*bindings* (find-var `*search) search))]
               (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
-                    next-o (e/server (loader/Initialized (Timing (pretty-title query) #(query->object *hfql-bindings query)) nil))]
+                    next-o (e/server (loader/Initialized (Timing (pretty-title query) #(query->object e/*bindings* query)) nil))]
                 (when (e/server (some? next-o))
                   (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))) Search))))))))))
 
@@ -315,7 +315,7 @@
             (let [{saved-search ::search} (nth router/route *depth {})
                   [Search search] (Searcher saved-search)]
               (binding [*search search
-                        *hfql-bindings (e/server (assoc *hfql-bindings (find-var `*search) search))]
+                        e/*bindings* (e/server (assoc e/*bindings* (find-var `*search) search))]
                 (Block [selection] next-x (e/server []) Search)))))))))
 
 ;; #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
@@ -335,7 +335,7 @@
         (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
         () symbolic-column))))
 
-(e/defn Nav [coll k v] (e/server (Timing 'Nav #(with-bindings *hfql-bindings (datafy/nav coll k v)))))
+(e/defn Nav [coll k v] (e/server (Timing 'Nav #(with-bindings e/*bindings* (datafy/nav coll k v)))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
@@ -356,7 +356,7 @@
           raw-spec (e/server (hfql/unwrap spec2))
           shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
-          pulled (e/server (Timing (cons 'pull (pretty-title query)) #(hfql/pull *hfql-bindings raw-spec o)))
+          pulled (e/server (Timing (cons 'pull (pretty-title query)) #(hfql/pull e/*bindings* raw-spec o)))
           data (e/server
                  (?sort-by key
                    (into [] (keep (fn [kspec]
@@ -463,7 +463,7 @@
                        (forms/TablePicker! ::selection index row-count
                          (e/fn [index] (e/server (some->> (nth data index nil)
                                                    (Nav data nil)
-                                                   (hfql/pull *hfql-bindings raw-spec)
+                                                   (hfql/pull e/*bindings* raw-spec)
                                                    (TableRow cols col->spec data))))
                          :row-height row-height
                          :column-count (e/server (count raw-spec))
@@ -529,8 +529,8 @@
               raw-spec2 (e/server (hfql/unwrap spec2))
               data (e/server (loader/Initialized (Timing (cons 'pull (pretty-title query))
                                                    (fn [] (eager-pull-search-sort
-                                                            ((fn [] (with-bindings *hfql-bindings (mapv #(datafy/nav unpulled nil %) unpulled))))
-                                                            raw-spec2 *hfql-bindings *search sort-spec)))
+                                                            ((fn [] (with-bindings e/*bindings* (mapv #(datafy/nav unpulled nil %) unpulled))))
+                                                            raw-spec2 e/*bindings* *search sort-spec)))
                                []))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
@@ -552,7 +552,7 @@
       (when saved-selection
         (let [next-x (e/server
                        (loader/Initialized (Timing 'next-object
-                                          (fn [] (with-bindings *hfql-bindings
+                                          (fn [] (with-bindings e/*bindings*
                                                    (some #(let [navd (datafy/nav unpulled nil %)]
                                                             (when (= saved-selection (or (hfp/identify %) %))
                                                               navd))
@@ -568,7 +568,7 @@
                 (e/server
                   (let [query-template (find-default-page *page-defaults next-x)]
                     (rebooting query-template
-                      (e/client 
+                      (e/client
                         (if query-template
                           (NextBlock query-template next-x next-x)
                           (AnonymousBlock saved-selection next-x))))))))))))))
@@ -636,30 +636,29 @@
 
 (e/defn HfqlRoot [sitemap default]
   (binding [whitelist e/*exports*]
-    (binding [*hfql-bindings e/*bindings*]
-      (e/client
-        (dom/style (dom/text css tooltip/css))
-        (sitemap/Index sitemap)
-        (tooltip/TooltipArea
-          (e/fn []
-            (tooltip/Tooltip)
-            (binding [!mode (atom default-mode)
-                      *server-pretty (e/server (#(or *server-pretty {})))
-                      *sitemap sitemap]
-              (let [mode (e/watch !mode)]
-                (binding [*mode mode #_(ModePicker mode)
-                          *depth 0]
-                  (let [[query] router/route]
-                    (rebooting query
-                      (dom/div
-                        (dom/props {:class "Browser"})
-                        #_(QueryMonitor)
-                        (if-not query
-                          (router/ReplaceState! ['. default])
-                          (let [f$ (first query)]
-                            (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
-                            (dom/props {:class (cssx/css-slugify f$)})
-                            (NextBlock query nil nil)))))))))))))))
+    (e/client
+      (dom/style (dom/text css tooltip/css))
+      (sitemap/Index sitemap)
+      (tooltip/TooltipArea
+        (e/fn []
+          (tooltip/Tooltip)
+          (binding [!mode (atom default-mode)
+                    *server-pretty (e/server (#(or *server-pretty {})))
+                    *sitemap sitemap]
+            (let [mode (e/watch !mode)]
+              (binding [*mode mode #_(ModePicker mode)
+                        *depth 0]
+                (let [[query] router/route]
+                  (rebooting query
+                    (dom/div
+                      (dom/props {:class "Browser"})
+                      #_(QueryMonitor)
+                      (if-not query
+                        (router/ReplaceState! ['. default])
+                        (let [f$ (first query)]
+                          (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
+                          (dom/props {:class (cssx/css-slugify f$)})
+                          (NextBlock query nil nil))))))))))))))
 
 (def table-block-css
 "
