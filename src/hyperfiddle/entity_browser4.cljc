@@ -316,7 +316,7 @@
                 (Block [selection] next-x (e/server []) Search)))))))))
 
 ;; #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
-#?(:clj (defn find-default-page [_page-defaults o] (prn `find-default-page o) (hfp/resolve o) #_(some #(% o) page-defaults)))
+#?(:clj (defn find-default-page [_page-defaults o] (hfp/resolve o) #_(some #(% o) page-defaults)))
 
 (defn ->short-map [cols-available! filterer]
   (let [k* (filterv filterer cols-available!)
