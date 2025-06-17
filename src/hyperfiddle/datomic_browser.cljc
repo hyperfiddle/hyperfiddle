@@ -6,7 +6,7 @@
             [clojure.string :as str]
             [dustingetz.str :refer [pprint-str]]
             [dustingetz.loader :refer [Loader]]
-            [dustingetz.entity-browser4 :as entity-browser :refer [HfqlRoot]] ; hyperfiddle.entity-browser
+            [hyperfiddle.entity-browser4 :as entity-browser :refer [HfqlRoot]]
             [hyperfiddle.sitemap :refer [Index]]
             [hyperfiddle.nav0 :as hf-nav]
             #?(:clj [datomic.api :as d])
