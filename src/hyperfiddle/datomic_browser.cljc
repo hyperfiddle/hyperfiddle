@@ -1,14 +1,14 @@
 (ns hyperfiddle.datomic-browser ; ? in datomic-browser.jar
   (:require [hyperfiddle.electric3 :as e]
-            [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.router4 :as r]
+            [hyperfiddle.nav0 :as hf-nav]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
-            [clojure.string :as str]
-            [dustingetz.str :refer [pprint-str]]
-            [dustingetz.loader :refer [Loader]]
             [hyperfiddle.entity-browser4 :as entity-browser :refer [HfqlRoot]]
             [hyperfiddle.sitemap :refer [Index]]
-            [hyperfiddle.nav0 :as hf-nav]
+            [hyperfiddle.router4 :as r]
+            [hyperfiddle.electric-dom3 :as dom]
+            [dustingetz.loader :refer [Loader]]
+            [dustingetz.str :refer [pprint-str]]
+            [clojure.string :as str]
             #?(:clj [datomic.api :as d])
             #?(:clj [dustingetz.datomic-contrib2 :as dx])))
 
@@ -82,7 +82,13 @@
          (->> (concat attributes reverse-attributes)
               (mapv (fn [k] {:label k, :entry k})))))))
 
-;;; ENTRYPOINT
+(e/defn ConnectDatomic [datomic-uri]
+  (e/server
+    (Loader #(d/connect datomic-uri)
+      {:Busy (e/fn [] (dom/h1 (dom/text "Waiting for Datomic connection ...")))
+       :Failed (e/fn [error]
+                 (dom/h1 (dom/text "Datomic transactor not found, see Readme.md"))
+                 (dom/pre (dom/text (pr-str error))))})))
 
 (e/defn DatomicBrowser [sitemap entrypoint conn]
   (let [db (e/server (e/Offload #(d/db conn)))
@@ -94,13 +100,4 @@
               e/*exports*  (e/exports)]
       (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/electric-forms.css"}))
       (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/datomic-browser.css"}))
-      (Index sitemap)
       (HfqlRoot sitemap entrypoint))))
-
-(e/defn ConnectDatomic [datomic-uri]
-  (e/server
-    (Loader #(d/connect datomic-uri)
-      {:Busy (e/fn [] (dom/h1 (dom/text "Waiting for Datomic connection ...")))
-       :Failed (e/fn [error]
-                 (dom/h1 (dom/text "Datomic transactor not found, see Readme.md"))
-                 (dom/pre (dom/text (pr-str error))))})))

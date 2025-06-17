@@ -1,30 +1,28 @@
 (ns hyperfiddle.entity-browser4
-  (:require [contrib.css :as cssx]
+  (:require [hyperfiddle.electric3 :as e]
+            [hyperfiddle.electric-forms5 :as forms]
+            [hyperfiddle.nav0 :as hfp]
+            [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
+            [hyperfiddle.sitemap :as sitemap]
+            [hyperfiddle.router4 :as router]
+            [hyperfiddle.electric-dom3 :as dom]
+            [hyperfiddle.incseq :as i]
+
+            [hyperfiddle.ui.tooltip :as tooltip]
+            [hyperfiddle.token-zoo0 :as tok] ; replace with e/Token + (always t)
+            [contrib.css :as cssx]
             [contrib.assert :as ca]
             [contrib.data :as datax]
             [contrib.debug :as dbg]
             [dustingetz.str :as strx]
-            [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             #?(:clj [peternagy.file-watcher :as fw])
-            #?(:clj [clojure.java.io :as io])
-            [hyperfiddle.electric3 :as e]
-            [hyperfiddle.electric-forms5 :as forms]
-            [hyperfiddle.incseq :as i]
-            [hyperfiddle.ui.tooltip :as tooltip]
-            [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.router4 :as router]
-            [hyperfiddle.nav0 :as hfp]
-            [hyperfiddle.token-zoo0 :as tok]
             [missionary.core :as m]
             [clojure.datafy :as datafy]
             [clojure.string :as str]
             [clojure.pprint]
-            [edamame.core :as eda]
             [clojure.walk :as walk]
             [dustingetz.loader :as loader]
-            #?(:clj [hyperfiddle.hfql0 :as hfql])
             #?(:clj [clojure.tools.logging :as log]))
-  #?(:clj (:import [java.io File]))
   #?(:cljs (:require-macros hyperfiddle.entity-browser4)))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
@@ -641,6 +639,7 @@
     (binding [*hfql-bindings e/*bindings*]
       (e/client
         (dom/style (dom/text css tooltip/css))
+        (sitemap/Index sitemap)
         (tooltip/TooltipArea
           (e/fn []
             (tooltip/Tooltip)
@@ -714,42 +713,3 @@
 }
 
 "))
-
-#?(:clj
-   (defn normalize-sitemap [ns sitemap]
-     (let [qualify #(symbol (hfql/resolve! % ns))]
-       (update-keys sitemap
-         (fn [k]
-           (if (symbol? k)
-             (seq (list (qualify k)))
-             (cons (qualify (first k)) (next k))))))))
-
-#?(:clj (defn qualify-sitemap-symbol [ns s]
-          (if (qualified-symbol? s)
-            (symbol (hfql/resolve! s ns))
-            (cond (hfql/field-access? s)  s
-                  (hfql/method-access? s) s
-                  (#{'% '%v} s)           s
-                  :else                   (symbol (hfql/resolve! s ns))))))
-#?(:clj
-   (defn auto-resolves [ns]             ; to resolve ::keywords based on the caller ns
-     (as-> (ns-aliases ns) $
-       (assoc $ :current (ns-name ns), 'hfql 'hyperfiddle.hfql0)
-       (zipmap (keys $)
-         (map ns-name (vals $))))))
-
-#?(:clj (defn read-sitemap [resource-path ns]
-          (binding [*ns* ns]
-            (->> (eda/parse-string (slurp (io/resource resource-path)) {:auto-resolve (auto-resolves ns)})
-              (walk/postwalk (fn [x] (cond
-                                       (symbol? x)                              (qualify-sitemap-symbol ns x)
-                                       (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
-                                       :else                                    x)))
-              (normalize-sitemap ns)))))
-
-;; #?(:clj (defn sitemap-incseq [resource-path ns]
-;;           (let [f (io/file (io/resource resource-path))]
-;;             (->> (m/ap
-;;                    (let [f (m/?> (fw/watch-file f))]
-;;                      (m/? (m/via m/blk (read-sitemap f ns)))))
-;;               (e/flow->incseq)))))
