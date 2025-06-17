@@ -4,7 +4,7 @@
             [contrib.data :as datax]
             [contrib.debug :as dbg]
             [dustingetz.str :as strx]
-            [peternagy.hfql #?(:clj :as :cljs :as-alias) hfql]
+            [hyperfiddle.hfql #?(:clj :as :cljs :as-alias) hfql]
             #?(:clj [peternagy.file-watcher :as fw])
             #?(:clj [clojure.java.io :as io])
             [hyperfiddle.electric3 :as e]
@@ -22,7 +22,7 @@
             [edamame.core :as eda]
             [clojure.walk :as walk]
             [dustingetz.loader :as loader]
-            #?(:clj [peternagy.hfql :as hfql])
+            #?(:clj [hyperfiddle.hfql :as hfql])
             #?(:clj [clojure.tools.logging :as log]))
   #?(:clj (:import [java.io File]))
   #?(:cljs (:require-macros hyperfiddle.entity-browser4)))
@@ -734,7 +734,7 @@
 #?(:clj
    (defn auto-resolves [ns]             ; to resolve ::keywords based on the caller ns
      (as-> (ns-aliases ns) $
-       (assoc $ :current (ns-name ns), 'hfql 'peternagy.hfql)
+       (assoc $ :current (ns-name ns), 'hfql 'hyperfiddle.hfql)
        (zipmap (keys $)
          (map ns-name (vals $))))))
 

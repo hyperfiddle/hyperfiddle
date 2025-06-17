@@ -3,7 +3,7 @@
            java.lang.management.ThreadInfo
            com.sun.management.ThreadMXBean)
   (:require [clojure.core.protocols :refer [Datafiable nav] :rename {nav -nav}]
-            [peternagy.hfql :as hfql]
+            [hyperfiddle.hfql :as hfql]
             [hyperfiddle.nav0 :refer [Identifiable -identify]]))
 
 (defn resolve-thread [id] (apply com.sun.management.ThreadMXBean/.getThreadInfo
