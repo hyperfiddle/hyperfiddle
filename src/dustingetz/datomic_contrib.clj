@@ -348,14 +348,16 @@
   NavContext (-nav-context [entity] {`ccp/nav (fn [e k v] (clojure.datafy/nav entity k v))})
   ccp/Navigable
   (nav [^datomic.query.EntityMap entity k v]
-    (let [[typ card unique? comp?] (easy-attr2 (.-db entity) k)]
-      (cond
-        (#{:db/id :db/ident} k) entity
-        ; TODO cache schema?
-        (and (keyword? v) (ref? (index-schema (query-schema (.-db entity))) k)) (datomic.api/entity (.-db entity) v) ; traverse ident refs
-        (= :identity unique?) (datomic.api/entity (.-db entity) [k v]) ; resolve lookup ref, todo cleanup
-        () (k entity v) ; traverse refs or return value
-        )))
+    (if (qualified-keyword? k)
+      (let [[typ card unique? comp?] (easy-attr2 (.-db entity) k)]
+        (cond
+          (#{:db/id :db/ident} k) entity
+          ;; TODO cache schema?
+          (and (keyword? v) (ref? (index-schema (query-schema (.-db entity))) k)) (datomic.api/entity (.-db entity) v) ; traverse ident refs
+          (= :identity unique?) (datomic.api/entity (.-db entity) [k v]) ; resolve lookup ref, todo cleanup
+          () (get entity k v) ; traverse refs or return value
+          ))
+      v))
   ccp/Datafiable
   (datafy [^datomic.query.EntityMap entity]
     (let [db (.-db entity)]
