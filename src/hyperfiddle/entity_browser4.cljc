@@ -337,8 +337,22 @@
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
 
+(defn -fsym [sexpr]
+  (when (seq? sexpr)
+    (if (= 'quote (first sexpr))
+      (-fsym (second sexpr))
+      (first sexpr))))
+
+(defn sexpr-comparator [a b]
+  (cond
+    (and (keyword? a) (symbol? b)) (compare a (keyword b))
+    (and (symbol? a) (keyword? b)) (compare (keyword a) b)
+    (seq? a) (sexpr-comparator (-fsym a) b)
+    (seq? b) (sexpr-comparator a (-fsym b))
+    :else (compare a b)))
+
 (defn ?sort-by [keyfn v*]
-  (try (sort-by keyfn v*)
+  (try (sort-by keyfn sexpr-comparator v*)
        (catch #?(:clj Throwable :cljs :default) e
          (prn 'failed-to-sort (type e) (ex-message e))
          v*)))
