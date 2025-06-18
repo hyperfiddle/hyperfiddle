@@ -199,7 +199,7 @@
      (let [coll-count (count coll)
            base (binding [*print-length* 1, *print-level* 2]
                   ;; `symbol` removes double quotes from the strings inside the collection
-                  (-> (map-keep-coll #(symbol (#_(get server-pretty (class %) strx/pprint-str) pretty-value % server-pretty)) coll)
+                  (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
                     str
                     (str/replace (str \newline) (str \space))
                     (str/trim)))]
