@@ -447,25 +447,29 @@
 (defn format-query-meta [query-meta]
   (some-> query-meta not-empty dustingetz.str/pprint-str))
 
-(e/defn TableTitle [query row-count spec query-meta Suggest*]
+(e/defn TableTitle [query Search row-count spec query-meta Suggest*]
   (dom/legend
     (dom/span
       (dom/span
         (dom/props {:class "title" :data-tooltip (e/server (format-query-meta query-meta))})
         (dom/text (pretty-title query)))
-      (dom/text " (" row-count " items) ")
-      (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
-            pre-checked (empty? k*)
-            new-suggest* (into [] (comp (map :entry) (remove k*)) (Suggest*))]
-        (dom/span
-          (let [shorten (column-shortener (into k* new-suggest*) ident?)
-                selected (e/as-vec (e/for [entry (e/diff-by {} new-suggest*)]
-                                     (e/When (forms/Checkbox* pre-checked :label (shorten entry))
-                                       entry)))
-                from-spec (e/as-vec (e/for [spec (e/diff-by {} (hfql/unwrap spec))]
-                                      (e/When (forms/Checkbox* true :label (shorten (hfql/unwrap spec)))
-                                        spec)))]
-            (hfql/props-update-k spec (fn [_] (into from-spec selected)))))))))
+      (e/as-vec ; dirty trick to circumvent dom/text in between Search and columns
+        (e/amb
+          (dom/span ; dirty trick to circumvent sited destructuring out of TableTitle
+            (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search))))))
+          (dom/text " (" row-count " items) ")
+          (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
+                pre-checked (empty? k*)
+                new-suggest* (into [] (comp (map :entry) (remove k*)) (Suggest*))]
+            (dom/span
+              (let [shorten (column-shortener (into k* new-suggest*) ident?)
+                    selected (e/as-vec (e/for [entry (e/diff-by {} new-suggest*)]
+                                         (e/When (forms/Checkbox* pre-checked :label (shorten entry))
+                                           entry)))
+                    from-spec (e/as-vec (e/for [spec (e/diff-by {} (hfql/unwrap spec))]
+                                          (e/When (forms/Checkbox* true :label (shorten (hfql/unwrap spec)))
+                                            spec)))]
+                (hfql/props-update-k spec (fn [_] (into from-spec selected)))))))))))
 
 #_
 (e/defn TableBody [row-count row-height cols data raw-spec saved-selection select]
@@ -531,12 +535,14 @@
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
         (dom/props {:class "entity-children hyperfiddle-entity-browser4__block"})
-        (let [spec2 (e/server
-                      (TableTitle query row-count spec (dissoc (meta unpulled) `clojure.core.protocols/nav)
-                        (e/fn []
-                          (when (Browse-mode?)
-                            (let [navd (Nav unpulled nil (first unpulled))]
-                              (Timing 'infer-columns #(hfql/suggest navd)))))))
+        (let [free-args (e/server
+                          (TableTitle query Search row-count spec (dissoc (meta unpulled) `clojure.core.protocols/nav)
+                            (e/fn []
+                              (when (Browse-mode?)
+                                (let [navd (Nav unpulled nil (first unpulled))]
+                                  (Timing 'infer-columns #(hfql/suggest navd)))))))
+              search-cmd (e/call (e/server (first free-args))) ; fighting against sited destructuring
+              spec2      (e/server (second free-args))
               raw-spec2 (e/server (hfql/unwrap spec2))
               data (e/server (loader/Initialized (Timing (cons 'pull (pretty-title query))
                                                    (fn [] (eager-pull-search-sort
@@ -545,8 +551,7 @@
                                []))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
-              column-count (e/server (count raw-spec2))
-              search-cmd (Search)]
+              column-count (e/server (count raw-spec2))]
           (reset! !row-count (e/server (count data)))
           ;; cycle back first column as sort in browse mode
           (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
