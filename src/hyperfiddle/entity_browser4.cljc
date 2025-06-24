@@ -272,8 +272,10 @@
                           (conj raw-spec nx)))
                 raw-spec suggest*)))))
 
+#?(:clj (defn labelize [spec] (or (-> spec hfql/opts ::hfql/label) (hfql/unwrap spec))))
+
 (e/defn ObjectRow [[k v] o spec shorten]
-  (dom/td (dom/text (e/server (pretty-name (shorten k)))))
+  (dom/td (dom/text (e/server (pretty-name (shorten (labelize spec))))))
   (Render v o spec))
 
 (e/declare Block)
@@ -366,7 +368,7 @@
           ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker! - is the bug present in forms5?
           spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (Timing 'add-suggestions #(hfql/suggest o))))))
           raw-spec (e/server (hfql/unwrap spec2))
-          shorten (e/server (column-shortener (mapv hfql/unwrap raw-spec) symbol?))
+          shorten (e/server (column-shortener (mapv labelize raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
           pulled (e/server (Timing (cons 'pull (pretty-title query)) #(hfql/pull e/*bindings* raw-spec o)))
           data (e/server
@@ -434,16 +436,19 @@
   (when-some [[col asc?] (first sort-spec)]
     [[for-col (if (= col for-col) (not asc?) true)]]))
 
-(e/defn TableHeader [cols !sort-spec spec]
-  (dom/thead
-    (dom/tr
-      (let [shorten (column-shortener (e/as-vec cols) ident?)]
-        (e/for [col cols]
-          (dom/th
-            (dom/props {:title (str col)})
-            (e/server (RenderTooltip ::hfql/TitleTooltip (hfql/opts spec) col nil col))
-            (dom/On "click" #(swap! !sort-spec toggle-column-sort col) nil)
-            (dom/text (pretty-name (shorten col)))))))))
+(e/defn TableHeader [raw-spec !sort-spec]
+  (e/server
+    (dom/thead
+      (dom/tr
+        (let [shorten (column-shortener (mapv labelize raw-spec) ident?)]
+          (e/for [spec (e/diff-by {} raw-spec)]
+            (let [k (hfql/unwrap spec)
+                    label (shorten (labelize spec))]
+                (dom/th
+                  (dom/props {:title (str label)})
+                  (e/server (RenderTooltip ::hfql/TitleTooltip (hfql/opts spec) k nil k))
+                  (dom/On "click" #(swap! !sort-spec toggle-column-sort k) nil)
+                  (dom/text label)))))))))
 
 (defn format-query-meta [query-meta]
   (some-> query-meta not-empty dustingetz.str/pprint-str))
@@ -460,15 +465,16 @@
             (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search))))))
           (dom/text " (" row-count " items) ")
           (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
+                label* (into #{} (map labelize) (hfql/unwrap spec))
                 pre-checked (empty? k*)
                 new-suggest* (into [] (comp (map :entry) (remove k*)) (Suggest*))]
             (dom/span
-              (let [shorten (column-shortener (into k* new-suggest*) ident?)
+              (let [shorten (column-shortener (into label* new-suggest*) ident?)
                     selected (e/as-vec (e/for [entry (e/diff-by {} new-suggest*)]
                                          (e/When (forms/Checkbox* pre-checked :label (shorten entry))
                                            entry)))
                     from-spec (e/as-vec (e/for [spec (e/diff-by {} (hfql/unwrap spec))]
-                                          (e/When (forms/Checkbox* true :label (shorten (hfql/unwrap spec)))
+                                          (e/When (forms/Checkbox* true :label (shorten (labelize spec)))
                                             spec)))]
                 (hfql/props-update-k spec (fn [_] (into from-spec selected)))))))))))
 
@@ -560,7 +566,7 @@
           search-cmd                    ; force order
           (dom/table
             (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-            (TableHeader cols !sort-spec spec)
+            (TableHeader raw-spec2 !sort-spec)
             (forms/Interpreter effect-handlers
               (e/amb
                 (e/When search-cmd search-cmd)
