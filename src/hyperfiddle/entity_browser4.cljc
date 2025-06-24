@@ -332,7 +332,8 @@
         (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
         () symbolic-column))))
 
-(e/defn Nav [coll k v] (e/server (Timing 'Nav #(with-bindings e/*bindings* (datafy/nav coll k v)))))
+(e/defn Nav [coll k v] (e/server (Timing 'Nav #(try (with-bindings e/*bindings* (datafy/nav coll k v))
+                                                    (catch Throwable e (prn e))))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
