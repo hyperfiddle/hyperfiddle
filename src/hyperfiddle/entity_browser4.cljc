@@ -660,7 +660,7 @@
 (e/defn HfqlRoot [sitemap default]
   (e/client
     (dom/style (dom/text css tooltip/css))
-    (sitemap/Index sitemap)
+    (sitemap/Index sitemap) ; FIXME this index generation is generic and may conflict with user-custom index (e.g. ObjectBrowser3 fiddle demo renders two navs)
     (tooltip/TooltipArea
       (e/fn []
         (tooltip/Tooltip)
