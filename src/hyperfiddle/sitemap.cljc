@@ -43,10 +43,10 @@
        :post [(map? %)]}
       (binding [*ns* (find-ns (ns-name ns-or-ns-sym))] ; resolve sym to ns (throws if not found), ns object passes through, noop if ns = *ns*
         (->> quoted-site-map
-              (walk/postwalk (fn [x] (cond
-                                       (symbol? x)                              (qualify-sitemap-symbol *ns* x)
-                                       (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
-                                       :else                                    x)))
+          (walk/postwalk (fn [x] (cond
+                                   (symbol? x)                              (qualify-sitemap-symbol *ns* x)
+                                   (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
+                                   :else                                    x)))
           (normalize-sitemap *ns*))))))
 
 #?(:clj (defn read-sitemap [ns-or-ns-sym resource-path]
