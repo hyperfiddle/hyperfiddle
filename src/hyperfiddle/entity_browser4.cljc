@@ -446,7 +446,7 @@
                     label (shorten (labelize spec))]
                 (dom/th
                   (dom/props {:title (str label)})
-                  (e/server (RenderTooltip ::hfql/TitleTooltip (hfql/opts spec) k nil k))
+                  (e/server (RenderTooltip ::hfql/ColumnHeaderTooltip (hfql/opts spec) k nil k))
                   (dom/On "click" #(swap! !sort-spec toggle-column-sort k) nil)
                   (dom/text label)))))))))
 
