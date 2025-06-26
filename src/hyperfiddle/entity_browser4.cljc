@@ -453,6 +453,8 @@
 (defn format-query-meta [query-meta]
   (some-> query-meta not-empty dustingetz.str/pprint-str))
 
+(def collection-limit 10000)
+
 (e/defn TableTitle [query Search row-count spec query-meta Suggest*]
   (dom/legend
     (dom/span
@@ -463,7 +465,7 @@
         (e/amb
           (dom/span ; dirty trick to circumvent sited destructuring out of TableTitle
             (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search))))))
-          (dom/text " (" row-count " items) ")
+          (dom/text " (" (when (= collection-limit row-count) ">=") row-count " items) ")
           (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
                 label* (into #{} (map labelize) (hfql/unwrap spec))
                 pre-checked (empty? k*)
@@ -478,51 +480,23 @@
                                             spec)))]
                 (hfql/props-update-k spec (fn [_] (into from-spec selected)))))))))))
 
-#_
-(e/defn TableBody [row-count row-height cols data raw-spec saved-selection select]
-  (let [col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
-    (forms/Intercept (e/fn [index]
-                       (forms/TablePicker! ::selection index row-count
-                         (e/fn [index] (e/server (some->> (nth data index nil)
-                                                   (Nav data nil)
-                                                   (hfql/pull e/*bindings* raw-spec)
-                                                   (TableRow cols col->spec data))))
-                         :row-height row-height
-                         :column-count (e/server (count raw-spec))
-                         :as :tbody))
-      saved-selection
-      (e/fn ToIndex [selection] (e/server
-                                  (find-index #{selection}
-                                    (eduction (map #(or (hfp/identify %) %)) data))))
-      (e/fn ToSaved [index] (e/When (or select (Browse-mode?))
-                              (let [x (e/server (nth data index nil))
-                                    symbolic-x (e/server (hfp/identify x))]
-                                (e/When symbolic-x symbolic-x)))))))
-
-#?(:clj (defn eager-pull-search-sort [data spec hfql-bindings search sort-spec]
-          #_(Thread/sleep 3000)
-          (let [enriched (hfql/pull hfql-bindings spec data)
-                filtered (eduction (filter #(strx/any-matches? (vals %) search)) enriched)]
-            (vec (if-some [sorter (->sort-comparator sort-spec)]
-                   (try (sort sorter filtered) (catch Throwable _ filtered))
-                   filtered)))))
-
-(e/defn CollectionTableBody [row-count row-height cols data raw-spec saved-selection select]
+(e/defn CollectionTableBody [row-count row-height cols navd raw-spec saved-selection select]
   (let [!index (e/server (atom nil))
         col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
-    (e/server (reset! !index (find-index #{saved-selection} (eduction (map #(let [o (-> % meta ::hfql/origin)] (or (hfp/identify o) o))) data))))
+    (e/server (reset! !index (find-index #{saved-selection} (eduction (map #(or (hfp/identify %) %)) navd))))
     (->> (forms/TablePicker! ::selection
            (e/server (e/watch !index))
            row-count
-           (e/fn [index] (e/server (some->> (nth data index nil)
-                                     (TableRow cols col->spec data))))
+           (e/fn [index] (e/server (when-some [o (nth navd index nil)]
+                                     (let [pulled (hfql/pull e/*bindings* raw-spec o)]
+                                       (TableRow cols col->spec o pulled)))))
            :row-height row-height
            :column-count (e/server (count raw-spec))
            :as :tbody)
       (forms/Parse (e/fn ToSavable [{index ::selection}]
                      (e/When (or select (Browse-mode?))
                        (e/server
-                         (let [x (-> (nth data index nil) meta ::hfql/origin)
+                         (let [x (nth navd index nil)
                                symbolic-x (hfp/identify x)]
                            (e/When symbolic-x
                              (reset! !index index)
@@ -533,8 +507,7 @@
   (pr label)
   (time (f)))
 
-;; CollectionBlock is naive, doing N+1 queries and doing work in memory
-(e/defn CollectionBlock [query unpulled spec effect-handlers Search args]
+(e/defn CollectionBlock [query data spec effect-handlers Search args]
   (e/client
     (let [{saved-selection ::selection} args
           select (e/server (::hfql/select (hfql/opts spec)))
@@ -543,23 +516,22 @@
       (dom/fieldset
         (dom/props {:class "entity-children hyperfiddle-entity-browser4__block"})
         (let [free-args (e/server
-                          (TableTitle query Search row-count spec (dissoc (meta unpulled) `clojure.core.protocols/nav)
+                          (TableTitle query Search row-count spec (dissoc (meta data) `clojure.core.protocols/nav)
                             (e/fn []
                               (when (Browse-mode?)
-                                (let [navd (Nav unpulled nil (first unpulled))]
+                                (let [navd (Nav data nil (first data))]
                                   (Timing 'infer-columns #(hfql/suggest navd)))))))
               search-cmd (e/call (e/server (first free-args))) ; fighting against sited destructuring
               spec2      (e/server (second free-args))
               raw-spec2 (e/server (hfql/unwrap spec2))
-              data (e/server (loader/Initialized (Timing (cons 'pull (pretty-title query))
-                                                   (fn [] (eager-pull-search-sort
-                                                            ((fn [] (with-bindings e/*bindings* (mapv #(datafy/nav unpulled nil %) unpulled))))
-                                                            raw-spec2 e/*bindings* *search sort-spec)))
+              navd (e/server (loader/Initialized (Timing (cons 'pull (pretty-title query))
+                                                   (fn [] (with-bindings e/*bindings*
+                                                            (into [] (comp (take collection-limit) (map #(datafy/nav data nil %))) data))))
                                []))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
               column-count (e/server (count raw-spec2))]
-          (reset! !row-count (e/server (count data)))
+          (reset! !row-count (e/server (count navd)))
           ;; cycle back first column as sort in browse mode
           (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
             (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) true]]))
@@ -571,15 +543,15 @@
               (e/amb
                 (e/When search-cmd search-cmd)
                 (binding [*block-opts (e/server (hfql/opts spec))]
-                  (CollectionTableBody row-count row-height cols data raw-spec2 saved-selection select)))))))
+                  (CollectionTableBody row-count row-height cols navd raw-spec2 saved-selection select)))))))
       (when saved-selection
         (let [next-x (e/server
                        (loader/Initialized (Timing 'next-object
                                           (fn [] (with-bindings e/*bindings*
-                                                   (some #(let [navd (datafy/nav unpulled nil %)]
+                                                   (some #(let [navd (datafy/nav data nil %)]
                                                             (when (= saved-selection (or (hfp/identify %) %))
                                                               navd))
-                                                     unpulled))))
+                                                     data))))
                          nil))]
           (rebooting select
             (if select
