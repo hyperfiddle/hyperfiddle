@@ -240,7 +240,7 @@
 (e/defn Render [v o spec] (RenderCell v o spec))
 
 (e/defn Search! [saved-search]
-  (->> (forms/Input! ::search saved-search :type :search)
+  (->> (forms/Input! ::search saved-search :type :search :maxlength 100)
     (forms/Parse (e/fn [{search ::search}] [`Search! search]))))
 
 (defn find-index [pred x*]
@@ -283,7 +283,7 @@
 (e/defn Searcher [saved]
   (e/client
     (let [!s (atom (e/Snapshot saved))] ; currently we're the only writer so snapshotting is OK
-      [(e/fn [] (->> (forms/Input! ::search saved :type :search)
+      [(e/fn [] (->> (forms/Input! ::search saved :type :search :maxlength 100)
                   (forms/Parse (e/fn [{search ::search}] (reset! !s search) [`Search! search]))))
        (e/watch !s)])))
 
