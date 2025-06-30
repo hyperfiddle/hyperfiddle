@@ -1,7 +1,7 @@
 (ns electric-fiddle.fiddle-index ; merge into hyperfiddle.entrypoint
   (:require [contrib.data :refer [subgroup-by]]
             [dustingetz.str :refer [includes-str?]]
-            [dustingetz.treelister1 :refer [treelister]]
+            [dustingetz.treelister1 :refer [treelister]] ; todo upgrade to treelister3
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric-forms5 :refer [Input TablePicker*]]
