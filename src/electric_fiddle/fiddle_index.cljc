@@ -1,4 +1,4 @@
-(ns electric-fiddle.fiddle-index
+(ns electric-fiddle.fiddle-index ; merge into hyperfiddle.entrypoint
   (:require [contrib.data :refer [subgroup-by]]
             [dustingetz.str :refer [includes-str?]]
             [dustingetz.treelister1 :refer [treelister]]

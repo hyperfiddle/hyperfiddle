@@ -1,4 +1,4 @@
-(ns hyperfiddle.router3
+(ns ^:deprecated hyperfiddle.router3
   "A reactive tree router"
   (:refer-clojure :exclude [set pop])
   (:require

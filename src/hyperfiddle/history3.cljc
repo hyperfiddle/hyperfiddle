@@ -1,5 +1,5 @@
 ;; Like hyperfiddle.history2, but compatible with v3 (de)
-(ns hyperfiddle.history3
+(ns ^:deprecated hyperfiddle.history3
   (:require
    [clojure.edn :as edn]
    [clojure.string :as str]
