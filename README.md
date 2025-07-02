@@ -1,7 +1,5 @@
 # Hyperfiddle
 
-> "Civilization advances by extending the number of operations we can perform without thinking about them.”
-
 For production support teams at operationally heavy businesses, Hyperfiddle is a **programmable object navigator** that reaches all your at-work enterprise objects in prod.
 
 Stop treating your ops teams badly due to eng resource constraints, as the beating heart of the business they should be your primary customer. Deliver **premium quality internal frontends faster**, without needing specialist frontend framework expertise.
