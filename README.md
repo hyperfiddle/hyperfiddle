@@ -1,4 +1,6 @@
-# Hyperfiddle starter app
+# Hyperfiddle
+
+> "Civilization advances by extending the number of operations we can perform without thinking about them.”
 
 For production support teams at operationally heavy businesses, Hyperfiddle is a **programmable object navigator** that reaches all your at-work enterprise objects in prod.
 
@@ -83,30 +85,21 @@ Use this foundation to build scalable, enterprise-class frontends that are deepl
 
 Use cases: enterprise workbench apps, customer support tools, microservice internal state observability and debugging tools, internal control plane apps, interactive dashboards.
 
+**FAQ: Does it have AI?** Yes, we are starting to experiment with agents and it's going to be every bit as amazing as you imagine.
+
 ## Where are we going with this
 
 "Hyper" means interconnected. "Fiddle" means play. Our vision for Hyperfiddle is to develop an **end-user hypermedia programming environment** that reaches all of your at-work cloud objects without writing network glue code. Our mission is to **collapse to zero** the cost of business process frontend development, for a huge range of apps from enterprise applications to throwaway tools.
 
-> "Civilization advances by extending the number of operations we can perform without thinking about them.”
-
-**FAQ: Does it have AI?** Yes, we are starting to experiment with agents and it's going to be every bit as amazing as you imagine.
-
-## Project goals
-
-Hyperfiddle is an ongoing, decade-long R&D investment in bringing to market a new class of foundation GUI infrastructure for business frontends.
-
 Technical goals:
 * identify and label the common structure shared between spreadsheets and CRUD apps
 * in a credible, enterprise-compatible way that scales to more sophisticated apps, not less
-* leverage this structure as the foundation for or substrate of a next-gen application framework or engine (think Unity for enterprise apps)
+* leverage this structure as the foundation for a next-gen application framework or engine (think Unity for enterprise apps)
 * a foundation for end user programming as a higher order, creative medium
 * zero-code data connectivity via the Electric protocol (c.f. Netscape and HTTP -- Netscape is the original declarative IO runtime for HTML apps)
 * **never write a REST integration ever again**
 
-Economic goals:
-* find and develop a market, economic model, and global at-scale distribution strategy which is directly and immediately aligned with investing the proceeds into foundational programming abstractions, so that we can all benefit from better software, and build it less painfully
-
-> "If a system is to serve the creative spirit, it must be entirely comprehensible to a single individual. Human potential manifests itself in individuals." — Dan Ingalls, Design Principles behind Smalltalk
+Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and develop a market, economic model, and global at-scale distribution strategy which is directly and immediately aligned with investing the proceeds into foundational programming abstractions, so that we can all benefit from better software, and build it less painfully.
 
 ## Social media
 
@@ -116,25 +109,6 @@ Economic goals:
 * free for individual use on local dev machines, mandatory runtime login (we are a business)
 * using in prod requires a license, contact us.
 * still working out the details
-
-## Getting started
-
-```
-git clone git@gitlab.com:hyperfiddle/hyperfiddle-starter-app.git
-cd hyperfiddle-starter-app
-
-# Install demo data
-java -version              # we use openjdk version "23.0.2"
-./datomic_fixtures.sh      # get Datomic (free) and example data
-./run_datomic.sh
-
-# Run demo app. You’ll be asked to authenticate.
-# First via Clojure CLI to see it working. https://clojure.org/guides/install_clojure
-clj -X:dev dev/-main :datomic-uri '"datomic:dev://localhost:4334/mbrainz-1968-1973"'
-
-# Now jack in to REPL, :dev alias:
-user=> (dev/-main {:datomic-uri "datomic:dev://localhost:4334/mbrainz-1968-1973"})
-```
 
 # Program your business, without drowning in complexity
 
