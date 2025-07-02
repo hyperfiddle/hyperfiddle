@@ -271,7 +271,7 @@
                           (conj raw-spec nx)))
                 raw-spec suggest*)))))
 
-#?(:clj (defn labelize [spec] (or (-> spec hfql/opts ::hfql/label) (hfql/unwrap spec))))
+#?(:clj (defn labelize [?spec] (and ?spec (or (-> ?spec hfql/opts ::hfql/label) (hfql/unwrap ?spec)))))
 
 (e/defn ObjectRow [[k v] o spec shorten]
   (dom/td (dom/text (e/server (pretty-name (shorten (labelize spec))))))
