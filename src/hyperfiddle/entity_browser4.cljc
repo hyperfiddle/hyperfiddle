@@ -190,8 +190,8 @@
 (e/declare Render)
 
 #?(:clj (defn map-keep-coll [f coll]
-          (cond-> (into (empty coll) (map f) coll)
-            (seq? coll) reverse)))
+          (cond-> (into (empty coll) (comp (take 2) (map f)) coll)
+            (seq? coll) rseq)))
 
 #?(:clj
    (defn str-inline-coll [coll server-pretty]
