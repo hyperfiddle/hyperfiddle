@@ -511,7 +511,8 @@
 
 #?(:clj (defn eager-pull-search-sort [data spec hfql-bindings search sort-spec]
           #_(Thread/sleep 3000)
-          (let [navd (with-bindings hfql-bindings (into [] (map #(datafy/nav data nil %)) data))
+          (let [data (vec data)         ; fix if data is e.g. a set
+                navd (with-bindings hfql-bindings (into [] (map #(datafy/nav data nil %)) data))
                 pulled (hfql/pull hfql-bindings spec navd)
                 filtered (eduction (map-indexed vector) (filter #(strx/any-matches? (vals (second %)) search)) pulled)
                 sorted (vec (if-some [sorter (->sort-comparator sort-spec)]
