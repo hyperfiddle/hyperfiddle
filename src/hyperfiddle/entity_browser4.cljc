@@ -282,8 +282,9 @@
 (e/defn Searcher [saved]
   (e/client
     (let [!s (atom (e/Snapshot saved))] ; currently we're the only writer so snapshotting is OK
-      [(e/fn [] (->> (forms/Input! ::search saved :type :search :maxlength 100)
-                  (forms/Parse (e/fn [{search ::search}] (reset! !s search) [`Search! search]))))
+      [(e/fn [disabled?]
+         (->> (forms/Input! ::search saved :type :search :maxlength 100 :disabled disabled?)
+           (forms/Parse (e/fn [{search ::search}] (reset! !s search) [`Search! search]))))
        (e/watch !s)])))
 
 (e/defn NextBlock [query-template next-x o]
@@ -385,7 +386,7 @@
           (dom/props {:class "entity hyperfiddle-entity-browser4__block"})
           (let [search-cmd (dom/legend
                              (dom/span (dom/props {:class "title"}) (dom/text (e/server (pretty-title query)) " "))
-                             (Search))]
+                             (Search false))]
             (dom/props {:style {:--column-count 2 :--row-height row-height}})
             (forms/Interpreter effect-handlers
               (e/amb
@@ -463,7 +464,7 @@
       (e/as-vec ; dirty trick to circumvent dom/text in between Search and columns
         (e/amb
           (dom/span ; dirty trick to circumvent sited destructuring out of TableTitle
-            (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search))))))
+            (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search (>= row-count collection-limit)))))))
           (dom/text " (" (when (= collection-limit row-count) ">=") row-count " items) ")
           (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
                 label* (into #{} (map labelize) (hfql/unwrap spec))
@@ -508,6 +509,17 @@
   (pr label)
   (time (f)))
 
+#?(:clj (defn eager-pull-search-sort [data spec hfql-bindings search sort-spec]
+          #_(Thread/sleep 3000)
+          (let [navd (with-bindings hfql-bindings (into [] (map #(datafy/nav data nil %)) data))
+                pulled (hfql/pull hfql-bindings spec navd)
+                filtered (eduction (map-indexed vector) (filter #(strx/any-matches? (vals (second %)) search)) pulled)
+                sorted (vec (if-some [sorter (->sort-comparator sort-spec)]
+                              (try (sort-by second sorter filtered) (catch Throwable _ filtered))
+                              filtered))]
+            (with-meta (into [] (comp (map first) (map #(nth data %))) sorted)
+              (meta data)))))
+
 (e/defn CollectionBlock [query data spec effect-handlers Search args]
   (e/client
     (let [{saved-selection ::selection} args
@@ -527,8 +539,13 @@
               raw-spec2 (e/server (hfql/unwrap spec2))
               row-height 24
               cols (e/server (e/diff-by {} (mapv hfql/unwrap raw-spec2)))
-              column-count (e/server (count raw-spec2))]
-          (reset! !row-count (e/server (bounded-count collection-limit data)))
+              column-count (e/server (count raw-spec2))
+              data-count (e/server (bounded-count collection-limit data))
+              data (e/server (if (< data-count collection-limit)
+                               (eager-pull-search-sort data raw-spec2 e/*bindings* *search sort-spec)
+                               (with-meta (into [] (take collection-limit) data) (meta data))))
+              data-count (e/server (bounded-count collection-limit data))]
+          (reset! !row-count data-count)
           ;; cycle back first column as sort in browse mode
           (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
             (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) true]]))
