@@ -114,6 +114,4 @@ Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and 
 
 # Program your business, without drowning in complexity
 
-<p align="center">
-  <img width="500" src="./docs/2024_logo-hyperfiddle-crud-spreadsheet-transparent.svg">
-</p>
+<img width="500" src="./docs/2024_logo-hyperfiddle-crud-spreadsheet-transparent.svg">
