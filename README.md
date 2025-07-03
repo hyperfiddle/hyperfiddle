@@ -41,8 +41,6 @@ Datomic support app features:
 * easy to integrate ring middleware - embed in your at-work httpkit or jetty services
 * enterprise SSO (contact us)
 
-[![20250627_datomic_schema_app.png](./docs/20250627_datomic_schema_app.png)](./docs/20250627_datomic_schema_app.png)
-
 ## Direct classpath linking to integrate any function, data source or native object
 
 * **Not just Datomic:** navigate SQL or any backend data source via classpath function calls
@@ -52,11 +50,13 @@ Datomic support app features:
 
 **FAQ: What's the difference between an object navigator and a data browser?** Hyperfiddle is about objects, not data. Objects come with functions and methods, they aren't serializable, you navigate hyperlink graph structures rather than browse freeform nested structures, and you want to do this without impedance, using the actual native object datatype, not derived projections or data mappers. Objects are what the world is made of. And Hyperfiddle is how you reach them.
 
-## Example app: jGit history search GUI
+## More examples
+
+[![20250627_datomic_schema_app.png](./docs/20250627_datomic_schema_app.png)](./docs/20250627_datomic_schema_app.png)
 
 [![2024_jgit_history_gui.png](./docs/2024_jgit_history_gui.png)](./docs/2024_jgit_history_gui.png)
 
-## More live examples
+Live demos:
 
 * [jGit object navigator](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.datafy-git2!load-repo,'.!.git'))
 * [clojure namespace and var directory](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.object-browser-demo3!clojure-all-ns))
