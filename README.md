@@ -1,7 +1,4 @@
-# Hyperfiddle
-
-> [!NOTE]
-> Hyperfiddle is now in technical preview! Request preview access here: https://www.hyperfiddle.net/early-access.html
+# Hyperfiddle – a high fidelity enterprise frontend for any service or object
 
 For production support teams at operationally heavy businesses, Hyperfiddle is a **programmable object navigator** that reaches all your at-work enterprise objects in prod.
 
@@ -106,6 +103,11 @@ Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and 
 ## Social media
 
 * https://x.com/dustingetz
+
+## Getting Started
+
+> [!NOTE]
+> Hyperfiddle is now in technical preview! Request preview access here: https://www.hyperfiddle.net/early-access.html
 
 ## License
 * free for individual use on local dev machines, mandatory runtime login (we are a business)
