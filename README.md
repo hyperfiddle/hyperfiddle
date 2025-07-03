@@ -1,8 +1,8 @@
 # Hyperfiddle – a high fidelity enterprise frontend for any service or object
 
-For production support teams at operationally heavy businesses, Hyperfiddle is a **programmable object navigator** that reaches all your at-work enterprise objects in prod.
+For production support teams at operationally heavy businesses, Hyperfiddle is a **programmable object navigator** that lets you build custom internal frontend GUIs for your pre-existing enterprise backend services. Rapidly build powerful UIs that connect directly with functions in your backend, without writing any REST APIs.
 
-Stop treating your ops teams badly due to eng resource constraints, as the beating heart of the business they should be your primary customer. Deliver **premium quality internal frontends faster**, without needing specialist frontend framework expertise.
+Stop treating your ops teams badly due to eng resource constraints, as the beating heart of the business they should be your primary customer. Deliver **premium quality internal frontends faster**, without needing specialist frontend framework expertise. Hyperfiddle produces scalable, enterprise-class frontends, that are deeply customizable, robust, reliable and secure.
 
 <!-- ![Demo video](./docs/20250617_entity_browser.mp4) -->
 [Demo video](https://github.com/user-attachments/assets/56eb30c5-e6cf-4f70-b005-d82e5d6820df)
@@ -20,7 +20,7 @@ Stop treating your ops teams badly due to eng resource constraints, as the beati
 * same security model as production web apps
 * **NO REST APIs.** Never write an internal tool REST API ever again! (State distribution powered by [Electric Clojure and the Electric protocol](https://github.com/hyperfiddle/electric))
 
-## Direct classpath linking to integrate any data source or native object
+## Direct classpath linking to integrate any function, data source or native object
 
 * **Not just Datomic:** navigate SQL or any backend data source via classpath function calls
 * **Not just databases:** navigate clojure namespaces, file system, internal service state – literally any object
