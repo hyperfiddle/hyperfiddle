@@ -19,7 +19,6 @@ Hyperfiddle features:
 * queries are function calls, function calls are URL addressable
 * enterprise functions/objects reachable through direct classpath linking (no REST APIS) 
 * streamlined navigator UX with table-pickers and powerful grids
-* scalable UI infrastructure (powered by [Electric Clojure](https://github.com/hyperfiddle/electric))
 * programmable framework, not just a static developer tool
 * programmable queries, user controls all queries (direct classpath linking)
 * programmable grids, forms, hyperlinks and routing through declarative hypermedia DSL
@@ -40,7 +39,7 @@ Datomic support app features:
 * derived fields and attributes
 * schema browser with attribute counts
 * entity tooltips on all IDs
-* entity history link* Business-level database explorer
+* entity history link
 * easy to integrate ring middleware - embed in your at-work httpkit or jetty services
 * enterprise SSO (contact us)
 
