@@ -14,16 +14,19 @@ Stop treating your ops teams badly due to eng resource constraints, as the beati
 [![20250627_datomic_entity_browser.png](./docs/20250627_datomic_entity_browser.png)](./docs/20250627_datomic_entity_browser.png)
 
 Hyperfiddle features:
+* a UI for any backend function through direct classpath linking
 * prod-ready, built on standard web technologies
-* enterprise objects reachable through direct classpath linking
+* queries are function calls, function calls are URL addressable
+* enterprise functions/objects reachable through direct classpath linking (no REST APIS) 
 * streamlined navigator UX with table-pickers and powerful grids
 * scalable UI infrastructure (powered by [Electric Clojure](https://github.com/hyperfiddle/electric))
 * programmable framework, not just a static developer tool
 * programmable queries, user controls all queries (direct classpath linking)
 * programmable grids, forms, hyperlinks and routing through declarative hypermedia DSL
-* full progressive enhancement with web technologies (HTML, CSS, frontend, backend)
 * same security model as production web apps
-* **NO REST APIs.** Never write an internal tool REST API ever again! (State distribution powered by [Electric Clojure and the Electric protocol](https://github.com/hyperfiddle/electric))
+* full progressive enhancement with web technologies (HTML, CSS, frontend, backend)
+* State distribution powered by [Electric Clojure and the Electric protocol](https://github.com/hyperfiddle/electric)
+* **NO REST APIs.** Never write an internal tool REST API ever again!
 
 Datomic support app features:
 * entity navigation, reverse attributes link
@@ -48,7 +51,7 @@ Datomic support app features:
 * **Not just Clojure:** call Java functions via classpath linking
 * **Not just "data":** navigate **actual Java objects** via method call navigation (!)
 
-**FAQ: What's the difference between an object navigator and a data browser?** Hyperfiddle is about objects, not data. Objects come with functions and methods, they aren't serializable, you navigate hyperlink graph structures rather than browse freeform nested structures, and you want to do this without impedance, using the actual native object datatype, not derived projections or data mappers. Objects are what the world is made of. And Hyperfiddle is how you reach them.
+**FAQ: What's the difference between an object navigator and a data browser?** Hyperfiddle is about objects, not data. Objects come with functions and methods, they aren't serializable, you navigate hyperlink graph structures rather than browse freeform nested structures, and you want to do this without impedance, using the actual native object datatype, not data mappers and derived projections. Objects are what the world is made of. And Hyperfiddle is how you reach them.
 
 ## More examples
 
@@ -56,7 +59,7 @@ Datomic support app features:
 
 [![2024_jgit_history_gui.png](./docs/2024_jgit_history_gui.png)](./docs/2024_jgit_history_gui.png)
 
-Live demos:
+## Live demos:
 
 * [jGit object navigator](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.datafy-git2!load-repo,'.!.git'))
 * [clojure namespace and var directory](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.object-browser-demo3!clojure-all-ns))
@@ -106,7 +109,7 @@ Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and 
 ## Getting Started
 
 > [!NOTE]
-> Hyperfiddle is now in technical preview! Request preview access here: https://www.hyperfiddle.net/early-access.html
+> Hyperfiddle is now in technical preview! Request preview access here: https://www.hyperfiddle.net/early-access.html and then DM @dustingetz to schedule a demo.
 
 ## License
 * free for individual use on local dev machines, mandatory runtime login (we are a business)
