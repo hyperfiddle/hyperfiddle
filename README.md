@@ -61,7 +61,7 @@ Datomic support app features:
 
 ## Live demos:
 
-* [jGit object navigator](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.datafy-git2!load-repo,'.!.git'))
+* [simple jGit object navigator](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.datafy-git2!load-repo,'.!.git'))
 * [clojure namespace and var directory](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.object-browser-demo3!clojure-all-ns))
 * SQL browser (todo host demo)
 * [jvm process thread inspector](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.object-browser-demo3!thread-mx))
