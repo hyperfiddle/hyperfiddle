@@ -5,10 +5,15 @@ For production support teams at operationally heavy businesses, Hyperfiddle is a
 Stop treating your ops teams badly due to eng resource constraints, as the beating heart of the business they should be your primary customer. Deliver **premium quality internal frontends faster**, without needing specialist frontend framework expertise. Hyperfiddle produces scalable, enterprise-class frontends, that are deeply customizable, robust, reliable and secure.
 
 <!-- ![Demo video](./docs/20250617_entity_browser.mp4) -->
-[Demo video](https://github.com/user-attachments/assets/56eb30c5-e6cf-4f70-b005-d82e5d6820df)
+<!-- [Demo video](https://github.com/user-attachments/assets/56eb30c5-e6cf-4f70-b005-d82e5d6820df) -->
 
-## Features
+## Example app: Datomic prod support tool
 
+(Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app!)
+
+[![20250627_datomic_entity_browser.png](./docs/20250627_datomic_entity_browser.png)](./docs/20250627_datomic_entity_browser.png)
+
+Hyperfiddle features:
 * prod-ready, built on standard web technologies
 * enterprise objects reachable through direct classpath linking
 * streamlined navigator UX with table-pickers and powerful grids
@@ -19,21 +24,6 @@ Stop treating your ops teams badly due to eng resource constraints, as the beati
 * full progressive enhancement with web technologies (HTML, CSS, frontend, backend)
 * same security model as production web apps
 * **NO REST APIs.** Never write an internal tool REST API ever again! (State distribution powered by [Electric Clojure and the Electric protocol](https://github.com/hyperfiddle/electric))
-
-## Direct classpath linking to integrate any function, data source or native object
-
-* **Not just Datomic:** navigate SQL or any backend data source via classpath function calls
-* **Not just databases:** navigate clojure namespaces, file system, internal service state – literally any object
-* **Not just Clojure:** call Java functions via classpath linking
-* **Not just "data":** navigate **actual Java objects** via method call navigation (!)
-
-**FAQ: What's the difference between an object navigator and a data browser?** Hyperfiddle is about objects, not data. Objects come with functions and methods, they aren't serializable, you navigate hyperlink graph structures rather than browse freeform nested structures, and you want to do this without impedance, using the actual native object datatype, not derived projections or data mappers. Objects are what the world is made of. And Hyperfiddle is how you reach them.
-
-## Example app: Datomic prod support tool
-
-(Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app!)
-
-[![20250627_datomic_entity_browser.png](./docs/20250627_datomic_entity_browser.png)](./docs/20250627_datomic_entity_browser.png)
 
 Datomic support app features:
 * entity navigation, reverse attributes link
@@ -52,6 +42,15 @@ Datomic support app features:
 * enterprise SSO (contact us)
 
 [![20250627_datomic_schema_app.png](./docs/20250627_datomic_schema_app.png)](./docs/20250627_datomic_schema_app.png)
+
+## Direct classpath linking to integrate any function, data source or native object
+
+* **Not just Datomic:** navigate SQL or any backend data source via classpath function calls
+* **Not just databases:** navigate clojure namespaces, file system, internal service state – literally any object
+* **Not just Clojure:** call Java functions via classpath linking
+* **Not just "data":** navigate **actual Java objects** via method call navigation (!)
+
+**FAQ: What's the difference between an object navigator and a data browser?** Hyperfiddle is about objects, not data. Objects come with functions and methods, they aren't serializable, you navigate hyperlink graph structures rather than browse freeform nested structures, and you want to do this without impedance, using the actual native object datatype, not derived projections or data mappers. Objects are what the world is made of. And Hyperfiddle is how you reach them.
 
 ## Example app: jGit history search GUI
 
