@@ -30,13 +30,13 @@ Hyperfiddle features:
 Datomic support app features:
 * entity navigation, reverse attributes link
 * query diagnostics (io-context etc)
-* monitor and kill slow queries from very large databases
+* **monitor and kill slow queries from very large databases** -- coming very soon, currently in test
 * classpath connected for custom queries (direct classpath linking to any function)
 * fluid virtual scroll over 50k record collections
 * built-in schema explorer with attribute counts
-* filtering and sort
+* automatic filtering and sort on queries returning < 10k records
 * column selection and inference
-* derived fields and attributes
+* derived fields and "virtual attributes" (functions over entities)
 * schema browser with attribute counts
 * entity tooltips on all IDs
 * entity history link
