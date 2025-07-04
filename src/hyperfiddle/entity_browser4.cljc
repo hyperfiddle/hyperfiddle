@@ -534,7 +534,7 @@
                           (TableTitle query Search row-count spec (dissoc (meta data) `clojure.core.protocols/nav)
                             (e/fn []
                               (when (Browse-mode?)
-                                (let [navd (Nav data nil (first data))]
+                                (let [navd (Nav data nil (e/Snapshot (first data)))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
                                   (Timing 'infer-columns #(hfql/suggest navd)))))))
               search-cmd (e/call (e/server (first free-args))) ; fighting against sited destructuring
               spec2      (e/server (second free-args))
