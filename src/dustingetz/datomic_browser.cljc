@@ -25,7 +25,7 @@
 #?(:clj (defn attribute-count [!e] (-> *db-stats* :attrs (get (:db/ident !e)) :count)))
 
 #?(:clj (defn attribute-detail [a]
-          (->> (d/datoms *db* :aevt a)
+          (->> (d/datoms *db* :avet a)
             (map :e)
             (hf-nav/navigable (fn [?e] (d/entity *db* ?e))))))
 
