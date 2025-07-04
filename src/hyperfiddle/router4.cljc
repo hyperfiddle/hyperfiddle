@@ -30,7 +30,7 @@
 ;; We also want `.`, `..` (up) and `/` (root/absolute):
 ;; - `.` is the identity lens
 ;; - lenses cannot model `..` and `/`:
-;;   - even profunctor-based lenses: they would produce the right structure but would loose context.
+;;   - even profunctor-based lenses: they would produce the right structure but would lose context.
 ;;   - a "Path" monad would work
 ;;   - pragmatism: have a path as a stack in dynamic scope
 (defn lens [getter-f setter-f]

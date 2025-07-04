@@ -3,12 +3,12 @@
             [clojure.string :as str]
             [hyperfiddle.rcf :as rcf]
             [clojure.core.protocols :as ccp]
-            [clojure.datafy :as datafy]
-            [contrib.debug :as dbg])
+            [clojure.datafy :as datafy])
   (:import [java.io Writer]))
 
 (defprotocol Suggestable :extend-via-metadata true
   (-suggest [o]))
+
 (defn suggest [o] (-suggest o))
 
 (defn suggest-fields [^Class clazz]
@@ -50,6 +50,7 @@
   (-view [_ _o])
   (-unwrap [_])
   (-opts [_]))
+
 (defn view [k o] (-view k o))
 (defn unwrap [k] (-unwrap k))
 (defn opts [k] (-opts k))

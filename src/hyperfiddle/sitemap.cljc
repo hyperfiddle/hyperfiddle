@@ -5,7 +5,6 @@
    [hyperfiddle.electric-dom3 :as dom]
    [hyperfiddle.router4 :as r]
    [contrib.data :refer [namespace?]]
-
    [clojure.walk :as walk]
    #?(:clj [clojure.java.io :as io])
    [edamame.core :as edn]
@@ -54,8 +53,6 @@
             (parse-sitemap *ns*
               (edn/parse-string (slurp (io/resource resource-path)) {:auto-resolve (auto-resolves *ns*)})))))
 
-
-
 ;; #?(:clj (defn sitemap-incseq [resource-path ns]
 ;;           (let [f (io/file (io/resource resource-path))]
 ;;             (->> (m/ap
@@ -74,5 +71,4 @@
     (dom/props {:class "Index"})
     (dom/text "Nav:")
     (e/for [view (e/diff-by {} (e/server (find-context-free-pages sitemap)))]
-      (dom/text " ") (r/link ['. [view]] (dom/text (name (first view)))))
-    (dom/text " — Datomic Browser")))
+      (dom/text " ") (r/link ['. [view]] (dom/text (name (first view)))))))

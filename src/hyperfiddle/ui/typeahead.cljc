@@ -1,4 +1,4 @@
-(ns hyperfiddle.ui.typeahead
+(ns ^:deprecated hyperfiddle.ui.typeahead
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.ui.spinner :as spinner]))

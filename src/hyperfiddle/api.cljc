@@ -1,3 +1,3 @@
 (ns hyperfiddle.api)
 
-(def ^:dynamic *$*) ; legacy, use *db*
+(def ^:dynamic *$*) ; legacy

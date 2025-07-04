@@ -63,11 +63,8 @@
                 :name "English             ",
                 :last_update #inst"2006-02-15T10:02:19.000000000-00:00"})
 
-; The problem with next.jdbc's nav is that the above is about all you get.
-; many-many nav through join tables? Sorry, can't.
-; See Corfield Q&A https://clojurians.slack.com/archives/C1Q164V29/p1739991789702079
-
-; Ok, next.jdbc doesn't support many-many nav throughjoin tables, so let's do it ourselves.
+; Next.jdbc doesn't support many-many nav through join tables: https://clojurians.slack.com/archives/C1Q164V29/p1739991789702079
+; Let's do it ourselves.
 
 (defn hydrate-language [conn id]
   (with-meta

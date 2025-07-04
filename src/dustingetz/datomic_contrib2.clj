@@ -3,7 +3,6 @@
   (:require [clojure.core.protocols :as ccp :refer [Datafiable Navigable]]
             [contrib.data :refer [index-by unqualify]]
             [datomic.api :as d] ; onprem only
-            #_[hyperfiddle.electric :as e] ; no electric allowed to maximize reuse
             [hyperfiddle.nav0 :refer [Identifiable NavContext nav-context]]
             [hyperfiddle.rcf :refer [tests % tap]]))
 
@@ -129,7 +128,7 @@
     (let [db (.-db entity)]
       (-> {:db/id (:db/id entity)}
         (into (d/touch entity))
-        (into (back-references db (:db/id entity))) ; G: not more expansive than d/touch - heavily optimized.
+        (into (back-references db (:db/id entity))) ; G: not more expensive than d/touch - heavily optimized.
         (with-meta (nav-context entity))
         ))))
 

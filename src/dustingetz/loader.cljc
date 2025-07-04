@@ -88,20 +88,6 @@
       (OffloadUI node label f start end status interrupt!)
       v)))
 
-;; (def ground (constantly nil))
-
-#_(e/defn OffloadUI [_nm x] ; FIXME this impl triggers a conditional glitch at a distance in entity-browser3
-  ;; (ground x) ; works
-  ;; (e/server (ground x)) ; works
-  ;; (e/client (e/server (ground x))) ; works
-  ;; (e/client (identity (e/server (ground x)))) ; works
-  ;; (e/client (ground (e/server (ground x)))) ; works
-  ;; (e/client (ground (e/pure (e/server (ground x))))) ; works
-  ;; (e/client (e/call (e/fn [] (e/server (ground x))))) ; FAIL
-  ;; (e/client (e/join (e/pure (e/server (ground x))))) ; FAIL
-  (e/server x))
-
-
 (def css
 "
 
