@@ -426,6 +426,22 @@
 
 (def collection-limit 10000)
 
+(defn format-collection-count
+  ;; FIXME Today we can't differentiate collections strictly equal to
+  ;; `collection-limit` from collections larger than `collection-limit`.
+  [coll-count collection-limit]
+  {:pre [(number? coll-count) (number? collection-limit)]
+   :post (string? %)}
+  (let [reached-max-in-memory-lenght? (>= coll-count collection-limit)]
+    (str " ("
+      (when reached-max-in-memory-lenght?
+        ">=") ; FIXME we'd like to display ">" instead
+      coll-count
+      " items"
+      (when reached-max-in-memory-lenght?
+        " · truncated")
+      ")")))
+
 (e/defn TableTitle [query Search row-count spec query-meta Suggest*]
   (dom/legend
     (dom/span
@@ -436,7 +452,7 @@
         (e/amb
           (dom/span ; dirty trick to circumvent sited destructuring out of TableTitle
             (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search (>= row-count collection-limit)))))))
-          (dom/text " (" (when (= collection-limit row-count) ">=") row-count " items) ")
+          (dom/text (format-collection-count row-count collection-limit))
           (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
                 label* (into #{} (map labelize) (hfql/unwrap spec))
                 pre-checked (empty? k*)
