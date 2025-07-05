@@ -1,4 +1,4 @@
-(ns hyperfiddle.entity-browser4
+(ns hyperfiddle.entity-browser4 ; todo rename to navigator4, it's hard due to keywords and css
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.nav0 :as hfp]
