@@ -1,7 +1,6 @@
 (ns hyperfiddle.entity-browser4 ; todo rename to navigator4, it's hard due to keywords and css
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
-            [hyperfiddle.nav0 :as hfp]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             [hyperfiddle.sitemap :as sitemap]
             [hyperfiddle.router4 :as router]
@@ -67,10 +66,10 @@
        ""
        ((get server-pretty (class x) pr-str) x))))
 
-(defn pretty-title [query]
-  (let [?f$ (first query)]
-    (cons (cond-> ?f$ (qualified-symbol? ?f$) datax/unqualify)
-      (mapv #(or (hfp/identify %) %) (next query)))))
+#?(:clj (defn pretty-title [query]
+          (let [?f$ (first query)]
+            (cons (cond-> ?f$ (qualified-symbol? ?f$) datax/unqualify)
+              (mapv #(or (hfql/identify %) %) (next query))))))
 
 (e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
 
@@ -267,7 +266,7 @@
                 [Search search] (Searcher saved-search)]
             (binding [*search search
                       e/*bindings* (e/server (assoc e/*bindings* (find-var `*search) search))]
-              (let [query (e/server (replace {'% (hfp/identify o), '%v (hfp/identify next-x)} query-template))
+              (let [query (e/server (replace {'% (hfql/identify o), '%v (hfql/identify next-x)} query-template))
                     next-o (e/server (loader/Initialized (Timing (pretty-title query) #(query->object e/*bindings* query)) nil))]
                 (when (e/server (some? next-o))
                   (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))) Search))))))))))
@@ -289,7 +288,7 @@
                 (Block [selection] next-x (e/server []) Search)))))))))
 
 ;; #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
-#?(:clj (defn find-default-page [_page-defaults o] (hfp/resolve o) #_(some #(% o) page-defaults)))
+#?(:clj (defn find-default-page [_page-defaults o] (hfql/resolve o) #_(some #(% o) page-defaults)))
 
 (defn ->short-map [cols-available! filterer]
   (let [k* (filterv filterer cols-available!)
@@ -470,7 +469,7 @@
 (e/defn CollectionTableBody [row-count row-height cols data raw-spec saved-selection select]
   (let [!index (e/server (atom nil))
         col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
-    ;; (e/server (reset! !index (find-index #{saved-selection} (eduction (map #(or (hfp/identify %) %)) navd))))
+    ;; (e/server (reset! !index (find-index #{saved-selection} (eduction (map #(or (hfql/identify %) %)) navd))))
     (->> (forms/TablePicker! ::selection
            (e/server (e/watch !index))
            row-count
@@ -486,7 +485,7 @@
                        (e/server
                          (let [o (nth data index nil)
                                navd (Nav data nil o)
-                               symbolic-x (hfp/identify navd)]
+                               symbolic-x (hfql/identify navd)]
                            (e/When symbolic-x
                              (reset! !index index)
                              symbolic-x))))))
@@ -552,7 +551,7 @@
                        (loader/Initialized (Timing 'next-object
                                           (fn [] (with-bindings e/*bindings*
                                                    (some #(let [navd (nav data nil %)]
-                                                            (when (= saved-selection (or (hfp/identify %) %))
+                                                            (when (= saved-selection (or (hfql/identify %) %))
                                                               navd))
                                                      data))))
                          nil))]

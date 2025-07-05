@@ -1,6 +1,5 @@
 (ns dustingetz.datomic-browser
   (:require [hyperfiddle.electric3 :as e]
-            [hyperfiddle.nav0 :as hf-nav]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             [hyperfiddle.entity-browser4 :as entity-browser :refer [HfqlRoot]]
             [hyperfiddle.sitemap :refer [#?(:clj parse-sitemap)]]
@@ -20,22 +19,22 @@
           (->> (d/query {:query '[:find [?e ...] :in $ :where [?e :db/valueType]] :args [*db*]
                          :io-context ::attributes, :query-stats ::attributes})
                (dx/query-stats-as-meta)
-               (hf-nav/navigable (fn [?e] (d/entity *db* ?e))))))
+               (hfql/navigable (fn [?e] (d/entity *db* ?e))))))
 
 #?(:clj (defn attribute-count [!e] (-> *db-stats* :attrs (get (:db/ident !e)) :count)))
 
 #?(:clj (defn attribute-detail [a]
           (->> (d/datoms *db* :avet a)
             (map :e)
-            (hf-nav/navigable (fn [?e] (d/entity *db* ?e))))))
+            (hfql/navigable (fn [?e] (d/entity *db* ?e))))))
 
 #?(:clj (defn summarize-attr [db k] (->> (dx/easy-attr db k) (remove nil?) (map name) (str/join " "))))
 #?(:clj (defn summarize-attr* [?!a] (when ?!a (summarize-attr *db* (:db/ident ?!a)))))
 
 #?(:clj (defn datom->map [[e a v tx added]]
           (->> {:e e, :a a, :v v, :tx tx, :added added}
-            (hf-nav/identifiable hash)
-            (hf-nav/navigable-indexed (fn [key value] (if (= :a key) (d/entity *db* a) value))))))
+            (hfql/identifiable hash)
+            (hfql/navigable-indexed (fn [key value] (if (= :a key) (d/entity *db* a) value))))))
 
 #?(:clj (defn tx-detail [e] (->> (d/tx-range (d/log *conn*) e (inc e)) (into [] (comp (mapcat :data) (map datom->map))))))
 
@@ -72,7 +71,7 @@
   (let [v2 (e/server (safe-long ?value))]
     (dom/span (dom/text v2 " ") (r/link ['. [`(entity-history ~v2)]] (dom/text "entity history")))))
 
-#?(:clj (defmethod hf-nav/-resolve datomic.query.EntityMap [entity-map & _opts] (list `entity-detail (:db/id entity-map))))
+#?(:clj (defmethod hfql/-resolve datomic.query.EntityMap [entity-map & _opts] (list `entity-detail (:db/id entity-map))))
 
 #?(:clj ; list all attributes of an entity – including reverse refs.
    (extend-protocol hfql/Suggestable

@@ -1,9 +1,84 @@
 (ns hyperfiddle.hfql0
+  (:refer-clojure :exclude [resolve])
   (:import [java.io Writer])
   (:require [clojure.core.protocols :as ccp]
             [clojure.datafy :refer [nav]]
             [clojure.string :as str]
             [hyperfiddle.rcf :refer [tests]]))
+
+(defprotocol Identifiable :extend-via-metadata true
+  (-identify [o])) ; local-symbolize
+
+(extend-protocol Identifiable
+  Object (-identify [_]) ;#?(:clj Object :cljs default)
+  nil (-identify [_]))
+
+(defn identifiable [identify-fn object]
+  (vary-meta object assoc `-identify (bound-fn* identify-fn))) ; #?(:clj bound-fn* :cljs identity)
+
+(defn identify [obj] "
+Produces a symbolic identity for `obj`, or nil if `obj` does not explicitly
+implement `Identifiable`. Serializable and uniquely resolvable symbolic
+identities should be favored.
+All values being self-identical, `(or (identify x) x)` always yields a valid
+identifier, though it might not be serializable."
+  (-identify obj))
+
+(comment
+  (identify (Object.)) := nil
+  (let [obj (Object.)] (pr-str (or (identify obj) obj))) := "#object[java.lang.Object 0x75bf525d \"java.lang.Object@75bf525d\"]"
+  (identify nil) := nil
+  (identify (identifiable (constantly `hash-map) {})) := `hash-map)
+
+;(def ^:dynamic *hierarchy* #?(:clj @#'clojure.core/global-hierarchy :cljs (cljs.core/get-global-hierarchy)))
+(def ^:dynamic *hierarchy* @#'clojure.core/global-hierarchy)
+
+(defmulti -resolve (fn ([object] (type object)) ([object opts] (type object))) :hierarchy #'*hierarchy*)
+(defmethod -resolve :default [_object & _opts] nil)
+
+(defn resolve ; todo resolve_, i.e. don't shadow core. Is this private?
+  ([object] (-resolve object))
+  ([object {::keys [hierarchy] :as opts}]
+   (binding [*hierarchy* (or hierarchy *hierarchy*)]
+     (-resolve object (dissoc opts ::hierarchy)))))
+
+(defprotocol NavContext
+  (-nav-context [o]))
+
+(extend-protocol NavContext
+  nil (-nav-context [_])
+  ; #?(:clj Object, :cljs default)
+  Object (-nav-context [_] {})) ; https://github.com/clojure/clojurescript/blob/26dea31110502ae718399868ad7385ffb8efe6f6/src/main/cljs/clojure/datafy.cljs#L25-L27
+
+(defn nav-context "
+Provide an opportunity to compute (meta (datafy x)) without touching all attributes. User
+implementation should respect (= (nav-context x) (meta (datafy x))). Use case: hf-pull produces
+navigable pulled maps, without touching all attributes."
+  [x]
+  (some-> (-nav-context x)
+    (assoc :clojure.datafy/obj x)
+    (assoc :clojure.datafy/class (-> x class .getName symbol)))) ; #?(:clj)
+
+(defn navigable-indexed [nav-fn collection]
+  (vary-meta collection assoc `ccp/nav (bound-fn [_coll key value] (nav-fn key value)))) ; #?(:clj bound-fn :cljs fn)
+
+(defn navigable [nav-fn collection] (navigable-indexed (fn [_index value] (nav-fn value)) collection))
+
+(comment
+  (nav-context nil) := nil
+  (nav-context java.lang.String)
+  := {:clojure.datafy/obj java.lang.String, :clojure.datafy/class java.lang.Class})
+
+(comment "insight: nav on dehydrated collection with nil key can be used to hydrate an object in context"
+  (require '[clojure.datafy :refer [datafy nav]] '[dustingetz.mbrainz :refer [test-db lennon]])
+  #_(clojure.repl/doc nav) ; big idea: k is optional actually!
+  ; nav can use k if it helps you enrich the object but you don't have to!
+  ; G: I think it was a mistake for Rich to make nav look like get and get-in
+  (def xs (with-meta [123 124 lennon] ; attach polymorphic context to the resultset not the element
+            {`clojure.core.protocols/nav ; polymorphic not by type but by meta
+             (fn [xs k v] (d/entity @test-db v))}))
+  "nav can resolve a hydrated object from a dehydrated resultset"
+  (nav xs nil lennon) := (d/entity @test-db lennon))
 
 (defprotocol Suggestable :extend-via-metadata true
   (-suggest [o]))
@@ -88,7 +163,7 @@
       (props raw-props (f (or (opts props_) {}))))))
 
 (defn resolve!
-  ([f$] (or (resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
+  ([f$] (or (clojure.core/resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
   ([f$ ns] (if (qualified-symbol? f$)
              (or (ns-resolve ns f$) (requiring-resolve f$))
              (or (ns-resolve ns f$) (throw (ex-info (str "Failed to resolve " f$) {}))))))

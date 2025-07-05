@@ -2,7 +2,7 @@
   #_{org.postgresql/postgresql {:mvn/version "42.7.3"}
      com.github.seancorfield/next.jdbc {:mvn/version "1.3.955"}}
   (:require [clojure.core.protocols :refer [nav datafy] :rename {nav -nav, datafy -datafy}]
-            [hyperfiddle.nav0 :refer [-identify]]
+            [hyperfiddle.hfql0 :refer [-identify]]
             [hyperfiddle.rcf :refer [tests]]
             [next.jdbc :as jdbc]))
 
@@ -38,7 +38,7 @@
 (def test-conn (delay (jdbc/get-connection test-config)))
 
 (tests (require '[clojure.datafy :refer [datafy nav]]
-         '[hyperfiddle.nav0 :refer [identify]]))
+         '[hyperfiddle.hfql0 :refer [identify]]))
 
 (tests "kick tires"
   (jdbc/execute! @test-conn ["SELECT first_name, last_name FROM actor LIMIT 3;"])

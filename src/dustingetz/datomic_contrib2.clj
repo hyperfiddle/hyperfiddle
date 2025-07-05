@@ -4,7 +4,7 @@
             [contrib.data :refer [index-by unqualify]]
             [datomic.api :as d] ; onprem only
             #_[hyperfiddle.electric :as e] ; no electric allowed to maximize reuse
-            [hyperfiddle.nav0 :refer [Identifiable NavContext nav-context]]
+            [hyperfiddle.hfql0 :refer [Identifiable NavContext nav-context]]
             [hyperfiddle.rcf :refer [tests % tap]]))
 
 (tests (require '[clojure.datafy :refer [datafy nav]]

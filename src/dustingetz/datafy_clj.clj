@@ -1,6 +1,6 @@
 (ns dustingetz.datafy-clj
   (:require [clojure.core.protocols :refer [Datafiable]]
-            [hyperfiddle.nav0 :refer [Identifiable]]))
+            [hyperfiddle.hfql0 :refer [Identifiable]]))
 
 (extend-type clojure.lang.Var
   Identifiable (-identify [^clojure.lang.Var x] (symbol x))
@@ -19,7 +19,7 @@
 
 (comment
   (ns-unmap *ns* 'nav)
-  (require '[clojure.datafy :refer [datafy nav]] '[hyperfiddle.nav0 :refer [identify]])
+  (require '[clojure.datafy :refer [datafy nav]] '[hyperfiddle.hfql0 :refer [identify]])
   (def x #'dev/DevMain)
   (def x #'*)
   (identify x)
