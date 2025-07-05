@@ -3,7 +3,7 @@
             [clojure.string :as str]
             [hyperfiddle.rcf :as rcf]
             [clojure.core.protocols :as ccp]
-            [clojure.datafy :as datafy])
+            [clojure.datafy :refer [nav]])
   (:import [java.io Writer]))
 
 (defprotocol Suggestable :extend-via-metadata true
@@ -121,7 +121,7 @@
                        (method-access? f$) (apply invoke-reflective f$ args)
                        :else (apply (resolve! f$) args)))
       (map? k) (let [[k k2] (first k), v (pull-view scope k)]
-                 (pull-view (assoc scope '% (datafy/nav o k v)) k2))
+                 (pull-view (assoc scope '% (nav o k v)) k2))
       :else (view viewer o))))
 
 (defn pull-object [scope spec]

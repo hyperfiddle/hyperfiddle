@@ -16,7 +16,7 @@
             [contrib.debug :as dbg]
             [dustingetz.str :as strx]
             [missionary.core :as m]
-            [clojure.datafy :as datafy]
+            [clojure.datafy :refer [nav]]
             [clojure.string :as str]
             [clojure.pprint]
             [clojure.walk :as walk]
@@ -305,7 +305,7 @@
         (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
         () symbolic-column))))
 
-(e/defn Nav [coll k v] (e/server (Timing 'Nav #(try (with-bindings e/*bindings* (datafy/nav coll k v))
+(e/defn Nav [coll k v] (e/server (Timing 'Nav #(try (with-bindings e/*bindings* (nav coll k v))
                                                     (catch Throwable e (prn e))))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
@@ -500,7 +500,7 @@
           #_(Thread/sleep 3000)
           (let [metadata (meta data)
                 data (with-meta (vec data) metadata)         ; fix if data is e.g. a set
-                navd (with-bindings hfql-bindings (into [] (map #(datafy/nav data nil %)) data))
+                navd (with-bindings hfql-bindings (into [] (map #(nav data nil %)) data))
                 pulled (hfql/pull hfql-bindings spec navd)
                 filtered (eduction (map-indexed vector) (filter #(strx/any-matches? (vals (second %)) search)) pulled)
                 sorted (vec (if-some [sorter (->sort-comparator sort-spec)]
@@ -551,7 +551,7 @@
         (let [next-x (e/server
                        (loader/Initialized (Timing 'next-object
                                           (fn [] (with-bindings e/*bindings*
-                                                   (some #(let [navd (datafy/nav data nil %)]
+                                                   (some #(let [navd (nav data nil %)]
                                                             (when (= saved-selection (or (hfp/identify %) %))
                                                               navd))
                                                      data))))
