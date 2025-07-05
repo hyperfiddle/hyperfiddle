@@ -1,10 +1,9 @@
 (ns hyperfiddle.hfql0
-  (:require [hyperfiddle.electric3 :as e]
+  (:import [java.io Writer])
+  (:require [clojure.core.protocols :as ccp]
+            [clojure.datafy :refer [nav]]
             [clojure.string :as str]
-            [hyperfiddle.rcf :as rcf]
-            [clojure.core.protocols :as ccp]
-            [clojure.datafy :refer [nav]])
-  (:import [java.io Writer]))
+            [hyperfiddle.rcf :refer [tests]]))
 
 (defprotocol Suggestable :extend-via-metadata true
   (-suggest [o]))
@@ -137,24 +136,24 @@
 
 (def ^:dynamic *test* nil)
 (defn test-times [n] (* *test* n))
-(rcf/tests
-  (pull {} [:a :b] {:a 1 :b 2})                                   := {:a 1, :b 2}
-  (pull {} [:a :b] [{:a 1 :b 2}])                                 := [{:a 1, :b 2}]
-  (pull {} [(props :a {}) :b] {:a 1 :b 2})                        := {:a 1, :b 2}
-  (pull {} `[(inc ~'%)] 1)                                        := {`(inc ~'%) 2}
-  (pull {#'*test* 10} `[(test-times ~'%)] 2)                      := {`(test-times ~'%) 20}
-  (pull {} `[(inc ~'%)] [1 2])                                    := `[{(inc ~'%) 2} {(inc ~'%) 3}]
-  (pull {} `[(.get ~'% :a)] {:a 1})                               := `{(.get ~'% :a) 1}
-  (pull {} `[(.get ~'% :a)] [{:a 1} {:b 2}])                      := `[{(.get ~'% :a) 1} {(.get ~'% :a) nil}]
+(tests
+  (pull {} [:a :b] {:a 1 :b 2}) := {:a 1, :b 2}
+  (pull {} [:a :b] [{:a 1 :b 2}]) := [{:a 1, :b 2}]
+  (pull {} [(props :a {}) :b] {:a 1 :b 2}) := {:a 1, :b 2}
+  (pull {} `[(inc ~'%)] 1) := {`(inc ~'%) 2}
+  (pull {#'*test* 10} `[(test-times ~'%)] 2) := {`(test-times ~'%) 20}
+  (pull {} `[(inc ~'%)] [1 2]) := `[{(inc ~'%) 2} {(inc ~'%) 3}]
+  (pull {} `[(.get ~'% :a)] {:a 1}) := `{(.get ~'% :a) 1}
+  (pull {} `[(.get ~'% :a)] [{:a 1} {:b 2}]) := `[{(.get ~'% :a) 1} {(.get ~'% :a) nil}]
   (pull {} `[(.-width ~'%)] (new java.awt.Rectangle 10 20 30 40)) := `{(.-width ~'%) 30}
-  (pull {} `[inc] 41)                                             := `{inc 42}
-  (pull {} `[{:foo inc}] {:foo 41, :bar 0})                       := `{{:foo inc} 42}
-  (pull {} '[{.-x inc}] (new java.awt.Point 41 2))                := '{{.-x inc} 42}
+  (pull {} `[inc] 41) := `{inc 42}
+  (pull {} `[{:foo inc}] {:foo 41, :bar 0}) := `{{:foo inc} 42}
+  (pull {} '[{.-x inc}] (new java.awt.Point 41 2)) := '{{.-x inc} 42}
   (let [data-with-nav (with-meta {:a 1, :b 2} {`ccp/nav (fn [_this k v] (if (= k :a) {:db/ident 42} v))})]
-    (pull {} [{:a :db/ident} :b] data-with-nav))                  := {{:a :db/ident} 42, :b 2}
-  (pull {} '[Number] {'Number Number})                            := {'Number Number}
-  (pull {} '[+] {'+ #'+})                                         := {'+ #'+}
-  (pull {} '[..] {'.. :foo})                                      := {'.. :foo}
+    (pull {} [{:a :db/ident} :b] data-with-nav)) := {{:a :db/ident} 42, :b 2}
+  (pull {} '[Number] {'Number Number}) := {'Number Number}
+  (pull {} '[+] {'+ #'+}) := {'+ #'+}
+  (pull {} '[..] {'.. :foo}) := {'.. :foo}
   )
 
 
