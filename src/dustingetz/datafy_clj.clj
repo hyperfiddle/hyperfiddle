@@ -26,3 +26,11 @@
   (datafy x)
   (as-> x x
     (datafy x) (nav x ::meta (get x ::meta))))
+
+(comment
+  (require '[clojure.datafy :refer [datafy nav]]
+    '[dustingetz.hfql11 :refer [hf-pull hf-pull2 hf-pull3]])
+  (datafy *ns*)
+  (hf-pull3 ['*] *ns*)
+  (hf-pull3 [:name :publics :imports :interns] (datafy *ns*))
+  (hf-pull3 [`(ns-name ~'%) `(ns-publics ~'%) `(ns-imports ~'%) `(ns-interns ~'%)] *ns*))
