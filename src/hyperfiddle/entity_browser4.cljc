@@ -83,7 +83,7 @@
             (let [innate* (or (hfql/suggest o)
                             (when (or (coll? o) (sequential? o))
                               (hfql/suggest (nth o 0 nil))))
-                  jvm* (hfql/suggest-jvm o)]
+                  jvm* (hfql/suggest-java-class-members o)]
               (into innate* jvm*)))))
 
 (defn now-ms []

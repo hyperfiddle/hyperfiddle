@@ -103,22 +103,24 @@ navigable pulled maps, without touching all attributes."
                   :entry (list* (symbol (str "." nm)) (symbol "%") stub-arg*)})))
     (.getMethods clazz)))
 
-(defn suggest-jvm [o]
-  (let [clazz (class o)]
+(defn suggest-java-class-members [java-object]
+  (let [clazz (class java-object)]
     (into (suggest-fields clazz) (suggest-methods clazz))))
-
-(extend-protocol Suggestable
-  clojure.lang.IPersistentMap
-  (-suggest [m] (into [] (map (fn [k] {:label k, :entry k}) (keys m))))
-  Object
-  (-suggest [o] (suggest-fields (class o)))
-  nil
-  (-suggest [_]))
 
 (comment
   (suggest-fields (class (props :k {})))
   (suggest-methods (class (props :k {})))
-  )
+  (def xs (suggest-java-class-members (clojure.java.io/file "./")))
+  (->> xs (sort-by :label) (take 3))
+  := [{:label ".canExecute (0)", :entry (.canExecute %)}
+      {:label ".canRead (0)", :entry (.canRead %)}
+      {:label ".canWrite (0)", :entry (.canWrite %)}])
+
+(extend-protocol Suggestable
+  clojure.lang.IPersistentMap
+  (-suggest [m] (into [] (map (fn [k] {:label k, :entry k}) (keys m))))
+  Object (-suggest [o] (suggest-fields (class o)))
+  nil (-suggest [_]))
 
 (defprotocol Viewer
   (-view [_ _o])
