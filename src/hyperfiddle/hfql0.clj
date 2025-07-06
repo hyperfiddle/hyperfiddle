@@ -70,7 +70,7 @@ navigable pulled maps, without touching all attributes."
   := {:clojure.datafy/obj java.lang.String, :clojure.datafy/class java.lang.Class})
 
 (comment "insight: nav on dehydrated collection with nil key can be used to hydrate an object in context"
-  (require '[clojure.datafy :refer [datafy nav]] '[dustingetz.mbrainz :refer [test-db lennon]])
+  (require '[clojure.datafy :refer [nav]] '[dustingetz.mbrainz :refer [test-db lennon]])
   #_(clojure.repl/doc nav) ; big idea: k is optional actually!
   ; nav can use k if it helps you enrich the object but you don't have to!
   ; G: I think it was a mistake for Rich to make nav look like get and get-in
