@@ -589,11 +589,11 @@
 ;; (RoundTrip (RoundTrip :foo)) ; two roundtrips
 
 (e/defn Block [query o spec Search]
-  (when-some [F (e/server (case (infer-block-type o)
+  (when-some [F (e/server (e/Reconcile (case (infer-block-type o)
                             :object ObjectBlock
                             :collection CollectionBlock
                             :set CollectionBlock
-                            #_else nil))]
+                                         #_else nil)))]
     (when (IDE-mode?)
       (let [update-text (dom/textarea
                           (dom/props {:rows 10, :cols 80})
