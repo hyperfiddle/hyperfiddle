@@ -432,7 +432,7 @@
   ;; `collection-limit` from collections larger than `collection-limit`.
   [coll-count collection-limit]
   {:pre [(number? coll-count) (number? collection-limit)]
-   :post (string? %)}
+   :post [(string? %)]}
   (let [reached-max-in-memory-lenght? (>= coll-count collection-limit)]
     (str " ("
       (when reached-max-in-memory-lenght?
