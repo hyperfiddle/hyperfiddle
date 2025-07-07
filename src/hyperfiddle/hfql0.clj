@@ -85,23 +85,38 @@ navigable pulled maps, without touching all attributes."
 
 (defn suggest [o] (-suggest o))
 
+(defn simplify-call-pattern [call-pattern]
+  {:pre [(seq? call-pattern)]}
+  ; (foo %) -> foo
+  (if (and (= 2 (count call-pattern))
+        (= '% (second call-pattern)))
+    (first call-pattern)
+    call-pattern))
+
+(defn simplify-pull-pattern [pull-pattern]
+  (cond (seq? pull-pattern) (simplify-call-pattern pull-pattern)
+        :else pull-pattern))
+
 (defn suggest-fields [^Class clazz]
-  (into [] (keep
-             (fn [^java.lang.reflect.Field fld]
-               (when-not (java.lang.reflect.Modifier/isStatic (.getModifiers fld))
-                 (let [nm (.getName fld)]
-                   {:label (str ".-" nm)
-                    :entry (list (symbol (str ".-" nm)) (symbol "%"))}))))
-    (.getFields clazz)))
+  (into []
+    (eduction
+      (keep
+        (fn [^java.lang.reflect.Field fld]
+          (when-not (java.lang.reflect.Modifier/isStatic (.getModifiers fld))
+            (let [nm (.getName fld)]
+              (list (symbol (str ".-" nm)) (symbol "%"))))))
+      (map simplify-pull-pattern)
+      (.getFields clazz))))
 
 (defn suggest-methods [^Class clazz]
-  (into [] (map
-             (fn [^java.lang.reflect.Method meth]
-               (let [nm (.getName meth), arg-count (.getParameterCount meth)
-                     stub-arg* (mapv #(symbol (str "arg" (inc %))) (range arg-count))]
-                 {:label (str "." nm " (" arg-count ")")
-                  :entry (list* (symbol (str "." nm)) (symbol "%") stub-arg*)})))
-    (.getMethods clazz)))
+  (into []
+    (eduction (map
+                (fn [^java.lang.reflect.Method meth]
+                  (let [nm (.getName meth), arg-count (.getParameterCount meth)
+                        stub-arg* (mapv #(symbol (str "arg" (inc %))) (range arg-count))]
+                    (list* (symbol (str "." nm)) (symbol "%") stub-arg*))))
+      (map simplify-pull-pattern)
+      (.getMethods clazz))))
 
 (defn suggest-java-class-members [java-object]
   (let [clazz (class java-object)]
@@ -111,14 +126,12 @@ navigable pulled maps, without touching all attributes."
   (suggest-fields (class (props :k {})))
   (suggest-methods (class (props :k {})))
   (def xs (suggest-java-class-members (clojure.java.io/file "./")))
-  (->> xs (sort-by :label) (take 3))
-  := [{:label ".canExecute (0)", :entry (.canExecute %)}
-      {:label ".canRead (0)", :entry (.canRead %)}
-      {:label ".canWrite (0)", :entry (.canWrite %)}])
+  (->> xs (filter symbol?) (sort-by name) (take 3))
+  := ['.canExecute '.canRead '.canWrite])
 
 (extend-protocol Suggestable
   clojure.lang.IPersistentMap
-  (-suggest [m] (into [] (map (fn [k] {:label k, :entry k}) (keys m))))
+  (-suggest [m] (keys m))
   Object (-suggest [o] (suggest-fields (class o)))
   nil (-suggest [_]))
 
@@ -166,7 +179,7 @@ navigable pulled maps, without touching all attributes."
 
 (defn resolve!
   ([f$] (or (clojure.core/resolve f$) (throw (ex-info (str "Failed to resolve " f$) {}))))
-  ([f$ ns] (if (qualified-symbol? f$)
+  ([ns f$] (if (qualified-symbol? f$)
              (or (ns-resolve ns f$) (requiring-resolve f$))
              (or (ns-resolve ns f$) (throw (ex-info (str "Failed to resolve " f$) {}))))))
 

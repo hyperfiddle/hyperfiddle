@@ -2,7 +2,7 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             [hyperfiddle.navigator4 :as navigator :refer [HfqlRoot]]
-            [hyperfiddle.sitemap :refer [#?(:clj parse-sitemap)]]
+            [hyperfiddle.sitemap :refer [sitemap]]
             [hyperfiddle.router4 :as r]
             [hyperfiddle.electric-dom3 :as dom]
             [dustingetz.loader :refer [Loader]]
@@ -80,8 +80,7 @@
        (let [attributes (cons :db/id (keys (d/touch entity)))
              reverse-refs (dx/reverse-refs (d/entity-db entity) (:db/id entity))
              reverse-attributes (->> reverse-refs (map first) (distinct) (map dx/invert-attribute))]
-         (->> (concat attributes reverse-attributes)
-              (mapv (fn [k] {:label k, :entry k})))))))
+         (concat attributes reverse-attributes)))))
 
 (e/defn ConnectDatomic [datomic-uri]
   (e/server
@@ -93,8 +92,8 @@
 
 #?(:clj
    (def datomic-browser-sitemap
-     (parse-sitemap
-       '{attributes (hfql/props [(hfql/props :db/ident {::hfql/link    (attribute-detail :db/ident)
+     (sitemap
+       {attributes (hfql/props [(hfql/props :db/ident {::hfql/link    (attribute-detail :db/ident)
                                                         ::hfql/Tooltip EntityTooltip})
                                  (hfql/props (attribute-count %) {::hfql/label attribute-count})
                                  (summarize-attr* %)

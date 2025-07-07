@@ -3,7 +3,8 @@
             clj-jgit.util
             [clojure.core.protocols :refer [nav Datafiable Navigable]]
             [dustingetz.datafy-fs :as fs]
-            [hyperfiddle.hfql0 :as hfql :refer [Identifiable]])
+            [hyperfiddle.hfql0 :as hfql :refer [Identifiable]]
+            [hyperfiddle.sitemap :refer [pull-spec]])
   (:import (org.eclipse.jgit.api Git)
            (org.eclipse.jgit.internal.storage.file FileRepository)
            (org.eclipse.jgit.revwalk RevCommit)
@@ -146,33 +147,32 @@
 (extend-protocol hfql/Suggestable
   Git
   (-suggest [_]
-    [{:label 'repo, :entry '.getRepository}
-     {:label 'status, :entry `git/git-status}
-     {:label 'branch, :entry `git/git-branch-current}
-     {:label 'branch-list, :entry `branch-list}
-     {:label 'log, :entry `log}])
+    (pull-spec [.getRepository
+                git/git-status
+                git/git-branch-current
+                branch-list
+                log]))
   RevCommit
   (-suggest [_]
-    [#_{:label 'name, :entry `.getName}
-     {:label 'short-name, :entry `commit-short-name}
-     {:label 'msg, :entry '.getShortMessage}
-     {:label 'author, :entry '{.getAuthorIdent .getName}}
-     #_{:label 'committer, :entry '{.getCommitterIdent .getName}}])
+    (pull-spec [#_.getName
+                commit-short-name
+                .getShortMessage
+                {.getAuthorIdent .getName}
+                #_{.getCommitterIdent .getName}]))
   PersonIdent
   (-suggest [_]
-    [{:label 'name, :entry '.getName}
-     {:label 'email, :entry '.getEmailAddress}
-     {:label 'date, :entry '.getWhen}
-     {:label 'timezone, :entry '.getTimeZone}])
+    (pull-spec [.getName
+                .getEmailAddress
+                .getWhen
+                .getTimeZone]))
   Ref
   (-suggest [_]
-    [{:label 'short-name, :entry `ref-short-name}
-     #_{:label 'commit, :entry `ref-commit}
-     {:label 'commit-short, :entry `ref-commit-short}
-     {:label 'type, :entry `ref-type}
-     #_{:label 'object-id, :entry '.getObjectId}])
+    (pull-spec [ref-short-name
+                #_ref-commit
+                ref-commit-short
+                ref-type
+                #_.getObjectId]))
   ObjectId
   (-suggest [_]
-    [{:label 'toString, :entry `str}
-     {:label 'name, :entry '.getName}])
+    (pull-spec [str .getName]))
   )

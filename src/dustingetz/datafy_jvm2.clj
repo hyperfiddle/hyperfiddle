@@ -3,7 +3,8 @@
            java.lang.management.ThreadInfo
            com.sun.management.ThreadMXBean)
   (:require [clojure.core.protocols :refer [Datafiable nav] :rename {nav -nav}]
-            [hyperfiddle.hfql0 :refer [Suggestable Identifiable -identify]]))
+            [hyperfiddle.hfql0 :refer [Suggestable Identifiable -identify]]
+            [hyperfiddle.sitemap :refer [pull-spec]]))
 
 (defn resolve-thread [id] (apply com.sun.management.ThreadMXBean/.getThreadInfo
                             (ManagementFactory/getThreadMXBean) [id]))
@@ -118,14 +119,9 @@
 
 (extend-protocol Suggestable
   Class
-  (-suggest [_]
-    [{:label 'full-name, :entry '.getCanonicalName}
-     {:label 'fields, :entry `class-fields}
-     {:label 'methods, :entry `class-methods}])
+  (-suggest [_] (pull-spec [.getCanonicalName class-fields class-methods]))
   java.lang.reflect.Method
-  (-suggest [_]
-    [{:label 'name, :entry '.getName}
-     {:label 'parameters, :entry `method-parameter-types}]))
+  (-suggest [_] (pull-spec [.getName method-parameter-types])))
 
 (extend-protocol Identifiable
   Class (-identify [^Class c] (.getCanonicalName c))

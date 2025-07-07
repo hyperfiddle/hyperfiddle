@@ -8,50 +8,109 @@
    [clojure.walk :as walk]
    #?(:clj [clojure.java.io :as io])
    [edamame.core :as edn]
-   ))
+   [clojure.spec.alpha :as s]
+   )
+  #?(:cljs (:require-macros [hyperfiddle.sitemap])))
+
+
+(s/def ::sitemap-key (s/or :symbol symbol? :call seq?))
+;; in principle it should be `vector?` as in `[:db/id :db/ident]`. But
+;; `'(:db/id :db/ident)` is fine too because it's not ambiguous. Also makes
+;; Suggestable api nicer: users won't have to remember to cast to vector when
+;; dynamically generating pullspecs. (e.g. `(concat colsA colsB)`)
+(s/def ::pull-spec sequential?)
+(s/def ::sitemap (s/map-of ::sitemap-key ::pull-spec))
 
 #?(:clj
-   (defn normalize-sitemap [ns sitemap]
-     (let [qualify #(symbol (hfql/resolve! % ns))]
-       (update-keys sitemap
-         (fn [k]
-           (if (symbol? k)
-             (seq (list (qualify k)))
-             (cons (qualify (first k)) (next k))))))))
+   (defn normalize-sitemap-key [ns sitemap-key]
+     {:pre [(simple-symbol? ns) (s/assert ::sitemap-key sitemap-key)]
+      :post [(s/assert ::sitemap-key %)]}
+     (let [qualify #(symbol (hfql/resolve! ns %))]
+       (cond
+         (= '. sitemap-key) '.
+         (symbol? sitemap-key) (seq (list (qualify sitemap-key)))
+         :else (cons (qualify (first sitemap-key)) (next sitemap-key))))))
 
-#?(:clj (defn qualify-sitemap-symbol [ns s]
-          (if (qualified-symbol? s)
-            (symbol (hfql/resolve! s ns))
-            (cond (hfql/field-access? s)  s
-                  (hfql/method-access? s) s
-                  (#{'% '%v} s)           s
-                  :else                   (symbol (hfql/resolve! s ns))))))
+;; (normalize-sitemap-key 'dustingetz.file-explorer '.getName)
+
+;; (parse-sitemap* 'dustingetz.file-explorer '[.getName file-kind])
+
 #?(:clj
-   (defn auto-resolves [ns]             ; to resolve ::keywords based on the caller ns
-     (as-> (ns-aliases ns) $
-       (assoc $ :current (ns-name ns), 'hfql 'hyperfiddle.hfql0)
-       (zipmap (keys $)
-         (map ns-name (vals $))))))
+   (defn normalize-sitemap [ns site-map]
+     {:pre [(simple-symbol? ns) (s/assert ::sitemap site-map)]
+      :post [(s/assert ::sitemap %)]}
+     (update-keys site-map (partial normalize-sitemap-key ns))))
+
+#?(:clj (defn qualify-sitemap-symbol [ns sym]
+          {:pre [(simple-symbol? ns) (symbol? sym)]
+           :post [(symbol? %)]}
+          (let [resolve! (partial hfql/resolve! ns)]
+            (cond
+              (qualified-symbol? sym)   (symbol (resolve! sym))
+              (hfql/field-access? sym)  sym
+              (hfql/method-access? sym) sym
+              (#{'% '%v '.} sym)        sym
+              :else                     (symbol (resolve! sym))))))
+
+(s/def ::edamame-ns-alias (s/or :alias simple-symbol? :current-ns #{:current}))
+(s/def ::edamame-sitemap-ns-aliases (s/and (s/map-of ::edamame-ns-alias simple-symbol?)
+                              #(contains? % :current)  ; intentional – see `edamame.core/parse-string`
+                              #(contains? % 'hfql) ; sitemap sugar
+                              ))
+
+#?(:clj
+   (defn edamame-auto-resolves
+     "Produces an alias -> ns-name map to pass to edamame/parse-string :auto-resolves option"
+     [ns] ; to resolve ::keywords based on the caller ns
+     {:pre [(namespace? ns)]
+      :post [(s/assert ::edamame-sitemap-ns-aliases %)]}
+     (-> {'hfql 'hyperfiddle.hfql0} ; sugar
+       (merge (ns-aliases ns)) ; {'alias #ns[aliased]}
+       (update-vals ns-name) ; {'alias 'aliased}
+       (assoc :current (ns-name ns)) ; edamame interprets :current to auto-resolve ::foo and `foo
+       )))
+
+#?(:clj
+   (defn- parse-sitemap* [ns-sym form]
+     (walk/postwalk (fn [x] (cond
+                              (symbol? x)                              (qualify-sitemap-symbol ns-sym x)
+                              (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
+                              :else                                    x))
+       form)))
 
 #?(:clj
    (defn parse-sitemap
-     ([quoted-site-map] (parse-sitemap *ns* quoted-site-map))
-     ([ns-or-ns-sym quoted-site-map]
-      {:pre [(or (simple-symbol? ns-or-ns-sym) (namespace? ns-or-ns-sym))
-             (map? quoted-site-map)]
-       :post [(map? %)]}
-      (binding [*ns* (find-ns (ns-name ns-or-ns-sym))] ; resolve sym to ns (throws if not found), ns object passes through, noop if ns = *ns*
-        (->> quoted-site-map
-          (walk/postwalk (fn [x] (cond
-                                   (symbol? x)                              (qualify-sitemap-symbol *ns* x)
-                                   (and (seq? x) (= `hfql/props (first x))) (apply hfql/props (next x))
-                                   :else                                    x)))
-          (normalize-sitemap *ns*))))))
+     [ns-sym quoted-site-map]
+     {:pre [(simple-symbol? ns-sym) (s/assert ::sitemap quoted-site-map)]
+      :post [(s/assert ::sitemap %)]}
+     (->> (parse-sitemap* ns-sym quoted-site-map)
+       (normalize-sitemap ns-sym))))
 
-#?(:clj (defn read-sitemap [ns-or-ns-sym resource-path]
-          (binding [*ns* (find-ns (ns-name ns-or-ns-sym))] ; resolve sym to ns (throws if not found), ns object passes through
-            (parse-sitemap *ns*
-              (edn/parse-string (slurp (io/resource resource-path)) {:auto-resolve (auto-resolves *ns*)})))))
+(defn- current-ns [&env]
+  (or (some-> &env :ns :name) ; cljs
+    (ns-name *ns*)) ; clj
+  )
+
+#?(:clj (defn pull-spec* [ns-sym pull-spec] (parse-sitemap* ns-sym pull-spec)))
+
+(defmacro pull-spec
+  ([pull-spec] `(hyperfiddle.sitemap/pull-spec ~(current-ns &env) ~pull-spec))
+  ([ns-sym pull-spec]
+   {:pre [(simple-symbol? ns-sym) (s/assert ::pull-spec pull-spec)]}
+   `'~(pull-spec* ns-sym pull-spec)))
+
+(defmacro sitemap
+  ([site-map] `(sitemap ~(current-ns &env) ~site-map))
+  ([ns-sym site-map]
+   {:pre [(simple-symbol? ns-sym) (s/assert ::sitemap site-map)]}
+   [ns-sym site-map]
+   `'~(parse-sitemap ns-sym site-map)))
+
+#?(:clj (defn read-sitemap [ns-sym resource-path]
+          {:pre [(simple-symbol? ns-sym)]
+           :post [(s/assert ::sitemap %)]}
+          (parse-sitemap ns-sym
+            (edn/parse-string (slurp (io/resource resource-path)) {:auto-resolve (edamame-auto-resolves (find-ns ns-sym))}))))
 
 ;; #?(:clj (defn sitemap-incseq [resource-path ns]
 ;;           (let [f (io/file (io/resource resource-path))]

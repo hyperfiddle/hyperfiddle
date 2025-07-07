@@ -20,7 +20,8 @@
             [clojure.pprint]
             [clojure.walk :as walk]
             [dustingetz.loader :as loader]
-            #?(:clj [clojure.tools.logging :as log]))
+            #?(:clj [clojure.tools.logging :as log])
+            #?(:clj [hyperfiddle.hfql0 :as hfql]))
   #?(:cljs (:require-macros hyperfiddle.navigator4)))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
@@ -232,14 +233,14 @@
                  (with-bindings hfql-bindings (apply f args)))
                (catch Throwable e (log/error e "Failed to run query" {:query (seq query)}) (throw e))))) ; swallowed exception possible here, `prn` guards it
 
-#?(:clj (defn add-suggestions [spec suggest*]
+#?(:clj (defn add-suggestions [spec pull-spec]
           (hfql/props-update-k spec
             (fn [raw-spec]
-              (reduce (fn [raw-spec {nx :entry}]
-                        (if (find-if #(= nx (hfql/unwrap %)) raw-spec)
+              (reduce (fn [raw-spec pull]
+                        (if (find-if #(= pull (hfql/unwrap %)) raw-spec)
                           raw-spec
-                          (conj raw-spec nx)))
-                raw-spec suggest*)))))
+                          (conj raw-spec pull)))
+                raw-spec pull-spec)))))
 
 #?(:clj (defn labelize [?spec] (and ?spec (or (-> ?spec hfql/opts ::hfql/label) (hfql/unwrap ?spec)))))
 
@@ -299,10 +300,12 @@
 (defn column-shortener [symbolic-columns filterer]
   (let [short-map (->short-map symbolic-columns filterer)]
     (fn [symbolic-column]
-      (cond
-        (filterer symbolic-column) (short-map symbolic-column)
-        (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
-        () symbolic-column))))
+      (let [symbolic-column #?(:clj (hfql/unwrap symbolic-column) :cljs symbolic-column)]
+        (cond
+          (filterer symbolic-column) (or (short-map symbolic-column)
+                                       (and (ident? symbolic-column) (datax/unqualify symbolic-column)))
+          (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
+          () symbolic-column)))))
 
 (e/defn Nav [coll k v] (e/server (Timing 'Nav #(try (with-bindings e/*bindings* (nav coll k v))
                                                     (catch Throwable e (prn e))))))
@@ -415,9 +418,9 @@
         (let [shorten (column-shortener (mapv labelize raw-spec) ident?)]
           (e/for [spec (e/diff-by {} raw-spec)]
             (let [k (hfql/unwrap spec)
-                    label (shorten (labelize spec))]
+                  label (shorten (labelize spec))]
                 (dom/th
-                  (dom/props {:title (str label)})
+                  (dom/props {:title (str (labelize spec))})
                   (e/server (RenderTooltip ::hfql/ColumnHeaderTooltip (hfql/opts spec) k nil k))
                   (dom/On "click" #(swap! !sort-spec toggle-column-sort k) nil)
                   (dom/text label)))))))))
@@ -454,17 +457,17 @@
           (dom/span ; dirty trick to circumvent sited destructuring out of TableTitle
             (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search (>= row-count collection-limit)))))))
           (dom/text (format-collection-count row-count collection-limit))
-          (let [k* (into #{} (map hfql/unwrap) (hfql/unwrap spec))
-                label* (into #{} (map labelize) (hfql/unwrap spec))
+          (let [k* (e/server (into #{} (map hfql/unwrap) (hfql/unwrap spec)))
+                label* (e/server (into #{} (map labelize) (hfql/unwrap spec)))
                 pre-checked (empty? k*)
-                new-suggest* (into [] (comp (map :entry) (remove k*)) (Suggest*))]
+                new-suggest* (into [] (remove k*) (Suggest*))]
             (dom/span
               (let [shorten (column-shortener (into label* new-suggest*) ident?)
                     selected (e/as-vec (e/for [entry (e/diff-by {} new-suggest*)]
-                                         (e/When (forms/Checkbox* pre-checked :label (shorten entry))
+                                         (e/When (forms/Checkbox* pre-checked :label (shorten (labelize entry)) :title (labelize entry))
                                            entry)))
                     from-spec (e/as-vec (e/for [spec (e/diff-by {} (hfql/unwrap spec))]
-                                          (e/When (forms/Checkbox* true :label (shorten (labelize spec)))
+                                          (e/When (forms/Checkbox* true :label (shorten (labelize spec)) :title (labelize spec))
                                             spec)))]
                 (hfql/props-update-k spec (fn [_] (into from-spec selected)))))))))))
 
