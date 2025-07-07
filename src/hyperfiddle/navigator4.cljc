@@ -327,7 +327,9 @@
 (defn ?sort-by [keyfn v*]
   (try (sort-by keyfn sexpr-comparator v*)
        (catch #?(:clj Throwable :cljs :default) e
-         (prn 'failed-to-sort (type e) (ex-message e))
+         (let [log-message (str "Skipped sort: some elements are not comparable." (type e) " " (ex-message e))]
+           #?(:clj (log/info log-message)
+              :cljs (.info js/console log-message)))
          v*)))
 
 (e/defn ObjectBlock [query o spec effect-handlers Search args]
