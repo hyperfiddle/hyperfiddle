@@ -1,4 +1,4 @@
-(ns hyperfiddle.entity-browser4 ; todo rename to navigator4, it's hard due to keywords and css
+(ns hyperfiddle.navigator4
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
@@ -21,7 +21,7 @@
             [clojure.walk :as walk]
             [dustingetz.loader :as loader]
             #?(:clj [clojure.tools.logging :as log]))
-  #?(:cljs (:require-macros hyperfiddle.entity-browser4)))
+  #?(:cljs (:require-macros hyperfiddle.navigator4)))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
 
@@ -353,7 +353,7 @@
           row-count (e/server (count data)), row-height 24]
       (binding [*block-opts (e/server (hfql/opts spec))]
         (dom/fieldset
-          (dom/props {:class "entity hyperfiddle-entity-browser4__block"})
+          (dom/props {:class "entity hyperfiddle-navigator4__block"})
           (let [search-cmd (dom/legend
                              (dom/span (dom/props {:class "title"}) (dom/text (e/server (pretty-title query)) " "))
                              (Search false))]
@@ -515,7 +515,7 @@
           !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (loader/Latch (e/Filter ffirst  (e/watch !sort-spec)))
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
-        (dom/props {:class "entity-children hyperfiddle-entity-browser4__block"})
+        (dom/props {:class "entity-children hyperfiddle-navigator4__block"})
         (let [free-args (e/server
                           (TableTitle query Search row-count spec (dissoc (meta data) `clojure.core.protocols/nav)
                             (e/fn []
@@ -657,13 +657,13 @@
 
 (def table-block-css
 "
-.hyperfiddle-entity-browser4__block table { display: grid; grid-template-columns: repeat(var(--column-count), 1fr);  grid-template-rows: var(--row-height);}
+.hyperfiddle-navigator4__block table { display: grid; grid-template-columns: repeat(var(--column-count), 1fr);  grid-template-rows: var(--row-height);}
 
-.hyperfiddle-entity-browser4__block table thead { display: contents; }
-.hyperfiddle-entity-browser4__block table thead tr { display: grid; grid-row: 1; grid-column: 1 / -1; grid-template-columns: subgrid;}
-.hyperfiddle-entity-browser4__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.hyperfiddle-navigator4__block table thead { display: contents; }
+.hyperfiddle-navigator4__block table thead tr { display: grid; grid-row: 1; grid-column: 1 / -1; grid-template-columns: subgrid;}
+.hyperfiddle-navigator4__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
-.hyperfiddle-entity-browser4__block .hyperfiddle-electric-forms5__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
+.hyperfiddle-navigator4__block .hyperfiddle-electric-forms5__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
 
 "
   )
@@ -675,14 +675,14 @@
 
     "
 /* cosmetic defaults */
-.hyperfiddle-entity-browser4__block legend .title {font-weight:600;}
-.hyperfiddle-entity-browser4__block { padding: 0; background-color: white; }
-.hyperfiddle-entity-browser4__block table { border: 0px solid #f2f2f2; border-top-left-radius: 0rem; border-top-right-radius: 0rem; }
-.hyperfiddle-entity-browser4__block table thead tr { background-color: #f2f2f2; border-bottom: 1px lightgray solid; }
-.hyperfiddle-entity-browser4__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.hyperfiddle-entity-browser4__block table thead tr th { font-weight: 500; }
-.hyperfiddle-entity-browser4__block table thead tr th:not(:first-child) { border-left: 1px lightgray solid; }
-.hyperfiddle-entity-browser4__block table :is(th, td) { padding: 0 0.25em; }
+.hyperfiddle-navigator4__block legend .title {font-weight:600;}
+.hyperfiddle-navigator4__block { padding: 0; background-color: white; }
+.hyperfiddle-navigator4__block table { border: 0px solid #f2f2f2; border-top-left-radius: 0rem; border-top-right-radius: 0rem; }
+.hyperfiddle-navigator4__block table thead tr { background-color: #f2f2f2; border-bottom: 1px lightgray solid; }
+.hyperfiddle-navigator4__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.hyperfiddle-navigator4__block table thead tr th { font-weight: 500; }
+.hyperfiddle-navigator4__block table thead tr th:not(:first-child) { border-left: 1px lightgray solid; }
+.hyperfiddle-navigator4__block table :is(th, td) { padding: 0 0.25em; }
 /* --------- */
 
 /* query monitor */

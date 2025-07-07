@@ -6,9 +6,9 @@ html { scrollbar-gutter: stable; } /* prevent layout jump when scrollbar shows/h
 body:has(.Browser) { font-family: 'Open Sans', Arial, Verdana, sans-serif; background-color: rgb(248 250 252)}
 
 /* Explicit table height - there are alternatives */
-.Browser fieldset.hyperfiddle-entity-browser4__block:not(.entity-children) table { height: calc(16 * var(--row-height)); }  /* 15 rows + header row */
-.Browser fieldset.hyperfiddle-entity-browser4__block.entity-children tbody { height: calc(15 * var(--row-height)); }  /* 15 rows , header row outside */
-.Browser fieldset.hyperfiddle-entity-browser4__block { height: fit-content; }
+.Browser fieldset.hyperfiddle-navigator4__block:not(.entity-children) table { height: calc(16 * var(--row-height)); }  /* 15 rows + header row */
+.Browser fieldset.hyperfiddle-navigator4__block.entity-children tbody { height: calc(15 * var(--row-height)); }  /* 15 rows , header row outside */
+.Browser fieldset.hyperfiddle-navigator4__block { height: fit-content; }
 
 /* Progressive enhancement */
 .Browser fieldset.entity table { grid-template-columns: 15em auto; }
@@ -16,8 +16,8 @@ body:has(.Browser) { font-family: 'Open Sans', Arial, Verdana, sans-serif; backg
 
 /* Resize handle */
 
-:where(.Browser fieldset.hyperfiddle-entity-browser4__block table) {height: inherit; resize: vertical; }
-:where(.Browser fieldset.hyperfiddle-entity-browser4__block.entity-children tbody) { height: inherit; resize: vertical; }
+:where(.Browser fieldset.hyperfiddle-navigator4__block table) {height: inherit; resize: vertical; }
+:where(.Browser fieldset.hyperfiddle-navigator4__block.entity-children tbody) { height: inherit; resize: vertical; }
 
 /* Special full-screen pages */
 
@@ -29,11 +29,11 @@ html:has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-brow
 :has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
 , .hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail
 , :is(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
-     fieldset.hyperfiddle-entity-browser4__block
+     fieldset.hyperfiddle-navigator4__block
 { height: 100%; box-sizing: border-box; }
 
 .Browser:is(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-browser-demo-attribute-detail)
-    fieldset.hyperfiddle-entity-browser4__block :is(table, tbody)
+    fieldset.hyperfiddle-navigator4__block :is(table, tbody)
  { height: inherit; resize: none;}
 
 

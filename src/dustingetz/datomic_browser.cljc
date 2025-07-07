@@ -1,7 +1,7 @@
 (ns dustingetz.datomic-browser
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
-            [hyperfiddle.entity-browser4 :as entity-browser :refer [HfqlRoot]]
+            [hyperfiddle.navigator4 :as navigator :refer [HfqlRoot]]
             [hyperfiddle.sitemap :refer [#?(:clj parse-sitemap)]]
             [hyperfiddle.router4 :as r]
             [hyperfiddle.electric-dom3 :as dom]
@@ -136,7 +136,7 @@
               *db-stats* db-stats
               e/*bindings* (e/server (merge e/*bindings* {#'*conn* conn, #'*db* db, #'*db-stats* db-stats}))
               e/*exports*  (e/exports)
-              entity-browser/*server-pretty (e/server {datomic.query.EntityMap (fn [entity] (str "EntityMap" (pr-str entity)))})]
+              navigator/*server-pretty (e/server {datomic.query.EntityMap (fn [entity] (str "EntityMap" (pr-str entity)))})]
       (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/electric-forms.css"}))
       (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/datomic-browser.css"}))
       (HfqlRoot sitemap entrypoint))))
