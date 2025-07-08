@@ -7,9 +7,9 @@ Stop treating your ops teams badly due to eng resource constraints, as the beati
 <!-- ![Demo video](./docs/20250617_entity_browser.mp4) -->
 <!-- [Demo video](https://github.com/user-attachments/assets/56eb30c5-e6cf-4f70-b005-d82e5d6820df) -->
 
-## Example app: Datomic prod support tool
+## Example app: Datomic prod support tool (see https://github.com/hyperfiddle/electric-datomic-browser)
 
-(Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app!)
+Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app!
 
 [![20250627_datomic_entity_browser.png](./docs/20250627_datomic_entity_browser.png)](./docs/20250627_datomic_entity_browser.png)
 
@@ -27,22 +27,6 @@ Hyperfiddle features:
 * State distribution powered by [Electric Clojure and the Electric protocol](https://github.com/hyperfiddle/electric)
 * **NO REST APIs.** Never write an internal tool REST API ever again!
 
-Datomic support app features:
-* entity navigation, reverse attributes link
-* query diagnostics (io-context etc)
-* **monitor and kill slow queries from very large databases** -- coming very soon, currently in test
-* classpath connected for custom queries (direct classpath linking to any function)
-* fluid virtual scroll over 50k record collections
-* built-in schema explorer with attribute counts
-* automatic filtering and sort on queries returning < 10k records
-* column selection and inference
-* derived fields and "virtual attributes" (functions over entities)
-* schema browser with attribute counts
-* entity tooltips on all IDs
-* entity history link
-* easy to integrate ring middleware - embed in your at-work httpkit or jetty services
-* enterprise SSO (contact us)
-
 ## Direct classpath linking to integrate any function, data source or native object
 
 * **Not just Datomic:** navigate SQL or any backend data source via classpath function calls
@@ -52,11 +36,13 @@ Datomic support app features:
 
 **FAQ: What's the difference between an object navigator and a data browser?** Hyperfiddle is about objects, not data. Objects come with functions and methods, they aren't serializable, you navigate hyperlink graph structures rather than browse freeform nested structures, and you want to do this without impedance, using the actual native object datatype, not data mappers and derived projections. Objects are what the world is made of. And Hyperfiddle is how you reach them.
 
-## More examples
+## Progressive enhancement to customize the object navigator core with web technologies
 
-[![20250627_datomic_schema_app.png](./docs/20250627_datomic_schema_app.png)](./docs/20250627_datomic_schema_app.png)
+Technically this is a Electric v2 app using prerelease primitives from last year, we still need to upgrade it to latest. But you can see where we are going with this.
 
 [![2024_jgit_history_gui.png](./docs/2024_jgit_history_gui.png)](./docs/2024_jgit_history_gui.png)
+
+<!--
 
 ## Live demos:
 
@@ -67,6 +53,8 @@ Datomic support app features:
 * [java class inspector](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(dustingetz.object-browser-demo3!class-view,java.lang.management.ThreadMXBean))
 * [file/folder explorer](https://electric.hyperfiddle.net/dustingetz.object-browser-demo3!ObjectBrowserDemo3/(clojure.java.io!file,'.!'))
 * jar file viewer
+
+-->
 
 ## a foundation for next-gen enterprise apps
 
