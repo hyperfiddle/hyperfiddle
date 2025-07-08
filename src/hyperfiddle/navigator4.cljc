@@ -231,7 +231,10 @@
           (try (let [[f$ & args] query
                      f (hfql/resolve! f$)]
                  (with-bindings hfql-bindings (apply f args)))
-               (catch Throwable e (log/error e "Failed to run query" {:query (seq query)}) (throw e))))) ; swallowed exception possible here, `prn` guards it
+               (catch Throwable e ;; swallowed exception possible here
+                 (log/error e "Failed to run query" {:query (seq query)})
+                 #_(throw e) nil ; FIXME glitch guard
+                 ))))
 
 #?(:clj (defn add-suggestions [spec pull-spec]
           (hfql/props-update-k spec
