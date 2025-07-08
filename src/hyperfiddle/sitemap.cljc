@@ -12,13 +12,16 @@
    )
   #?(:cljs (:require-macros [hyperfiddle.sitemap])))
 
+(defn -unwrap [x] ; FIXME this is cumbersome
+  #?(:clj (hfql/unwrap x)
+     :cljs x))
 
 (s/def ::sitemap-key (s/or :symbol symbol? :call seq?))
 ;; in principle it should be `vector?` as in `[:db/id :db/ident]`. But
 ;; `'(:db/id :db/ident)` is fine too because it's not ambiguous. Also makes
 ;; Suggestable api nicer: users won't have to remember to cast to vector when
 ;; dynamically generating pullspecs. (e.g. `(concat colsA colsB)`)
-(s/def ::pull-spec sequential?)
+(s/def ::pull-spec #(sequential? (-unwrap %)))
 (s/def ::sitemap (s/map-of ::sitemap-key ::pull-spec))
 
 #?(:clj
