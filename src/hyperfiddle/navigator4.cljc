@@ -480,7 +480,7 @@
            row-count
            (e/fn [index] (e/server (when-some [o (nth data index nil)]
                                      (let [navd (Nav data nil o)
-                                           pulled (hfql/pull e/*bindings* raw-spec navd)]
+                                           pulled (#(when navd (hfql/pull e/*bindings* raw-spec navd)))] ; FIXME conditional glitch guard
                                        (TableRow cols col->spec o pulled)))))
            :row-height row-height
            :column-count (e/server (count raw-spec))

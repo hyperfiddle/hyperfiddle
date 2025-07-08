@@ -4,7 +4,8 @@
   (:require [clojure.core.protocols :as ccp]
             [clojure.datafy :refer [nav]]
             [clojure.string :as str]
-            [hyperfiddle.rcf :refer [tests]]))
+            [hyperfiddle.rcf :refer [tests]]
+            [clojure.tools.logging :as log]))
 
 (defprotocol Identifiable :extend-via-metadata true
   (-identify [o])) ; local-symbolize
@@ -151,7 +152,7 @@ navigable pulled maps, without touching all attributes."
   (-opts [_])
   nil
   (-view [_ o] (throw (ex-info "Cannot view on nil" {:o o})))
-  (-unwrap [_] (throw (ex-info "Cannot unwrap nil" {})))
+  (-unwrap [_] nil #_(throw (ex-info "Cannot unwrap nil" {})))
   (-opts [_]))
 
 (deftype Props [k opts]
@@ -219,10 +220,14 @@ navigable pulled maps, without touching all attributes."
     {::origin (get scope '%)}))
 
 (defn pull [bindings spec o]
-  (with-bindings bindings
-    (if (sequential? o)
-      (mapv (fn [x] (pull-object {'% x} spec)) o)
-      (pull-object {'% o} spec))))
+  {:pre [(or (nil? bindings) (map? bindings))]}
+  (try
+    (with-bindings bindings
+      (if (sequential? o)
+        (mapv (fn [x] (pull-object {'% x} spec)) o)
+        (pull-object {'% o} spec)))
+    (catch Throwable t
+      (log/error t "Failed to pull " {:spec spec, :object o}))))
 
 (def ^:dynamic *test* nil)
 (defn test-times [n] (* *test* n))
