@@ -2,6 +2,7 @@
   (:import (datomic.query EntityMap))
   (:require [clojure.core.protocols :as ccp :refer [Datafiable Navigable]]
             [contrib.data :refer [index-by unqualify]]
+            [clojure.template :refer [apply-template]]
             [datomic.api :as d] ; onprem only
             #_[hyperfiddle.electric :as e] ; no electric allowed to maximize reuse
             [hyperfiddle.hfql0 :refer [Identifiable NavContext nav-context]]
@@ -99,16 +100,31 @@
 
 ;;; Datafy/Nav
 
-(defn query-schema [db]
-  (d/q '[:find (pull ?attr [*
-                            {:db/valueType [:db/ident]
-                             :db/cardinality [:db/ident]
-                             :db/unique [:db/ident]}])
-         :where [:db.part/db :db.install/attribute ?attr]]
-    db
-    {:limit -1}))
+(let [pull-pattern '[*
+                     {:db/valueType [:db/ident]
+                      :db/cardinality [:db/ident]
+                      :db/unique [:db/ident]}]]
+  (defn query-schema
+    "Return pulled schema for all attributes, or for one attribute – by :db/ident – if provided."
+    ([db]
+     (d/q (apply-template ['<pull-pattern>]
+            '[:find [(pull ?attr <pull-pattern>) ...]
+              :where [:db.part/db :db.install/attribute ?attr]]
+            [pull-pattern])
+       db
+       {:limit -1}))
+    ([db a]
+     {:pre [(qualified-keyword? a)]}
+     (d/q ; can't use d/pull with [:db/ident a], would seem idiomatic, but we must ensure attr is looked up in :db.part/db.
+       (apply-template ['<pull-pattern>]
+         '[:find (pull ?attr <pull-pattern>) .
+           :in $ ?ident
+           :where [:db.part/db :db.install/attribute ?attr]
+                  [?attr :db/ident ?ident]]
+         [pull-pattern])
+       db a))))
 
-(defn index-schema [schema] (into {} (comp cat (index-by :db/ident)) schema))
+(defn index-schema [schema] (index-by :db/ident schema))
 (defn ref? [indexed-schema a] (= :db.type/ref (get-in indexed-schema [a :db/valueType :db/ident])))
 
 (extend-type datomic.query.EntityMap
