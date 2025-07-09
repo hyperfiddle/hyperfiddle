@@ -9,7 +9,7 @@ Stop treating your ops teams badly due to eng resource constraints, as the beati
 
 ## Example app: Datomic prod support tool
 
-Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app! Datomic-browser project repo: https://github.com/hyperfiddle/electric-datomic-browser
+Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app! Datomic-browser project repo: https://github.com/hyperfiddle/datomic-browser`
 
 [![20250627_datomic_entity_browser.png](./docs/20250627_datomic_entity_browser.png)](./docs/20250627_datomic_entity_browser.png)
 
@@ -89,9 +89,9 @@ Technical goals:
 
 Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and develop a market, economic model, and global at-scale distribution strategy which is directly and immediately aligned with investing the proceeds into foundational programming abstractions, so that we can all benefit from better software, and build it less painfully.
 
-## Social media
+## What does the code look like?
 
-* https://x.com/dustingetz
+See this example gist: [Clojure namespace browser in Hyperfiddle — gist](https://gist.github.com/dustingetz/b2a7a5a7af0feed17de5eb73e0444e28)
 
 ## Getting Started
 
@@ -102,6 +102,10 @@ Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and 
 * free for individual use on local dev machines, mandatory runtime login (we are a business)
 * using in prod requires a license, contact us.
 * still working out the details
+
+## Social media
+
+* https://x.com/dustingetz
 
 # Program your business, without drowning in complexity
 
