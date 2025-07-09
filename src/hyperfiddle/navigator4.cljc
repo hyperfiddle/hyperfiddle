@@ -616,8 +616,8 @@
                                                   (drop (inc *depth) router/route))])
                       [::forms/ok])
            `Select! (e/fn [symbolic-x]
-                      (router/ReplaceState! ['. (conj (into [] (take *depth) router/route)
-                                                  (assoc (nth router/route *depth {}) ::selection symbolic-x))])
+                      (router/Navigate! ['. (conj (into [] (take *depth) router/route)
+                                              (assoc (nth router/route *depth {}) ::selection symbolic-x))])
                       ;; Want the selected row to transition atomically? : (RoundTrip (RoundTrip [::forms/ok]))
                       ;; Two roundtrids because:
                       ;;  - one roundtrip because TablePicker! receives the selected index from server (latency)
