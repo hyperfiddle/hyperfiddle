@@ -124,8 +124,9 @@
          [pull-pattern])
        db a))))
 
-(defn index-schema [schema] (index-by :db/ident schema))
-(defn ref? [indexed-schema a] (= :db.type/ref (get-in indexed-schema [a :db/valueType :db/ident])))
+(defn ref? [indexed-schema a]
+  {:pre [(map? indexed-schema)]}
+  (= :db.type/ref (get-in indexed-schema [a :db/valueType :db/ident])))
 
 (extend-type datomic.query.EntityMap
   Identifiable (-identify [^datomic.query.EntityMap !e] (:db/id !e))
@@ -136,7 +137,7 @@
       (cond
         (#{:db/id :db/ident} k) entity
         ; TODO cache schema?
-        (and (keyword? v) (ref? (index-schema (query-schema (.-db entity))) k)) (d/entity (.-db entity) v) ; traverse ident refs
+        (and (keyword? v) (ref? (index-by :db/ident (query-schema (.-db entity))) k)) (d/entity (.-db entity) v) ; traverse ident refs
         (= :identity unique?) (if (instance? datomic.query.EntityMap v) v (d/entity (.-db entity) [k v])) ; resolve lookup ref, todo cleanup
         () (k entity v) ; traverse refs or return value
         )))
@@ -171,7 +172,7 @@
           (assoc acc k v)))
       {} touched-entity)))
 #_(tests
-  #_(def test-schema (delay (index-schema (query-schema @test-db))))
+  #_(def test-schema (delay (index-by :db/ident (query-schema @test-db))))
   (def !e (d/entity @test-db pour-lamour))
   (:abstractRelease/artists (d/touch !e)) ; := #{#:db{:id 778454232478138} #:db{:id 580542139477874}} -- fail bc entity not= map
   (:abstractRelease/artists (untouch-refs @test-schema (d/touch (d/entity @test-db pour-lamour))))
@@ -206,7 +207,7 @@
 
   (comment
     (query-schema _db)
-    (def _schema (index-schema (query-schema _db)))
+    (def _schema (index-by :db/ident (query-schema _db)))
     (ref? _schema :db/ident)
     (get-in _schema [:abstractRelease/artists])
     (get-in _schema [:artist/country])))
