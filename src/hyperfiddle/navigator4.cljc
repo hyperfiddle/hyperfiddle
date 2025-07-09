@@ -45,13 +45,14 @@
 (e/defn IDE-mode? [] (= *mode :ide))
 (e/defn Browse-mode? [] (= *mode :browse))
 
-(defn infer-block-type [x]
-  (cond
-    (set? x)                                             :set
-    (sequential? x)                                      :collection
-    (or (number? x) (string? x) (boolean? x) (ident? x)) :scalar
-    (fn? x)                                              :query
-    :else                                                :object))
+#?(:clj
+   (defn infer-block-type [x]
+     (cond
+       (set? x)                                             :set
+       (or (sequential? x) (.isArray (class x)))            :collection
+       (or (number? x) (string? x) (boolean? x) (ident? x)) :scalar
+       (fn? x)                                              :query
+       :else                                                :object)))
 
 (defn unqualify [sym] (symbol (name sym)))
 (defn de-clojure-core [x] (->> x (walk/postwalk #(cond-> % (and (symbol? %) (= (namespace %) "clojure.core")) unqualify))))
@@ -282,7 +283,7 @@
     (rebooting next-x
       ;; similarity with `infer-block-type`
       ;; maybe blocks should decide if they handle this object?
-      (when (Timing 'should-next-block-mount #(or (sequential? next-x) (set? next-x) (seq (hfql/suggest next-x))))
+      (when (Timing 'should-next-block-mount #(or (sequential? next-x) (set? next-x) (.isArray (class next-x)) (seq (hfql/suggest next-x))))
         (e/client
           (binding [*depth (inc *depth)]
             (let [{saved-search ::search} (nth router/route *depth {})
