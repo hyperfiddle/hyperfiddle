@@ -7,9 +7,9 @@ Stop treating your ops teams badly due to eng resource constraints, as the beati
 <!-- ![Demo video](./docs/20250617_entity_browser.mp4) -->
 <!-- [Demo video](https://github.com/user-attachments/assets/56eb30c5-e6cf-4f70-b005-d82e5d6820df) -->
 
-## Example app: Datomic prod support tool (see https://github.com/hyperfiddle/electric-datomic-browser)
+## Example app: Datomic prod support tool
 
-Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app!
+Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app! Datomic-browser project repo: https://github.com/hyperfiddle/electric-datomic-browser
 
 [![20250627_datomic_entity_browser.png](./docs/20250627_datomic_entity_browser.png)](./docs/20250627_datomic_entity_browser.png)
 
@@ -38,7 +38,7 @@ Hyperfiddle features:
 
 ## Progressive enhancement to customize the object navigator core with web technologies
 
-Technically this is a Electric v2 app using prerelease primitives from last year, we still need to upgrade it to latest. But you can see where we are going with this.
+Technically this is a Electric v2 app using prerelease Hyperfiddle primitives from last year, we still need to upgrade it to latest. But you can see where we are going with this.
 
 [![2024_jgit_history_gui.png](./docs/2024_jgit_history_gui.png)](./docs/2024_jgit_history_gui.png)
 
@@ -56,11 +56,9 @@ Technically this is a Electric v2 app using prerelease primitives from last year
 
 -->
 
-## a foundation for next-gen enterprise apps
+## A foundation for next-gen enterprise apps
 
 Use this foundation to build scalable, enterprise-class frontends that are deeply customizable, robust and secure.
-
-[![2024_hyperfiddle-crud-spreadsheet-explainer-sub.png](./docs/2024_hyperfiddle-crud-spreadsheet-explainer-sub.png)](./docs/2024_hyperfiddle-crud-spreadsheet-explainer-sub.png)
 
 * (coming soon) hypermedia DSL: links, forms, buttons
 * (coming soon) editable enterprise datagrids
@@ -78,6 +76,8 @@ Use cases: enterprise workbench apps, customer support tools, microservice inter
 ## Where are we going with this
 
 "Hyper" means interconnected. "Fiddle" means play. Our vision for Hyperfiddle is to develop an **end-user hypermedia programming environment** that reaches all of your at-work cloud objects without writing network glue code. Our mission is to **collapse to zero** the cost of business process frontend development, for a huge range of apps from enterprise applications to throwaway tools.
+
+[![2024_hyperfiddle-crud-spreadsheet-explainer-sub.png](./docs/2024_hyperfiddle-crud-spreadsheet-explainer-sub.png)](./docs/2024_hyperfiddle-crud-spreadsheet-explainer-sub.png)
 
 Technical goals:
 * identify and label the common structure shared between spreadsheets and CRUD apps
