@@ -9,7 +9,7 @@ Stop treating your ops teams badly due to eng resource constraints, as the beati
 
 ## Example app: Datomic prod support tool
 
-Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app! Datomic-browser project repo: https://github.com/hyperfiddle/datomic-browser`
+Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app! Datomic-browser project repo: https://github.com/hyperfiddle/datomic-browser
 
 [![20250627_datomic_entity_browser.png](./docs/20250627_datomic_entity_browser.png)](./docs/20250627_datomic_entity_browser.png)
 
@@ -91,7 +91,7 @@ Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and 
 
 ## What does the code look like?
 
-See this example gist: [Clojure namespace browser in Hyperfiddle — gist](https://gist.github.com/dustingetz/b2a7a5a7af0feed17de5eb73e0444e28)
+See this example gist: [Clojure namespace browser in Hyperfiddle](https://gist.github.com/dustingetz/b2a7a5a7af0feed17de5eb73e0444e28)
 
 ## Getting Started
 
