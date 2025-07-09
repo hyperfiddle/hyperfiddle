@@ -23,10 +23,13 @@
 
 #?(:clj (defn attribute-count [!e] (-> *db-stats* :attrs (get (:db/ident !e)) :count)))
 
+#?(:clj (defn indexed-attribute? [db a] (true? (:db/index (dx/query-schema db a)))))
+
 #?(:clj (defn attribute-detail [a]
-          (->> (d/datoms *db* :avet a)
-            (map :e)
-            (hfql/navigable (fn [?e] (d/entity *db* ?e))))))
+          (let [index (if (indexed-attribute? *db* a) :avet :aevt)]
+            (->> (d/datoms *db* index a)
+              (map :e)
+              (hfql/navigable (fn [?e] (d/entity *db* ?e)))))))
 
 #?(:clj (defn summarize-attr [db k] (->> (dx/easy-attr db k) (remove nil?) (map name) (str/join " "))))
 #?(:clj (defn summarize-attr* [?!a] (when ?!a (summarize-attr *db* (:db/ident ?!a)))))
