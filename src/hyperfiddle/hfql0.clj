@@ -323,9 +323,9 @@ navigable pulled maps, without touching all attributes."
 
 (defn- parse-sitemap* [ns-sym form]
   (walk/postwalk (fn [x] (cond
-                           (symbol? x)                              (qualify-sitemap-symbol ns-sym x)
-                           (and (seq? x) (= `hfql/props (first x))) (apply props (next x))
-                           :else                                    x))
+                           (symbol? x) (qualify-sitemap-symbol ns-sym x)
+                           (and (seq? x) (= `props (first x))) (apply props (next x))
+                           :else x))
     form))
 
 (defn parse-sitemap

@@ -1,18 +1,31 @@
 (ns hyperfiddle.entrypoint
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.router4 :as r]))
+            [hyperfiddle.router4 :as r]
+            #?(:clj [hyperfiddle.hfql0 :as hfql])))
 
 (e/declare apps)
 
-(defn find-context-free-pages [sitemap]
-  (sort-by first (filterv #(not (next %)) (keys sitemap))))
+#?(:clj (defn find-context-free-entries [sitemap] ; TODO move to hfql
+          (->> sitemap
+            keys
+            (filter (fn [[fsym & _]] ; assumes a normalized sitemap (parsed by hfql/sitemap)
+                      (and (qualified-symbol? fsym)
+                        (when-let [?var (try (hfql/resolve! fsym) (catch Throwable t (prn t) nil))]
+                          (some #{[]} (:arglists (meta ?var))))))))))
 
-(e/defn Index [sitemap]
+#?(:clj (defn build-nav-links [sitemap defaults]
+          (->> (find-context-free-entries sitemap)
+            (concat defaults)
+            (into #{})
+            (sort-by first))
+          ))
+
+(e/defn Index [sitemap defaults]
   (dom/nav
     (dom/props {:class "Index hyperfiddle-entrypoint-Index"})
     (dom/text "Nav:")
-    (e/for [view (e/diff-by {} (e/server (find-context-free-pages sitemap)))]
+    (e/for [view (e/diff-by {} (e/server (build-nav-links sitemap defaults)))]
       (dom/text " ") (r/link ['. [view]] (dom/text (name (first view)))))))
 
 (e/defn IndexPage []

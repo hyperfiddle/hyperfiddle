@@ -129,7 +129,7 @@
                                                ::hfql/Tooltip EntityTooltip})
                               :added]})))
 
-(e/defn DatomicBrowser [sitemap entrypoint conn]
+(e/defn DatomicBrowser [sitemap entrypoints conn]
   (let [db (e/server (e/Offload #(d/db conn)))
         db-stats (e/server (e/Offload #(d/db-stats db)))]
     (binding [*conn* conn
@@ -140,4 +140,4 @@
               navigator/*server-pretty (e/server {datomic.query.EntityMap (fn [entity] (str "EntityMap" (pr-str entity)))})]
       (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/electric-forms.css"}))
       (dom/link (dom/props {:rel :stylesheet :href "/hyperfiddle/datomic-browser.css"}))
-      (HfqlRoot sitemap entrypoint))))
+      (HfqlRoot sitemap entrypoints))))

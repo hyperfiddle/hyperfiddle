@@ -640,10 +640,10 @@
       (keyword (::forms/value edit))
       mode)))
 
-(e/defn HfqlRoot [sitemap default]
+(e/defn HfqlRoot [sitemap entrypoints]
   (e/client
     (dom/style (dom/text css tooltip/css))
-    (Index sitemap) ; FIXME this index generation is generic and may conflict with user-custom index (e.g. ObjectBrowser3 fiddle demo renders two navs)
+    (Index sitemap entrypoints) ; FIXME this index generation is generic and may conflict with user-custom index (e.g. ObjectBrowser3 fiddle demo renders two navs)
     (tooltip/TooltipArea
       (e/fn []
         (tooltip/Tooltip)
@@ -658,7 +658,7 @@
                   (dom/props {:class "Browser"})
                   #_(QueryMonitor)
                   (if-not query
-                    (router/ReplaceState! ['. default])
+                    (router/ReplaceState! ['. [(first entrypoints)]])
                     (let [f$ (first query)]
                       (set! (.-title js/document) (str (some-> f$ name (str " – ")) "Hyperfiddle"))
                       (dom/props {:class (cssx/css-slugify f$)})
