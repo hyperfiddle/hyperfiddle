@@ -2,7 +2,7 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
-            [hyperfiddle.sitemap :as sitemap]
+            [hyperfiddle.entrypoint :refer [Index]]
             [hyperfiddle.router4 :as router]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.incseq :as i]
@@ -643,7 +643,7 @@
 (e/defn HfqlRoot [sitemap default]
   (e/client
     (dom/style (dom/text css tooltip/css))
-    (sitemap/Index sitemap) ; FIXME this index generation is generic and may conflict with user-custom index (e.g. ObjectBrowser3 fiddle demo renders two navs)
+    (Index sitemap) ; FIXME this index generation is generic and may conflict with user-custom index (e.g. ObjectBrowser3 fiddle demo renders two navs)
     (tooltip/TooltipArea
       (e/fn []
         (tooltip/Tooltip)

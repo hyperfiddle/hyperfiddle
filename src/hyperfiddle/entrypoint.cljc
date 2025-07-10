@@ -5,7 +5,17 @@
 
 (e/declare apps)
 
-(e/defn Index []
+(defn find-context-free-pages [sitemap]
+  (sort-by first (filterv #(not (next %)) (keys sitemap))))
+
+(e/defn Index [sitemap]
+  (dom/nav
+    (dom/props {:class "Index hyperfiddle-entrypoint-Index"})
+    (dom/text "Nav:")
+    (e/for [view (e/diff-by {} (e/server (find-context-free-pages sitemap)))]
+      (dom/text " ") (r/link ['. [view]] (dom/text (name (first view)))))))
+
+(e/defn IndexPage []
   (dom/h1 (dom/text "Hyperfiddle"))
   (dom/menu
     (e/for [[app-name App] (e/diff-by key (dissoc apps `Index))]
@@ -17,7 +27,7 @@
     (r/link ['/ []] (dom/text "index"))))
 
 (e/defn DefaultApps []
-  {`Index Index})
+  {`Index IndexPage})
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body)) ; TODO remove
 
