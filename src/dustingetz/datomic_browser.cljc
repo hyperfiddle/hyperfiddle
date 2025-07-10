@@ -2,7 +2,6 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             [hyperfiddle.navigator4 :as navigator :refer [HfqlRoot]]
-            [hyperfiddle.sitemap :refer [sitemap]]
             [hyperfiddle.router4 :as r]
             [hyperfiddle.electric-dom3 :as dom]
             [dustingetz.loader :refer [Loader]]
@@ -95,7 +94,7 @@
 
 #?(:clj
    (def datomic-browser-sitemap
-     (sitemap
+     (hfql/sitemap
        {attributes (hfql/props [(hfql/props :db/ident {::hfql/link    (attribute-detail :db/ident)
                                                         ::hfql/Tooltip EntityTooltip})
                                  (hfql/props (attribute-count %) {::hfql/label attribute-count})
