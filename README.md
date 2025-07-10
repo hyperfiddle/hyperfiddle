@@ -2,14 +2,17 @@
 
 For production support teams at operationally heavy businesses, Hyperfiddle is a **programmable object navigator** that lets you build custom internal frontend GUIs for your pre-existing enterprise backend services. Rapidly build powerful UIs that **directly call functions in your backend** through direct classpath linking, **without writing any REST APIs**.
 
-Stop treating your ops teams badly due to eng resource constraints, as the beating heart of the business they should be your primary customer. Deliver **premium quality internal frontends faster**, without needing specialist frontend framework expertise.
+At growth stage, your ops team should be your first and primary customer, as they are the beating heart of the business. Stop letting engineering resource constraints prevent you from treating them better. Hyperfiddle empowers the backend teams you already have to deliver **premium quality internal frontends faster**, without needing specialist UI expertise.
 
 <!-- ![Demo video](./docs/20250617_entity_browser.mp4) -->
 <!-- [Demo video](https://github.com/user-attachments/assets/56eb30c5-e6cf-4f70-b005-d82e5d6820df) -->
 
-## Example app: Datomic prod support tool
+## Example Hyperfiddle apps
 
-Hyperfiddle does NOT depend on Datomic. This Datomic example is a *userland* Hyperfiddle app! Datomic-browser project repo: https://github.com/hyperfiddle/datomic-browser
+* [Clojure namespace browser](https://gist.github.com/dustingetz/b2a7a5a7af0feed17de5eb73e0444e28). 42 LOC!
+* [Datomic entity browser](https://github.com/hyperfiddle/datomic-browser). Only [150 LOC](https://github.com/hyperfiddle/datomic-browser/blob/main/src/dustingetz/datomic_browser.cljc) + datomic utils
+
+Note: Hyperfiddle does NOT depend on Datomic. The Datomic example is a *userland* Hyperfiddle app!
 
 [![20250627_datomic_entity_browser.png](./docs/20250627_datomic_entity_browser.png)](./docs/20250627_datomic_entity_browser.png)
 
@@ -69,7 +72,7 @@ Use this foundation to build scalable, enterprise-class frontends that are deepl
 * (coming soon) enterprise security middleware
 * (coming soon) Python classpaths
 
-Use cases: enterprise workbench apps, customer support tools, microservice internal state observability and debugging tools, internal control plane apps, interactive dashboards.
+**Use cases:** enterprise workbench apps, customer support tools, microservice internal state observability and debugging tools, internal control plane apps, line of business "CRUD" (CQRS) apps.
 
 **FAQ: Does it have AI?** Yes, we are starting to experiment with agents and it's going to be every bit as amazing as you imagine.
 
@@ -88,10 +91,6 @@ Technical goals:
 * **never write a REST integration ever again**
 
 Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and develop a market, economic model, and global at-scale distribution strategy which is directly and immediately aligned with investing the proceeds into foundational programming abstractions, so that we can all benefit from better software, and build it less painfully.
-
-## What does the code look like?
-
-See this example gist: [Clojure namespace browser in Hyperfiddle](https://gist.github.com/dustingetz/b2a7a5a7af0feed17de5eb73e0444e28)
 
 ## Getting Started
 
