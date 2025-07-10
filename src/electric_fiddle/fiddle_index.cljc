@@ -1,7 +1,7 @@
 (ns electric-fiddle.fiddle-index ; TODO merge into hyperfiddle.entrypoint
   (:require [contrib.data :refer [subgroup-by]]
             [dustingetz.str :refer [includes-str?]]
-            [dustingetz.treelister1 :refer [treelister]] ; todo upgrade to treelister3
+            [dustingetz.treelister3 :refer [treelist]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric-forms5 :refer [Input TablePicker*]]
@@ -58,14 +58,22 @@
   (e/client (dom/style (dom/text css)) (dom/props {:class "Explorer FiddleIndex"})
     #_(dom/pre (dom/text (pr-str r/route)))
     (SearchGrid (str `FiddleIndex2)
-      (e/fn [search] (vec (treelister
-                            (fn children [[k v]] (if (map? v) (into (sorted-map) v) nil))
-                            (fn keep? [[k v]] (or (includes-str? k search) (includes-str? v search)))
-                            (fiddles-by-ns-segments pages))))
-      (e/fn Row [i [?tab [k v :as ?x]]]
-        (when ?x
-          (dom/td (dom/props {:style {:--tab ?tab}})
-                  (dom/text k))
+      (e/fn [search]
+        (->> (fiddles-by-ns-segments pages)
+          (treelist (fn children [x] (cond (map? x) (seq x)
+                                           (map-entry? x) (if (string? (key x))
+                                                            (when-some [v* (children (val x))]
+                                                              (let [k (key x)]
+                                                                (mapv (fn [[p v]] [[k p] v]) v*)))
+                                                            nil)
+                                           :else nil))
+            (fn keep? [[[fn-qsym _F]]] (includes-str? fn-qsym search)))
+          (drop 1) ; skip root
+          (vec)))
+      (e/fn Row [i [path v :as ?row]]
+        (when ?row
+          (dom/td (dom/props {:style {:--tab (dec (count path))}})
+                  (dom/text (last path)))
           (dom/td
             (if-not (map? v)
               (e/for [[qs F] (e/diff-by {} v)] ; grouped fiddles in ns
