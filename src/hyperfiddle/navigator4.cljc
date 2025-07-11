@@ -21,7 +21,8 @@
             [clojure.walk :as walk]
             [dustingetz.loader :as loader]
             #?(:clj [clojure.tools.logging :as log])
-            #?(:clj [hyperfiddle.hfql0 :as hfql]))
+            #?(:clj [hyperfiddle.hfql0 :as hfql])
+            [geoffreygaillard.debug-tools :refer [debug-exceptions]])
   #?(:cljs (:require-macros hyperfiddle.navigator4)))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
@@ -32,10 +33,13 @@
 
 #?(:clj
    (defn ->sort-comparator [sort-spec]
-     (let [[[k asc?]] sort-spec
-           order (if asc? neg? pos?)]   ; TODO support multi-sort
-       (when k
-         (fn [a b] (order (compare (get a k) (get b k))))))))
+     (debug-exceptions `->sort-comparator
+       (let [[[k asc?]] sort-spec
+             order (if asc? neg? pos?)]   ; TODO support multi-sort
+         (when k
+           (fn [a b]
+             (debug-exceptions `->sort-comparator-inner
+               (order (compare (get a k) (get b k))))))))))
 
 (comment
   (sort (->sort-comparator [[:k true]]) [{:k 1} {:k 0} {:k 2}])
@@ -47,46 +51,57 @@
 
 #?(:clj
    (defn infer-block-type [x]
-     (cond
-       (set? x)                                             :set
-       (or (sequential? x) (.isArray (class x)))            :collection
-       (or (number? x) (string? x) (boolean? x) (ident? x)) :scalar
-       (fn? x)                                              :query
-       :else                                                :object)))
+     (debug-exceptions `infer-block-type
+       (cond
+         (set? x)                                             :set
+         (or (sequential? x) (.isArray (class x)))            :collection
+         (or (number? x) (string? x) (boolean? x) (ident? x)) :scalar
+         (fn? x)                                              :query
+         :else                                                :object))))
 
-(defn unqualify [sym] (symbol (name sym)))
-(defn de-clojure-core [x] (->> x (walk/postwalk #(cond-> % (and (symbol? %) (= (namespace %) "clojure.core")) unqualify))))
+(defn unqualify [sym]
+  (debug-exceptions `unqualify
+    (symbol (name sym))))
+(defn de-clojure-core [x]
+  (debug-exceptions `de-clojure-core
+    (->> x (walk/postwalk #(cond-> % (and (symbol? %) (= (namespace %) "clojure.core")) unqualify)))))
 (defn pretty-name [x]
-  (let [x (de-clojure-core x)]
-    (cond
-      (seq? x) (let [[qs & args] x] (list* (datax/unqualify qs) args))
-      () (str x))))
+  (debug-exceptions `pretty-name
+    (let [x (de-clojure-core x)]
+      (cond
+        (seq? x) (let [[qs & args] x] (list* (datax/unqualify qs) args))
+        () (str x)))))
 
 #?(:clj
    (defn pretty-value [x server-pretty]
-     (if (= ::not-found x)
-       ""
-       ((get server-pretty (class x) pr-str) x))))
+     (debug-exceptions `pretty-value
+       (if (= ::not-found x)
+         ""
+         ((get server-pretty (class x) pr-str) x)))))
 
 #?(:clj (defn pretty-title [query]
-          (let [?f$ (first query)]
-            (cons (cond-> ?f$ (qualified-symbol? ?f$) datax/unqualify)
-              (mapv #(or (hfql/identify %) %) (next query))))))
+          (debug-exceptions `pretty-title
+            (let [?f$ (first query)]
+              (cons (cond-> ?f$ (qualified-symbol? ?f$) datax/unqualify)
+                (mapv #(or (hfql/identify %) %) (next query)))))))
 
 (e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
 
 ;; `and` is glitch guard, TODO remove
 #?(:clj (defn remove-opt [spec k] (and spec (hfql/props-update-opts spec #(dissoc % k)))))
 
-(defn column-appender [s] (fn [v] (str (subs v 0 (- (count v) 2)) "\n " s "]\n")))
+(defn column-appender [s] (fn [v]
+                            (debug-exceptions `column-appender
+                              (str (subs v 0 (- (count v) 2)) "\n " s "]\n"))))
 
 #?(:clj (defn collect-suggestions [o bindings]
-          (with-bindings bindings
-            (let [innate* (or (hfql/suggest o)
-                            (when (or (coll? o) (sequential? o))
-                              (hfql/suggest (nth o 0 nil))))
-                  jvm* (hfql/suggest-java-class-members o)]
-              (into innate* jvm*)))))
+          (debug-exceptions `collect-suggestions
+            (with-bindings bindings
+              (let [innate* (or (hfql/suggest o)
+                              (when (or (coll? o) (sequential? o))
+                                (hfql/suggest (nth o 0 nil))))
+                    jvm* (hfql/suggest-java-class-members o)]
+                (into innate* jvm*))))))
 
 (defn now-ms []
   #?(:clj (System/currentTimeMillis)
@@ -96,7 +111,7 @@
 
 (e/defn Draggable []
   (e/client
-    (let [[mouse-x mouse-y] (dom/On "mousedown" (fn [e] (when (zero? (.-button e)) [(.-x e) (.-y e)])) nil)
+    (let [[mouse-x mouse-y] (dom/On "mousedown" (fn [e] (debug-exceptions `Draggable-mousedown) (when (zero? (.-button e)) [(.-x e) (.-y e)])) nil)
           t (tok/TokenNofail mouse-x)
           stl (.-style dom/node)]
       ;; (dom/props {:style {:cursor (if t "grabbing" "grab")}})
@@ -162,19 +177,21 @@
 (e/declare Render)
 
 #?(:clj (defn map-keep-coll [f coll]
-          (cond-> (into (empty coll) (comp (take 2) (map f)) coll)
-            (seq? coll) rseq)))
+          (debug-exceptions `map-keep-coll
+            (cond-> (into (empty coll) (comp (take 2) (map f)) coll)
+              (seq? coll) rseq))))
 
 #?(:clj
    (defn str-inline-coll [coll server-pretty]
-     (let [coll-count (count coll)
-           base (binding [*print-length* 1, *print-level* 2]
-                  ;; `symbol` removes double quotes from the strings inside the collection
-                  (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
-                    str
-                    (str/replace (str \newline) (str \space))
-                    (str/trim)))]
-       (cond-> base (> coll-count 1) (str " " coll-count " elements")))))
+     (debug-exceptions `str-inline-coll
+       (let [coll-count (count coll)
+             base (binding [*print-length* 1, *print-level* 2]
+                    ;; `symbol` removes double quotes from the strings inside the collection
+                    (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
+                      str
+                      (str/replace (str \newline) (str \space))
+                      (str/trim)))]
+         (cond-> base (> coll-count 1) (str " " coll-count " elements"))))))
 
 ;; TODO removeme, glitch guard
 (defn as-coll [v] (if (coll? v) v [v]))
@@ -215,18 +232,22 @@
     (forms/Parse (e/fn [{search ::search}] [`Search! search]))))
 
 (defn find-index [pred x*]
-  (transduce (keep-indexed (fn [idx x] (when (pred x) idx))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*))
+  (debug-exceptions `find-index
+    (transduce (keep-indexed (fn [idx x] (when (pred x) idx))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*)))
 
 (defn find-if [pred x*]
-  (transduce (keep (fn [x] (when (pred x) x))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*))
+  (debug-exceptions `find-if
+    (transduce (keep (fn [x] (when (pred x) x))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*)))
 
 (defn find-sitemap-spec [sitemap f$]
-  (ca/is (reduce-kv (fn [_ [k$] v]
-                      (when (= f$ k$) (reduced v))) nil sitemap)
-    some? (str "couldn't find sitemap definition for " (pr-str f$))))
+  (debug-exceptions `find-sitemap-spec
+    (ca/is (reduce-kv (fn [_ [k$] v]
+                        (when (= f$ k$) (reduced v))) nil sitemap)
+      some? (str "couldn't find sitemap definition for " (pr-str f$)))))
 
 #?(:clj (defn find-spec-prop [raw-spec raw-k]
-          (transduce (keep #(when (= raw-k (hfql/unwrap %)) %)) (fn ([v] v) ([_ac nx] (reduced nx))) nil raw-spec)))
+          (debug-exceptions `find-spec-prop
+            (transduce (keep #(when (= raw-k (hfql/unwrap %)) %)) (fn ([v] v) ([_ac nx] (reduced nx))) nil raw-spec))))
 
 #?(:clj (defn query->object [hfql-bindings query] ; run-query!
           (try (let [[f$ & args] query
@@ -238,15 +259,18 @@
                  ))))
 
 #?(:clj (defn add-suggestions [spec pull-spec]
-          (hfql/props-update-k spec
-            (fn [raw-spec]
-              (reduce (fn [raw-spec pull]
-                        (if (find-if #(= pull (hfql/unwrap %)) raw-spec)
-                          raw-spec
-                          (conj raw-spec pull)))
-                raw-spec pull-spec)))))
+          (debug-exceptions `add-suggestions
+            (hfql/props-update-k spec
+              (fn [raw-spec]
+                (reduce (fn [raw-spec pull]
+                          (if (find-if #(= pull (hfql/unwrap %)) raw-spec)
+                            raw-spec
+                            (conj raw-spec pull)))
+                  raw-spec pull-spec))))))
 
-#?(:clj (defn labelize [?spec] (and ?spec (or (-> ?spec hfql/opts ::hfql/label) (hfql/unwrap ?spec)))))
+#?(:clj (defn labelize [?spec]
+          (debug-exceptions `labelize
+            (and ?spec (or (-> ?spec hfql/opts ::hfql/label) (hfql/unwrap ?spec))))))
 
 (e/defn ObjectRow [[k v] o spec shorten]
   (dom/td (dom/text (e/server (pretty-name (shorten (labelize spec))))))
@@ -276,14 +300,17 @@
                 (when (e/server (some? next-o))
                   (Block query next-o (e/server (find-sitemap-spec *sitemap (first query-template))) Search))))))))))
 
-#?(:clj (defn not-entity-like? [x] (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x)))))
+#?(:clj (defn not-entity-like? [x]
+          (debug-exceptions `not-entity-like?
+            (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x))))))
 
 (e/defn AnonymousBlock [selection next-x]
   (e/server
     (rebooting next-x
       ;; similarity with `infer-block-type`
       ;; maybe blocks should decide if they handle this object?
-      (when (Timing 'should-next-block-mount #(or (sequential? next-x) (set? next-x) (.isArray (class next-x)) (seq (hfql/suggest next-x))))
+      (when (Timing 'should-next-block-mount #(debug-exceptions `should-next-block-mount
+                                                (or (sequential? next-x) (set? next-x) (.isArray (class next-x)) (seq (hfql/suggest next-x)))))
         (e/client
           (binding [*depth (inc *depth)]
             (let [{saved-search ::search} (nth router/route *depth {})
@@ -293,26 +320,30 @@
                 (Block [selection] next-x (e/server []) Search)))))))))
 
 ;; #?(:clj (defn find-default-page [page-defaults o] (some #(% o) page-defaults)))
-#?(:clj (defn find-default-page [_page-defaults o] (hfql/resolve o) #_(some #(% o) page-defaults)))
+#?(:clj (defn find-default-page [_page-defaults o]
+          (debug-exceptions `find-default-page
+            (hfql/resolve o)) #_(some #(% o) page-defaults)))
 
 (defn ->short-map [cols-available! filterer]
-  (let [k* (filterv filterer cols-available!)
-        freq (frequencies (mapv datax/unqualify k*))]
-    (into {} (map #(let [unq (datax/unqualify %)] [% (if (= 1 (freq unq)) unq %)]))
-      k*)))
+  (debug-exceptions `->sort-map
+    (let [k* (filterv filterer cols-available!)
+          freq (frequencies (mapv datax/unqualify k*))]
+      (into {} (map #(let [unq (datax/unqualify %)] [% (if (= 1 (freq unq)) unq %)]))
+        k*))))
 
 (defn column-shortener [symbolic-columns filterer]
   (let [short-map (->short-map symbolic-columns filterer)]
     (fn [symbolic-column]
-      (let [symbolic-column #?(:clj (hfql/unwrap symbolic-column) :cljs symbolic-column)]
-        (cond
-          (filterer symbolic-column) (or (short-map symbolic-column)
-                                       (and (ident? symbolic-column) (datax/unqualify symbolic-column)))
-          (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
-          () symbolic-column)))))
+      (debug-exceptions `column-shortener
+        (let [symbolic-column #?(:clj (hfql/unwrap symbolic-column) :cljs symbolic-column)]
+          (cond
+            (filterer symbolic-column) (or (short-map symbolic-column)
+                                         (and (ident? symbolic-column) (datax/unqualify symbolic-column)))
+            (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
+            () symbolic-column))))))
 
-(e/defn Nav [coll k v] (e/server (Timing 'Nav #(try (with-bindings e/*bindings* (nav coll k v))
-                                                    (catch Throwable e (prn e))))))
+(e/defn Nav [coll k v] (e/server (Timing 'Nav #(try (debug-exceptions `Nav (with-bindings e/*bindings* (nav coll k v)))
+                                                    (catch Throwable e nil)))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
@@ -324,15 +355,17 @@
       (first sexpr))))
 
 (defn sexpr-comparator [a b]
-  (cond
-    (and (keyword? a) (symbol? b)) (compare a (keyword b))
-    (and (symbol? a) (keyword? b)) (compare (keyword a) b)
-    (seq? a) (sexpr-comparator (-fsym a) b)
-    (seq? b) (sexpr-comparator a (-fsym b))
-    :else (compare a b)))
+  (debug-exceptions `sexpr-comparator
+    (cond
+      (and (keyword? a) (symbol? b)) (compare a (keyword b))
+      (and (symbol? a) (keyword? b)) (compare (keyword a) b)
+      (seq? a) (sexpr-comparator (-fsym a) b)
+      (seq? b) (sexpr-comparator a (-fsym b))
+      :else (compare a b))))
 
 (defn ?sort-by [keyfn v*]
-  (try (sort-by keyfn sexpr-comparator v*)
+  (try (debug-exceptions `?sort-by
+         (sort-by keyfn sexpr-comparator v*))
        (catch #?(:clj Throwable :cljs :default) e
          (let [log-message (str "Skipped sort: some elements are not comparable." (type e) " " (ex-message e))]
            #?(:clj (log/info log-message)
@@ -353,11 +386,12 @@
           data (e/server
                  (?sort-by key
                    (into [] (keep (fn [kspec]
-                                    (let [k (hfql/unwrap kspec)
-                                          v (get pulled k)]
-                                      (when (or (strx/includes-str? (?unlazy k) *search)
-                                              (strx/includes-str? v *search))
-                                        (datax/map-entry k v)))))
+                                    (debug-exceptions `ObjectBlock-sort-keep
+                                      (let [k (hfql/unwrap kspec)
+                                            v (get pulled k)]
+                                        (when (or (strx/includes-str? (?unlazy k) *search)
+                                                (strx/includes-str? v *search))
+                                          (datax/map-entry k v))))))
                      raw-spec)))
           row-count (e/server (count data)), row-height 24]
       (binding [*block-opts (e/server (hfql/opts spec))]
@@ -440,15 +474,16 @@
   [coll-count collection-limit]
   {:pre [(number? coll-count) (number? collection-limit)]
    :post [(string? %)]}
-  (let [reached-max-in-memory-lenght? (>= coll-count collection-limit)]
-    (str " ("
-      (when reached-max-in-memory-lenght?
-        ">=") ; FIXME we'd like to display ">" instead
-      coll-count
-      " items"
-      (when reached-max-in-memory-lenght?
-        " · truncated")
-      ")")))
+  (debug-exceptions `format-collection-count
+    (let [reached-max-in-memory-lenght? (>= coll-count collection-limit)]
+      (str " ("
+        (when reached-max-in-memory-lenght?
+          ">=") ; FIXME we'd like to display ">" instead
+        coll-count
+        " items"
+        (when reached-max-in-memory-lenght?
+          " · truncated")
+        ")"))))
 
 (e/defn TableTitle [query Search row-count spec query-meta Suggest*]
   (dom/legend
@@ -505,17 +540,18 @@
   (time (f)))
 
 #?(:clj (defn eager-pull-search-sort [data spec hfql-bindings search sort-spec]
-          #_(Thread/sleep 3000)
-          (let [metadata (meta data)
-                data (with-meta (vec data) metadata)         ; fix if data is e.g. a set
-                navd (with-bindings hfql-bindings (into [] (map #(nav data nil %)) data))
-                pulled (hfql/pull hfql-bindings spec navd)
-                filtered (eduction (map-indexed vector) (filter #(strx/any-matches? (vals (second %)) search)) pulled)
-                sorted (vec (if-some [sorter (->sort-comparator sort-spec)]
-                              (try (sort-by second sorter filtered) (catch Throwable _ filtered))
-                              filtered))]
-            (with-meta (into [] (comp (map first) (map #(nth data %))) sorted)
-              metadata))))
+          (debug-exceptions `eager-pull-search-sort
+            #_(Thread/sleep 3000)
+            (let [metadata (meta data)
+                  data (with-meta (vec data) metadata)         ; fix if data is e.g. a set
+                  navd (with-bindings hfql-bindings (into [] (map #(nav data nil %)) data))
+                  pulled (hfql/pull hfql-bindings spec navd)
+                  filtered (eduction (map-indexed vector) (filter #(strx/any-matches? (vals (second %)) search)) pulled)
+                  sorted (vec (if-some [sorter (->sort-comparator sort-spec)]
+                                (try (sort-by second sorter filtered) (catch Throwable _ filtered))
+                                filtered))]
+              (with-meta (into [] (comp (map first) (map #(nth data %))) sorted)
+                metadata)))))
 
 (e/defn CollectionBlock [query data spec effect-handlers Search args]
   (e/client
@@ -558,11 +594,13 @@
       (when saved-selection
         (let [next-x (e/server
                        (loader/Initialized (Timing 'next-object
-                                          (fn [] (with-bindings e/*bindings*
-                                                   (some #(let [navd (nav data nil %)]
-                                                            (when (= saved-selection (or (hfql/identify %) %))
-                                                              navd))
-                                                     data))))
+                                          (fn []
+                                            (debug-exceptions `CollectionBlock-next-object
+                                              (with-bindings e/*bindings*
+                                                (some #(let [navd (nav data nil %)]
+                                                         (when (= saved-selection (or (hfql/identify %) %))
+                                                           navd))
+                                                  data)))))
                          nil))]
           (rebooting select
             (if select
@@ -580,15 +618,17 @@
                           (AnonymousBlock saved-selection next-x))))))))))))))
 
 #?(:clj (defn sitemapify [spec]
-          (walk/postwalk
-            (fn [x] (if (hfql/opts x)
-                      (list 'hfql/props (hfql/unwrap x) (hfql/opts x))
-                      x))
-            spec)))
+          (debug-exceptions `sitemapify
+            (walk/postwalk
+              (fn [x] (if (hfql/opts x)
+                        (list 'hfql/props (hfql/unwrap x) (hfql/opts x))
+                        x))
+              spec))))
 
 (defn append-to-query [sitemap query added-spec]
-  (reduce-kv (fn [ac k v] (assoc ac k (cond-> v (= (first k) (first query)) (conj added-spec))))
-    {} sitemap))
+  (debug-exceptions `append-to-query
+    (reduce-kv (fn [ac k v] (assoc ac k (cond-> v (= (first k) (first query)) (conj added-spec))))
+      {} sitemap)))
 
 (def default-mode :browse)
 
@@ -605,7 +645,8 @@
       (let [update-text (dom/textarea
                           (dom/props {:rows 10, :cols 80})
                           (dom/text (e/server (strx/pprint-str (sitemapify spec))))
-                          (fn [f] (set! (.-value dom/node) (f (.-value dom/node)))))]
+                          (fn [f] (debug-exceptions `Block-update-text
+                                    (set! (.-value dom/node) (f (.-value dom/node))))))]
         update-text
         (e/for [[t v] (Suggestions o)]
           (update-text (column-appender v))
