@@ -6,45 +6,27 @@
             [hyperfiddle.rcf :refer [tests]]
             [next.jdbc :as jdbc]))
 
-;which pg_ctl
-;/opt/homebrew/bin/pg_ctl
-;cd src/hf/
-;initdb --locale=C -E UTF-8 ./postgres
-;pg_ctl -D ./postgres -l logfile start
-;git clone git@github.com:jOOQ/sakila.git
-;dropdb sakila
-;createdb sakila
-;createuser -s postgres     # fix error in next step
-;psql -d sakila -f sakila/postgres-sakila-db/postgres-sakila-schema.sql
-;psql -d sakila -f sakila/postgres-sakila-db/postgres-sakila-insert-data-using-copy.sql
-;psql -d sakila -c "SELECT first_name, last_name FROM actor LIMIT 5;"
-;psql -d sakila
-;SELECT first_name, last_name, count(*) films FROM actor AS a
-;JOIN film_actor AS fa USING (actor_id)
-;GROUP BY actor_id, first_name, last_name
-;ORDER BY films DESC
-;LIMIT 1;
+;; docker run -p 5432:5432 -d sakiladb/postgres:latest
 
-(def test-config {:dbtype "postgresql" :dbname "sakila" :host "localhost" :port 5432})
-
-(comment
-  ;; alternative, simpler setup with docker
-  ;; docker run -p 5432:5432 -d sakiladb/postgres:latest
-  ;; note, the DB seems a bit different, some tests fail because of ordering differences (e.g. limit 3 without sort)
-  (def test-config {:dbtype "postgresql" :dbname "sakila" :host "localhost" :port 5432 :user "sakila" :password "p_ssW0rd"})
-  ;; re-evaluate `test-conn` if you are changing this live
-  )
+(def test-config {:dbtype "postgresql"
+                  :dbname "sakila"
+                  :host (or (System/getenv "SAKILADB_HOST") "localhost")
+                  :port 5432
+                  :user "sakila"
+                  :password "p_ssW0rd"})
 
 (def test-conn (delay (jdbc/get-connection test-config)))
 
 (tests (require '[clojure.datafy :refer [datafy nav]]
          '[hyperfiddle.hfql0 :refer [identify]]))
 
+;; (hyperfiddle.rcf/enable!)
+
 (tests "kick tires"
   (jdbc/execute! @test-conn ["SELECT first_name, last_name FROM actor LIMIT 3;"])
-  := [#:actor{:first_name "SCARLETT", :last_name "DAMON"}
-      #:actor{:first_name "ANGELA", :last_name "WITHERSPOON"}
-      #:actor{:first_name "RUSSELL", :last_name "TEMPLE"}]
+   := [#:actor{:first_name "PENELOPE", :last_name "GUINESS"}
+       #:actor{:first_name "NICK", :last_name "WAHLBERG"}
+       #:actor{:first_name "ED", :last_name "CHASE"}]
 
   (jdbc/execute! @test-conn
     ["SELECT first_name, last_name, count(*) films FROM actor AS a
@@ -59,9 +41,10 @@
   (type x) := clojure.lang.PersistentHashMap
   (:film/language_id x) := 1 ; language is dehydrated
   (nav x :film/language_id (:film/language_id x)) ; now it's hydrated
-  := #:language{:language_id 1,
-                :name "English             ",
-                :last_update #inst"2006-02-15T10:02:19.000000000-00:00"})
+   := #:language{:language_id 1,
+                 :name "English             ",
+                 :last_update #inst "2006-02-15T04:02:19.000000000-00:00"}
+   )
 
 ; Next.jdbc doesn't support many-many nav through join tables: https://clojurians.slack.com/archives/C1Q164V29/p1739991789702079
 ; Let's do it ourselves.
@@ -74,8 +57,9 @@
 
 (tests
   (hydrate-language @test-conn 1)
-  := #:language{:language_id 1, :name "English             ",
-                :last_update #inst"2006-02-15T10:02:19.000000000-00:00"}
+   := #:language{:language_id 1,
+                :name "English             ",
+                :last_update #inst "2006-02-15T04:02:19.000000000-00:00"}
   (identify (hydrate-language @test-conn 1)) := 1)
 
 (defn hydrate-actor [conn actor-id]
@@ -122,17 +106,17 @@
   (identify films) := `query-films
   (def film (nav films 0 (nth films 0)))
   (def film2 (nav films 1 (nth films 1)))
-  (identify film) := 854
+  (identify film) := 1
   (select-keys film [:film/film_id :film/language_id :film/actors])
-  := {:film/film_id 854 :film/language_id 1 :film/actors '...}
+  := {:film/film_id 1 :film/language_id 1 :film/actors '...}
   "nav one"
   (def language (nav film :film/language_id (get film :film/language_id)))
   (:language/name language) := "English             "
   "nav many"
   (def actors (nav film :film/actors (get film :film/actors)))
-  (count actors) := 5
-  (identify actors) := [`actors-for-film 854]
+  (count actors) := 10
+  (identify actors) := [`actors-for-film 1]
   (def actor (nav actors 0 (nth actors 0)))
   (select-keys actor [:actor/actor_id :actor/first_name])
-  := #:actor{:actor_id 11, :first_name "ZERO"}
-  (identify actor) := 11)
+  := #:actor{:actor_id 1, :first_name "PENELOPE"}
+  (identify actor) := 1)
