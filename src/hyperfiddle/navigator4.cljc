@@ -49,12 +49,16 @@
 (e/defn IDE-mode? [] (= *mode :ide))
 (e/defn Browse-mode? [] (= *mode :browse))
 
+#?(:clj (defn is-array? [x]
+          {:post [(boolean? %)]}
+          (boolean (some-> x class .isArray))))
+
 #?(:clj
    (defn infer-block-type [x]
      (debug-exceptions `infer-block-type
        (cond
          (set? x)                                             :set
-         (or (sequential? x) (.isArray (class x)))            :collection
+         (or (sequential? x) (is-array? x))                   :collection
          (or (number? x) (string? x) (boolean? x) (ident? x)) :scalar
          (fn? x)                                              :query
          :else                                                :object))))
@@ -302,7 +306,7 @@
 
 #?(:clj (defn not-entity-like? [x]
           (debug-exceptions `not-entity-like?
-            (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (.isArray (class x))))))
+            (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (is-array? x)))))
 
 (e/defn AnonymousBlock [selection next-x]
   (e/server
@@ -310,7 +314,7 @@
       ;; similarity with `infer-block-type`
       ;; maybe blocks should decide if they handle this object?
       (when (Timing 'should-next-block-mount #(debug-exceptions `should-next-block-mount
-                                                (or (sequential? next-x) (set? next-x) (.isArray (class next-x)) (seq (hfql/suggest next-x)))))
+                                                (or (sequential? next-x) (set? next-x) (is-array? next-x) (seq (hfql/suggest next-x)))))
         (e/client
           (binding [*depth (inc *depth)]
             (let [{saved-search ::search} (nth router/route *depth {})
