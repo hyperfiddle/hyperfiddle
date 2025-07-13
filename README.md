@@ -2,6 +2,10 @@
 
 Hyperfiddle is a **programmable object navigator** that lets you build custom internal frontend GUIs for your pre-existing enterprise backend services. Rapidly build powerful UIs that **directly call functions in your backend** through direct classpath linking, **without writing any REST APIs**, glue code, or needing specialist UI framework expertise.
 
+> "As a digital bank, we have sophisticated customer service. We looked at Retool but a good interactive dashboard has 20-50 apis to build out and I don't want to build APIs for all of this." — Neobank VP Eng
+
+> "We must have total control over our backends. But if we can spend almost no time on the UI and glue code – we can bypass the whole engineering planning cycle!" — B2B SaaS CTO
+
 <!-- ![Demo video](./docs/20250617_entity_browser.mp4) -->
 <!-- [Demo video](https://github.com/user-attachments/assets/56eb30c5-e6cf-4f70-b005-d82e5d6820df) -->
 
