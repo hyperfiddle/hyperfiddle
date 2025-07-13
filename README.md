@@ -1,6 +1,6 @@
-# Hyperfiddle – a high fidelity enterprise frontend for any service, function or object
+# Hyperfiddle – an automatic enterprise frontend for any backend function or object
 
-For production support teams at operationally heavy businesses, Hyperfiddle is a **programmable object navigator** that lets you build custom internal frontend GUIs for your pre-existing enterprise backend services. Rapidly build powerful UIs that **directly call functions in your backend** through direct classpath linking, **without writing any REST APIs** or needing specialist UI expertise.
+Hyperfiddle is a **programmable object navigator** that lets you build custom internal frontend GUIs for your pre-existing enterprise backend services. Rapidly build powerful UIs that **directly call functions in your backend** through direct classpath linking, **without writing any REST APIs**, glue code, or needing specialist UI framework expertise.
 
 <!-- ![Demo video](./docs/20250617_entity_browser.mp4) -->
 <!-- [Demo video](https://github.com/user-attachments/assets/56eb30c5-e6cf-4f70-b005-d82e5d6820df) -->
