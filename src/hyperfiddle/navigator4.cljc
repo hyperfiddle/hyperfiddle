@@ -163,7 +163,7 @@
 
 (e/defn Suggestions [o]
   (e/client
-    (e/When (IDE-mode?)
+    #_(e/When (IDE-mode?)
       (dom/div
         (dom/text "suggestions:")
         (let [suggestions (e/server (Timing 'suggestions #(collect-suggestions o e/*bindings*))
@@ -380,7 +380,7 @@
   (e/client
     (let [{saved-selection ::selection} args
           opts (e/server (hfql/opts spec))
-          browse? (Browse-mode?)
+          browse? true #_(Browse-mode?)
           ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker! - is the bug present in forms5?
           spec2 (e/server (e/Reconcile (cond-> spec browse? (add-suggestions (Timing 'add-suggestions #(hfql/suggest o))))))
           raw-spec (e/server (hfql/unwrap spec2))
@@ -529,7 +529,7 @@
            :column-count (e/server (count raw-spec))
            :as :tbody)
       (forms/Parse (e/fn ToSavable [{index ::selection}]
-                     (e/When (or select (Browse-mode?))
+                     (e/When (or select true #_(Browse-mode?))
                        (e/server
                          (let [o (nth data index nil)
                                navd (Nav data nil o)
@@ -572,7 +572,7 @@
         (let [free-args (e/server
                           (TableTitle query Search row-count spec (dissoc (meta data) `clojure.core.protocols/nav)
                             (e/fn []
-                              (when (Browse-mode?)
+                              (when true #_(Browse-mode?)
                                 (let [navd (Nav data nil (e/Snapshot (first data)))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
                                   (Timing 'infer-columns #(hfql/suggest navd)))))))
               search-cmd (e/call (e/server (first free-args))) ; fighting against sited destructuring
@@ -588,7 +588,7 @@
               data-count (e/server (bounded-count collection-limit data))]
           (reset! !row-count data-count)
           ;; cycle back first column as sort in browse mode
-          (when (and (Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
+          (when (and #_(Browse-mode?) (e/server (nil? (some-> (hfql/unwrap spec) first))))
             (reset! !sort-spec [[(e/server (some-> (hfql/unwrap spec2) first hfql/unwrap)) true]]))
           search-cmd                    ; force order
           (dom/table
@@ -616,7 +616,7 @@
               ;; Here the root object is a query fn, or the filtered collection.
               ;; Do we want/need to pass it? Should we bind it to `%`?
               (NextBlock select next-x next-x)
-              (when (Browse-mode?)
+              (when true #_(Browse-mode?)
                 (e/server
                   (let [query-template (find-default-page *page-defaults next-x)]
                     (rebooting query-template
@@ -649,7 +649,7 @@
                             :collection CollectionBlock
                             :set CollectionBlock
                                          #_else nil)))]
-    (when (IDE-mode?)
+    #_(when (IDE-mode?)
       (let [update-text (dom/textarea
                           (dom/props {:rows 10, :cols 80})
                           (dom/text (e/server (strx/pprint-str (sitemapify spec))))
@@ -680,7 +680,7 @@
                       ;;  - second roundtrip because of an Electric bug leo is fixing
                       ;;     - Electric produces an extra roundtrip on e/fn call.
                       [::forms/ok])}]
-      (reset! !mode (or (e/server (-> spec hfql/opts ::hfql/mode)) default-mode))
+      #_(reset! !mode (or (e/server (-> spec hfql/opts ::hfql/mode)) default-mode))
       (F query o spec effect-handlers Search (nth router/route *depth {})))))
 
 (e/defn ModePicker [mode]
