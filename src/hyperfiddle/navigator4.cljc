@@ -550,8 +550,12 @@
                   data (with-meta (vec data) metadata)         ; fix if data is e.g. a set
                   navd (with-bindings hfql-bindings (into [] (map #(nav data nil %)) data))
                   pulled (hfql/pull hfql-bindings spec navd)
-                  filtered (eduction (map-indexed vector) (filter #(strx/any-matches? (vals (second %)) search)) pulled)
-                  sorted (vec (if-some [sorter (->sort-comparator sort-spec)]
+                  filtered (eduction (map-indexed vector)
+                             (if (not-empty search)
+                               (filter #(strx/any-matches? (vals (second %)) search))
+                               (map identity))
+                             pulled)
+                  sorted (vec (if-some [sorter (and (not-empty sort-spec) (->sort-comparator sort-spec))]
                                 (try (sort-by second sorter filtered) (catch Throwable _ filtered))
                                 filtered))]
               (with-meta (into [] (comp (map first) (map #(nth data %))) sorted)
@@ -561,7 +565,7 @@
   (e/client
     (let [{saved-selection ::selection} args
           select (e/server (::hfql/select (hfql/opts spec)))
-          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (loader/Latch (e/Filter ffirst  (e/watch !sort-spec)))
+          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (filterv ffirst (e/watch !sort-spec)) #_(loader/Latch (e/watch ) (e/Filter ffirst (e/watch !sort-spec)))
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
         (dom/props {:class "entity-children hyperfiddle-navigator4__block"})
