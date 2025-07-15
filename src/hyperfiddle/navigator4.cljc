@@ -579,11 +579,21 @@
               (with-meta (into [] (comp (map first) (map #(nth data %))) sorted)
                 metadata)))))
 
+#?(:clj
+   (defn- form-identifier [spec] ; TODO move to hfql
+     (when-let [spec (hfql/unwrap spec)]
+       (cond
+         (ident? spec) spec
+         (seq? spec) (hfql/unwrap (first spec))
+         ;; ... TODO traversals
+         :else spec))))
+
 (e/defn CollectionBlock [query data spec effect-handlers Search args]
   (e/client
     (let [{saved-selection ::selection} args
           select (e/server (::hfql/select (hfql/opts spec)))
-          !sort-spec (atom [[(e/server (some-> (hfql/unwrap spec) first hfql/unwrap)) true]]), sort-spec (filterv ffirst (e/watch !sort-spec)) #_(loader/Latch (e/watch ) (e/Filter ffirst (e/watch !sort-spec)))
+          !sort-spec (atom [[(e/server (form-identifier spec)) true]]),
+          sort-spec (filterv ffirst (e/watch !sort-spec)) #_(loader/Latch (e/watch ) (e/Filter ffirst (e/watch !sort-spec)))
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
         (dom/props {:class "entity-children hyperfiddle-navigator4__block"})
