@@ -593,7 +593,7 @@
     (let [{saved-selection ::selection} args
           select (e/server (::hfql/select (hfql/opts spec)))
           !sort-spec (atom [[(e/server (form-identifier spec)) true]]),
-          sort-spec (filterv ffirst (e/watch !sort-spec)) #_(loader/Latch (e/watch ) (e/Filter ffirst (e/watch !sort-spec)))
+          sort-spec (filterv first (e/watch !sort-spec)) #_(loader/Latch (e/watch ) (e/Filter ffirst (e/watch !sort-spec)))
           !row-count (atom 0), row-count (e/watch !row-count)]
       (dom/fieldset
         (dom/props {:class "entity-children hyperfiddle-navigator4__block"})
