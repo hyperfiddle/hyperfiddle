@@ -290,9 +290,18 @@
                             (conj raw-spec pull)))
                   raw-spec pull-spec))))))
 
+#?(:clj
+   (defn- form-identifier [spec] ; TODO move to hfql
+     (when-let [spec (hfql/unwrap spec)]
+       (cond
+         (ident? spec) spec
+         (seq? spec) (hfql/unwrap (first spec))
+         (map? spec) (form-identifier (key (first spec)))
+         :else spec))))
+
 #?(:clj (defn labelize [?spec]
           (debug-exceptions `labelize
-            (and ?spec (or (-> ?spec hfql/opts ::hfql/label) (hfql/unwrap ?spec))))))
+            (and ?spec (or (-> ?spec hfql/opts ::hfql/label) (form-identifier ?spec))))))
 
 (e/defn ObjectRow [[k v] o spec shorten]
   (dom/td (dom/text (e/server (pretty-name (shorten (labelize spec))))))
@@ -578,15 +587,6 @@
                                 filtered))]
               (with-meta (into [] (comp (map first) (map #(nth data %))) sorted)
                 metadata)))))
-
-#?(:clj
-   (defn- form-identifier [spec] ; TODO move to hfql
-     (when-let [spec (hfql/unwrap spec)]
-       (cond
-         (ident? spec) spec
-         (seq? spec) (hfql/unwrap (first spec))
-         ;; ... TODO traversals
-         :else spec))))
 
 (e/defn CollectionBlock [query data spec effect-handlers Search args]
   (e/client
