@@ -182,8 +182,14 @@
 
 #?(:clj (defn map-keep-coll [f coll]
           (debug-exceptions `map-keep-coll
-            (cond-> (into (empty coll) (comp (take 2) (map f)) coll)
-              (seq? coll) rseq))))
+            (let [xform (comp (take 1) (map f))
+                  coll-of-same-type (into (empty coll) xform coll)]
+              (cond
+                (vector? coll) coll-of-same-type
+                (reversible? coll) (rseq coll-of-same-type)
+                (seq? coll) (reverse coll-of-same-type)
+                :else coll-of-same-type
+                )))))
 
 #?(:clj
    (defn str-inline-coll [coll server-pretty]
