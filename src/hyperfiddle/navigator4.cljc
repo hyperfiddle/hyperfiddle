@@ -243,11 +243,29 @@
   (debug-exceptions `find-if
     (transduce (keep (fn [x] (when (pred x) x))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*)))
 
-(defn find-sitemap-spec [sitemap f$]
+
+(defn- find-by [accessor-fn looked-up-key map]
+  {:pre [(map? map) (ifn? accessor-fn)]
+   :post [(or (nil? %) (map-entry? %))]}
+  (reduce (fn [_ [key _value :as map-entry]]
+            (when (= looked-up-key (accessor-fn key))
+              (reduced map-entry)))
+    nil map))
+
+(defn- lookup-by
+  ([accessor-fn looked-up-key map] (lookup-by accessor-fn looked-up-key nil map))
+  ([accessor-fn looked-up-key default-not-found map]
+   (if-let [map-entry (find-by accessor-fn looked-up-key map)]
+     (val map-entry)
+     default-not-found)))
+
+#?(:clj
+   (defn find-sitemap-spec [sitemap f$]
   (debug-exceptions `find-sitemap-spec
-    (ca/is (reduce-kv (fn [_ [k$] v]
-                        (when (= f$ k$) (reduced v))) nil sitemap)
-      some? (str "couldn't find sitemap definition for " (pr-str f$)))))
+       (let [sitemap-spec (lookup-by first f$ ::not-found sitemap)]
+         (if (= ::not-found sitemap-spec)
+           (log/warn "Couldn't find sitemap definition for " (pr-str f$))
+           sitemap-spec)))))
 
 #?(:clj (defn find-spec-prop [raw-spec raw-k]
           (debug-exceptions `find-spec-prop
