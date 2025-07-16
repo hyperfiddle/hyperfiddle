@@ -20,6 +20,7 @@
             [clojure.pprint]
             [clojure.walk :as walk]
             [dustingetz.loader :as loader]
+            [geoffreygaillard.predicates :as pred]
             #?(:clj [clojure.tools.logging :as log])
             #?(:clj [hyperfiddle.hfql0 :as hfql])
             [geoffreygaillard.debug-tools :refer [debug-exceptions]])
@@ -547,16 +548,26 @@
                                             spec)))]
                 (hfql/props-update-k spec (fn [_] (into from-spec selected)))))))))))
 
+#?(:clj
+   (defn- select-row-if-match-url! [!index row-index row-object url-symbolic-representation]
+     {:pre [(pred/atom-like? !index) (number? row-index)]
+      :post [(nil? %)]}
+     (prn {'row-index row-index, 'row-object row-object, 'url-symbolic-representation url-symbolic-representation})
+     (when (and (hfql/identifiable? row-object)
+             (= (hfql/identify row-object) url-symbolic-representation)) ; both can be nil
+       (reset! !index row-index))
+     nil))
+
 (e/defn CollectionTableBody [row-count row-height cols data raw-spec saved-selection select]
   (let [!index (e/server (atom nil))
         col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
-    ;; (e/server (reset! !index (find-index #{saved-selection} (eduction (map #(or (hfql/identify %) %)) navd))))
     (->> (forms/TablePicker! ::selection
            (e/server (e/watch !index))
            row-count
            (e/fn [index] (e/server (when-some [o (nth data index nil)]
                                      (let [navd (Nav data nil o)
                                            pulled (#(when navd (hfql/pull e/*bindings* raw-spec navd)))] ; FIXME conditional glitch guard
+                                       (select-row-if-match-url! !index index navd saved-selection)
                                        (TableRow cols col->spec o pulled)))))
            :row-height row-height
            :column-count (e/server (count raw-spec))
