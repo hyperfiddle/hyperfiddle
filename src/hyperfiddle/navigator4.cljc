@@ -561,16 +561,15 @@
            :row-height row-height
            :column-count (e/server (count raw-spec))
            :as :tbody)
-      (forms/Parse (e/fn ToSavable [{index ::selection}]
-                     (e/When (or select true #_(Browse-mode?))
+      (forms/Parse (e/fn ToCommand [{selected-index ::selection}]
+                     (e/When (or select #_(Browse-mode?))
                        (e/server
-                         (let [o (nth data index nil)
-                               navd (Nav data nil o)
-                               symbolic-x (hfql/identify navd)]
-                           (e/When symbolic-x
-                             (reset! !index index)
-                             symbolic-x))))))
-      (forms/Parse (e/fn ToCommand [symbolic-x] [`Select! symbolic-x])))))
+                         (reset! !index selected-index)
+                         (let [selected-object (Nav data nil (nth data selected-index nil))]
+                           (if-let [symbolic-representation (hfql/identify selected-object)]
+                             [`Select! symbolic-representation]
+                             [`Noop]))))))
+      (forms/Interpreter {`Noop (e/fn [] [::forms/ok])}))))
 
 (defn timef [label f]
   (pr label)
