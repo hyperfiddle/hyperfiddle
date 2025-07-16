@@ -307,7 +307,7 @@
      (when-let [spec (hfql/unwrap spec)]
        (cond
          (ident? spec) spec
-         (seq? spec) (hfql/unwrap (first spec))
+         (sequential? spec) (hfql/unwrap (first spec))
          (map? spec) (form-identifier (key (first spec)))
          :else spec))))
 
@@ -419,6 +419,26 @@
               :cljs (.info js/console log-message)))
          v*)))
 
+(defmulti documentation-dispatch type)
+(defmethod documentation-dispatch :default [x] (type x))
+(defmethod documentation-dispatch (type :kw) [kw] kw)
+(defmethod documentation-dispatch (type 'sym) [sym] sym)
+(defmethod documentation-dispatch (type "str") [str] str)
+
+(defmulti documentation documentation-dispatch)
+(defmethod documentation :default [_] nil)
+#?(:clj (defmethod documentation (type #'type) [var] (:doc (meta var))))
+
+#?(:clj (defn- find-documentation [query]
+          (when-let [identifier (form-identifier query)]
+            (documentation
+              (cond (qualified-symbol? identifier) (resolve identifier)
+                    ;; TODO extend
+                    ;; (pred/java-method-symbol? identifier) ...
+                    :else nil)))))
+
+(e/defn Docstring [query] (e/server (find-documentation query)))
+
 (e/defn ObjectBlock [query o spec effect-handlers Search args]
   (e/client
     (let [{saved-selection ::selection} args
@@ -445,7 +465,8 @@
         (dom/fieldset
           (dom/props {:class "entity hyperfiddle-navigator4__block"})
           (let [search-cmd (dom/legend
-                             (dom/span (dom/props {:class "title"}) (dom/text (e/server (pretty-title query)) " "))
+                             (dom/span (dom/props {:class "title" :data-tooltip (e/server (dustingetz.str/blank->nil (find-documentation query)))})
+                                       (dom/text (e/server (pretty-title query)) " "))
                              (Search false))]
             (dom/props {:style {:--column-count 2 :--row-height row-height}})
             (forms/Interpreter effect-handlers
@@ -536,7 +557,7 @@
   (dom/legend
     (dom/span
       (dom/span
-        (dom/props {:class "title" :data-tooltip (e/server (format-query-meta query-meta))})
+        (dom/props {:class "title" :data-tooltip (e/server (dustingetz.str/blank->nil (str (find-documentation query) (format-query-meta query-meta ))))})
         (dom/text (pretty-title query)))
       (e/as-vec ; dirty trick to circumvent dom/text in between Search and columns
         (e/amb
