@@ -3,7 +3,7 @@
   (:import [java.io Writer])
   (:require [clojure.core.protocols :as ccp]
             [clojure.datafy :refer [nav]]
-            [contrib.data :refer [namespace?]]
+            [geoffreygaillard.predicates :as pred]
             [clojure.string :as str]
             [hyperfiddle.rcf :refer [tests]]
             [clojure.tools.logging :as log]
@@ -313,7 +313,7 @@ navigable pulled maps, without touching all attributes."
 (defn edamame-auto-resolves
   "Produces an alias -> ns-name map to pass to edamame/parse-string :auto-resolves option"
   [ns] ; to resolve ::keywords based on the caller ns
-  {:pre [(namespace? ns)]
+  {:pre [(pred/namespace? ns)]
    :post [(s/assert ::edamame-sitemap-ns-aliases %)]}
   (-> {'hfql 'hyperfiddle.hfql0} ; sugar
     (merge (ns-aliases ns)) ; {'alias #ns[aliased]}
