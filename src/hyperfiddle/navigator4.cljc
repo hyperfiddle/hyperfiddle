@@ -31,6 +31,12 @@
 (e/declare ^:dynamic *search)
 (declare css)
 
+(defmulti comparable type)
+(defmethod comparable :default [x] x)
+#?(:clj (defmethod comparable java.lang.Class [^Class x] (.getName x)))
+(defmethod comparable #?(:clj clojure.lang.Symbol :cljs cljs.core.Symbol) [sym] (str sym))
+(defmethod comparable #?(:clj clojure.lang.Keyword :cljs cljs.core.Keyword) [kw] (str (namespace kw) "/" (name kw))) ; drop ":"
+
 #?(:clj
    (defn ->sort-comparator [sort-spec]
      (debug-exceptions `->sort-comparator
@@ -39,7 +45,7 @@
          (when k
            (fn [a b]
              (debug-exceptions `->sort-comparator-inner
-               (order (compare (get a k) (get b k))))))))))
+               (order (compare (comparable (get a k)) (comparable (get b k)))))))))))
 
 (comment
   (sort (->sort-comparator [[:k true]]) [{:k 1} {:k 0} {:k 2}])
