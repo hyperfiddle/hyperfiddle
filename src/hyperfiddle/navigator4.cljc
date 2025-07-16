@@ -585,13 +585,12 @@
            :column-count (e/server (count raw-spec))
            :as :tbody)
       (forms/Parse (e/fn ToCommand [{selected-index ::selection}]
-                     (e/When (or select #_(Browse-mode?))
-                       (e/server
-                         (reset! !selected-index selected-index)
-                         (let [selected-object (Nav data nil (nth data selected-index nil))]
-                           (if-let [symbolic-representation (hfql/identify selected-object)]
-                             [`Select! symbolic-representation]
-                             [`Noop]))))))
+                     (e/server
+                       (reset! !selected-index selected-index)
+                       (let [selected-object (Nav data nil (nth data selected-index nil))]
+                         (if-let [symbolic-representation (hfql/identify selected-object)]
+                           [`Select! symbolic-representation]
+                           [`Noop])))))
       (forms/Interpreter {`Noop (e/fn [] [::forms/ok])}))))
 
 (defn timef [label f]
