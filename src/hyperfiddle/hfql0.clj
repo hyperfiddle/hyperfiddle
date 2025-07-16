@@ -36,6 +36,14 @@ identifier, though it might not be serializable."
   (identify nil) := nil
   (identify (identifiable (constantly `hash-map) {})) := `hash-map)
 
+(defn identifiable? [object]
+  (extends? Identifiable (type object))
+  ;; #?(:clj (extends? Identifiable object)
+  ;;    :cljs (and (not (nil? x))
+  ;;            (not= js/Object (type object))
+  ;;            (satisfies? Identifiable object)))
+  )
+
 ;(def ^:dynamic *hierarchy* #?(:clj @#'clojure.core/global-hierarchy :cljs (cljs.core/get-global-hierarchy)))
 (def ^:dynamic *hierarchy* @#'clojure.core/global-hierarchy)
 
