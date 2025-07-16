@@ -556,9 +556,10 @@
    (defn- select-row-if-match-url! [!index row-index row-object url-symbolic-representation]
      {:pre [(pred/atom-like? !index) (number? row-index)]
       :post [(nil? %)]}
-     (when (and (hfql/identifiable? row-object)
+     (if (and (hfql/identifiable? row-object)
              (= (hfql/identify row-object) url-symbolic-representation)) ; both can be nil
-       (reset! !index row-index))
+       (reset! !index row-index) ; current row matches. Set selection.
+       (compare-and-set! !index row-index nil)) ; current row used to match and now doesn't. Clear selection.
      nil))
 
 #?(:clj
@@ -574,10 +575,12 @@
     (->> (forms/TablePicker! ::selection
            selected-index
            row-count
-           (e/fn [row-index] (e/server (when-some [[row-index row-object row-hydrated-object] (nav-row e/*bindings* data row-index)]
-                                         (select-row-if-match-url! !selected-index row-index row-hydrated-object saved-selection)
-                                         (let [pulled (#(when row-hydrated-object (hfql/pull e/*bindings* raw-spec row-hydrated-object)))] ; FIXME conditional glitch guard
-                                           (TableRow cols col->spec row-object pulled)))))
+           (e/fn [row-index]
+             (e/server
+               (when-some [[row-index row-object row-hydrated-object] (nav-row e/*bindings* data row-index)] ; FIXME glitch guard, ensures index travels with row
+                 (select-row-if-match-url! !selected-index row-index row-hydrated-object saved-selection)
+                 (let [pulled (#(when row-hydrated-object (hfql/pull e/*bindings* raw-spec row-hydrated-object)))] ; FIXME conditional glitch guard
+                   (TableRow cols col->spec row-object pulled)))))
            :row-height row-height
            :column-count (e/server (count raw-spec))
            :as :tbody)
