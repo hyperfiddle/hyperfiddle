@@ -380,8 +380,12 @@
             (seq? symbolic-column) (let [[qs & args] symbolic-column] (list* (datax/unqualify qs) args))
             () symbolic-column))))))
 
-(e/defn Nav [coll k v] (e/server (Timing 'Nav #(try (debug-exceptions `Nav (with-bindings e/*bindings* (nav coll k v)))
-                                                    (catch Throwable e nil)))))
+#?(:clj
+   (defn nav* [bindings coll k v]
+     (try (debug-exceptions `nav* (with-bindings bindings (nav coll k v)))
+          (catch Throwable e nil))))
+
+(e/defn Nav [coll k v] (e/server (Timing 'Nav #(nav* e/*bindings* coll k v))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
 #?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
@@ -552,30 +556,35 @@
    (defn- select-row-if-match-url! [!index row-index row-object url-symbolic-representation]
      {:pre [(pred/atom-like? !index) (number? row-index)]
       :post [(nil? %)]}
-     (prn {'row-index row-index, 'row-object row-object, 'url-symbolic-representation url-symbolic-representation})
      (when (and (hfql/identifiable? row-object)
              (= (hfql/identify row-object) url-symbolic-representation)) ; both can be nil
        (reset! !index row-index))
      nil))
 
+#?(:clj
+   (defn- nav-row [bindings data row-index]
+     (when-some [row-object (nth data row-index nil)]
+       [row-index row-object (nav* bindings data nil row-object)])))
+
 (e/defn CollectionTableBody [row-count row-height cols data raw-spec saved-selection select]
-  (let [!index (e/server (atom nil))
-        col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))]
+  (let [!selected-index (e/server (atom nil))
+        selected-index (e/server (e/watch !selected-index))
+        col->spec (e/server (into {} (map (fn [x] [(hfql/unwrap x) x])) raw-spec))
+        ]
     (->> (forms/TablePicker! ::selection
-           (e/server (e/watch !index))
+           selected-index
            row-count
-           (e/fn [index] (e/server (when-some [o (nth data index nil)]
-                                     (let [navd (Nav data nil o)
-                                           pulled (#(when navd (hfql/pull e/*bindings* raw-spec navd)))] ; FIXME conditional glitch guard
-                                       (select-row-if-match-url! !index index navd saved-selection)
-                                       (TableRow cols col->spec o pulled)))))
+           (e/fn [row-index] (e/server (when-some [[row-index row-object row-hydrated-object] (nav-row e/*bindings* data row-index)]
+                                         (select-row-if-match-url! !selected-index row-index row-hydrated-object saved-selection)
+                                         (let [pulled (#(when row-hydrated-object (hfql/pull e/*bindings* raw-spec row-hydrated-object)))] ; FIXME conditional glitch guard
+                                           (TableRow cols col->spec row-object pulled)))))
            :row-height row-height
            :column-count (e/server (count raw-spec))
            :as :tbody)
       (forms/Parse (e/fn ToCommand [{selected-index ::selection}]
                      (e/When (or select #_(Browse-mode?))
                        (e/server
-                         (reset! !index selected-index)
+                         (reset! !selected-index selected-index)
                          (let [selected-object (Nav data nil (nth data selected-index nil))]
                            (if-let [symbolic-representation (hfql/identify selected-object)]
                              [`Select! symbolic-representation]
