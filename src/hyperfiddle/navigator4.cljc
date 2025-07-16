@@ -22,7 +22,6 @@
             [dustingetz.loader :as loader]
             [geoffreygaillard.predicates :as pred]
             #?(:clj [clojure.tools.logging :as log])
-            #?(:clj [hyperfiddle.hfql0 :as hfql])
             [geoffreygaillard.debug-tools :refer [debug-exceptions]])
   #?(:cljs (:require-macros hyperfiddle.navigator4)))
 
