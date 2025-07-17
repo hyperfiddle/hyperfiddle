@@ -16,9 +16,9 @@
         (io/make-parents target)
         (io/copy (io/file demo-source-path) target)))))
 
-(defn prep [& _]
-  (clean)
-  (import-demos!))
+(defn prep [& args]
+  (apply clean args)
+  (apply import-demos! args))
 
 (defn build
   ([opts] (build (build/create-basis :aliases [:release]) opts))
