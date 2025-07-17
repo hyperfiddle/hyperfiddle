@@ -16,10 +16,9 @@
 
 #?(:clj (defn build-nav-links [sitemap defaults]
           (->> (find-context-free-entries sitemap)
+            (sort-by first)
             (concat defaults)
-            (into #{})
-            (sort-by first))
-          ))
+            (distinct))))
 
 (e/defn Index [sitemap defaults]
   (dom/nav
