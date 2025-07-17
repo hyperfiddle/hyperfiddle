@@ -41,11 +41,16 @@
    (defn ->sort-comparator [sort-spec]
      (debug-exceptions `->sort-comparator
        (let [[[k asc?]] sort-spec
-             order (if asc? neg? pos?)]   ; TODO support multi-sort
+             order (if asc? neg? pos?)   ; TODO support multi-sort
+             compare-fn (fn [a b]
+                          (cond
+                            (nil? a) false
+                            (nil? b) true
+                            :else (order (compare a b))))]
          (when k
            (fn [a b]
              (debug-exceptions `->sort-comparator-inner
-               (order (compare (comparable (get a k)) (comparable (get b k)))))))))))
+               (compare-fn (comparable (get a k)) (comparable (get b k))))))))))
 
 (comment
   (sort (->sort-comparator [[:k true]]) [{:k 1} {:k 0} {:k 2}])
@@ -410,6 +415,8 @@
 (defn sexpr-comparator [a b]
   (debug-exceptions `sexpr-comparator
     (cond
+      (nil? a) -1
+      (nil? b) 1
       (and (keyword? a) (symbol? b)) (compare a (keyword b))
       (and (symbol? a) (keyword? b)) (compare (keyword a) b)
       (seq? a) (sexpr-comparator (-fsym a) b)
