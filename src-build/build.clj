@@ -16,8 +16,12 @@
         (io/make-parents target)
         (io/copy (io/file demo-source-path) target)))))
 
+(defn prep [& _]
+  (clean)
+  (import-demos!))
+
 (defn build
-  ([opts] (build (tools.build/create-basis) opts))
+  ([opts] (build (build/create-basis :aliases [:release]) opts))
   ([basis opts]
    (clean basis opts)
    (let [{:keys [class-dir src-dirs] :as opts} (build/defaults basis opts)]

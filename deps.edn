@@ -13,8 +13,8 @@
                              :developerConnection "scm:git:ssh://git@github.com/hyperfiddle/hyperfiddle.git"}
 
  :hyperfiddle/imported-demos {"../datomic-browser/src/dustingetz/datomic_browser.cljc" "target/classes/dustingetz/datomic_browser.cljc"}
- :deps/prep-lib {:alias :build :fn import-demos! :ensure "target/classes"}
- :paths ["src" "resources" "target/classes"]
+ :deps/prep-lib {:alias :build :fn prep :ensure "target/classes"}
+ :paths ["target/classes" "src" "resources"]
 
  :deps {com.hyperfiddle/electric {:local/root "../electric"}
         com.hyperfiddle/hyperfiddle-contrib {:local/root "../hyperfiddle-contrib"}
