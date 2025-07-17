@@ -14,7 +14,7 @@
 
  :hyperfiddle/imported-demos {"../datomic-browser/src/dustingetz/datomic_browser.cljc" "target/classes/dustingetz/datomic_browser.cljc"}
  :deps/prep-lib {:alias :build :fn prep :ensure "target/classes"}
- :paths ["target/classes" "src" "resources"]
+ :paths ["src" "resources" "target/classes"]
 
  :deps {com.hyperfiddle/electric {:local/root "../electric"}
         com.hyperfiddle/hyperfiddle-contrib {:local/root "../hyperfiddle-contrib"}
