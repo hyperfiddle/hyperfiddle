@@ -431,13 +431,13 @@
 
 #?(:clj (defn- find-documentation [query]
           (when-let [identifier (form-identifier query)]
-            (documentation
-              (cond (qualified-symbol? identifier) (resolve identifier)
-                    ;; TODO extend
-                    ;; (pred/java-method-symbol? identifier) ...
-                    :else nil)))))
-
-(e/defn Docstring [query] (e/server (find-documentation query)))
+            (str/triml
+              (str (documentation
+                     (cond (qualified-symbol? identifier) (resolve identifier)
+                           ;; TODO extend
+                           ;; (pred/java-method-symbol? identifier) ...
+                           :else nil))
+                "\n\n")))))
 
 (e/defn ObjectBlock [query o spec effect-handlers Search args]
   (e/client
@@ -553,11 +553,18 @@
           " · truncated")
         ")"))))
 
+#?(:clj (defn- table-title-tooltip-content [query query-meta]
+          {:post [(or (string? %) (nil? %))]}
+          (-> (find-documentation query)
+            (str (format-query-meta query-meta))
+            (str/trim)
+            (dustingetz.str/blank->nil))))
+
 (e/defn TableTitle [query Search row-count spec query-meta Suggest*]
   (dom/legend
     (dom/span
       (dom/span
-        (dom/props {:class "title" :data-tooltip (e/server (dustingetz.str/blank->nil (str (find-documentation query) (format-query-meta query-meta ))))})
+        (dom/props {:class "title" :data-tooltip (e/server (table-title-tooltip-content query query-meta))})
         (dom/text (pretty-title query)))
       (e/as-vec ; dirty trick to circumvent dom/text in between Search and columns
         (e/amb
