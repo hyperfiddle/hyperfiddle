@@ -463,7 +463,7 @@
                 static-keyset (set static-keys)
                 [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
                 static-map (into {} static-kvs)]
-            (concat (map (fn [pullspec-key] (find static-map (hfql/unwrap pullspec-key))) static-keys)
+            (concat (keep (fn [pullspec-key] (find static-map (hfql/unwrap pullspec-key))) static-keys)
               (?sort-by key (remove (comp some? static-keyset key) dynamic-kvs))))))
 
 #?(:clj (defn- kvs-filter-by-needle [kvs needle]
