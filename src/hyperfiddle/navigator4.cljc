@@ -393,7 +393,13 @@
 (e/defn Nav [coll k v] (e/server (Timing 'Nav #(nav* e/*bindings* coll k v))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
-#?(:clj (defn ?unlazy [o] (cond-> o (seq? o) list*)))
+#?(:clj (defn realize ; TODO useful enough and hard-to-get-right enough to promote to HFQL
+          "Realize a lazy-seq to a plain list. Values that are not a lazy-seq just passes
+  through. Differs from `doall` in that `(str (doall seq))` will print an opaque
+  object address, whereas `(str (realize seq))` will print as a plain list. Will
+  hang forever on infinite seqs."
+          [supposedly-lazy-seq]
+          (if (seq? supposedly-lazy-seq) (list* supposedly-lazy-seq) supposedly-lazy-seq)))
 
 (defn -fsym [sexpr]
   (when (seq? sexpr)
@@ -439,6 +445,28 @@
                            :else nil))
                 "\n\n")))))
 
+#?(:clj (defn- kvs-sort-by-ordered-keyset
+          "Sort a map structure by keys. Static selected keys (from pullspec) have
+  priority and are laid out in order, as in an ordered map. Extra keys comes later and are sorted by
+  `comparator`. Return a seq of map entries."
+          [pullspec kvs]
+          {:pre [(sequential? pullspec) (every? map-entry? kvs)]
+           :post [(every? map-entry? %) (= (count %) (count kvs))]}
+          (let [static-keys (map hfql/unwrap pullspec)
+                static-keyset (set static-keys)
+                [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
+                static-map (into {} static-kvs)]
+            (concat (map (fn [pullspec-key] (find static-map (hfql/unwrap pullspec-key))) static-keys)
+              (?sort-by key (remove (comp some? static-keyset key) dynamic-kvs))))))
+
+#?(:clj (defn- kvs-filter-by-needle [kvs needle]
+          {:pre [(every? map-entry? kvs) (or (string? needle) (nil? needle))]
+           :post [(every? map-entry? %) (<= (count %) (count kvs))]}
+          (if (empty? needle)
+            kvs
+            (filter (fn [[k v]] (or (strx/includes-str? (realize k) needle) (strx/includes-str? v needle)))
+              kvs))))
+
 (e/defn ObjectBlock [query o spec effect-handlers Search args]
   (e/client
     (let [{saved-selection ::selection} args
@@ -450,16 +478,8 @@
           shorten (e/server (column-shortener (mapv labelize raw-spec) symbol?))
           default-select (e/server (::hfql/select opts))
           pulled (e/server (Timing (cons 'pull (pretty-title query)) #(hfql/pull e/*bindings* raw-spec o)))
-          data (e/server
-                 (?sort-by key
-                   (into [] (keep (fn [kspec]
-                                    (debug-exceptions `ObjectBlock-sort-keep
-                                      (let [k (hfql/unwrap kspec)
-                                            v (get pulled k)]
-                                        (when (or (strx/includes-str? (?unlazy k) *search)
-                                                (strx/includes-str? v *search))
-                                          (datax/map-entry k v))))))
-                     raw-spec)))
+          filtered (e/server (kvs-filter-by-needle pulled *search))
+          data (e/server (kvs-sort-by-ordered-keyset (hfql/unwrap spec) filtered))
           row-count (e/server (count data)), row-height 24]
       (binding [*block-opts (e/server (hfql/opts spec))]
         (dom/fieldset
