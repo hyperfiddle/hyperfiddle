@@ -596,7 +596,7 @@
       (e/as-vec ; dirty trick to circumvent dom/text in between Search and columns
         (e/amb
           (dom/span ; dirty trick to circumvent sited destructuring out of TableTitle
-            (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search (>= row-count collection-limit)))))))
+            (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search false #_(>= row-count collection-limit)))))))
           (dom/text (format-collection-count row-count collection-limit))
           (let [k* (e/server (into #{} (map hfql/unwrap) (hfql/unwrap spec)))
                 label* (e/server (into #{} (map labelize) (hfql/unwrap spec)))
