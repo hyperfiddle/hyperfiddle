@@ -41,7 +41,7 @@ Hyperfiddle features:
 
 **FAQ: What's the difference between an object navigator and a data browser?** Hyperfiddle is about objects, not data. Objects come with functions and methods, they aren't serializable, you navigate hyperlink graph structures rather than browse freeform nested structures, and you want to do this without impedance, using the actual native object datatype, not data mappers and derived projections. Objects are what the world is made of. And Hyperfiddle is how you reach them.
 
-## Progressive enhancement to customize the object navigator core with web technologies
+## Progressive enhancement with web technologies for full customization
 
 Technically this is a Electric v2 app using prerelease Hyperfiddle primitives from last year, we still need to upgrade it to latest. But you can see where we are going with this.
 
