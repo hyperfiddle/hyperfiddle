@@ -11,7 +11,7 @@ Hyperfiddle is a **programmable object navigator** that lets you build custom in
 
 ## Example Hyperfiddle apps
 
-* [Clojure namespace browser](https://gist.github.com/dustingetz/b2a7a5a7af0feed17de5eb73e0444e28). 42 LOC!
+* [Clojure namespace browser](https://gist.github.com/dustingetz/b2a7a5a7af0feed17de5eb73e0444e28). 22 LOC!
 * [Datomic entity browser](https://github.com/hyperfiddle/datomic-browser). Only [150 LOC](https://github.com/hyperfiddle/datomic-browser/blob/main/src/dustingetz/datomic_browser.cljc) + datomic utils
 
 Note: Hyperfiddle does NOT depend on Datomic. The Datomic example is a *userland* Hyperfiddle app!
