@@ -293,7 +293,7 @@
                      f (hfql/resolve! f$)]
                  (with-bindings hfql-bindings (apply f args)))
                (catch Throwable e ;; swallowed exception possible here
-                 (log/error e "Failed to run query" {:query (seq query)})
+                 (log/error e "Failed to run query" {:query (pr-str (seq query))})
                  #_(throw e) nil ; FIXME glitch guard
                  ))))
 
