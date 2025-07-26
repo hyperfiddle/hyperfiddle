@@ -376,4 +376,19 @@ navigable pulled maps, without touching all attributes."
 ;;                      (m/? (m/via m/blk (read-sitemap ns f)))))
 ;;               (e/flow->incseq)))))
 
+(extend-type Class
+  Identifiable (-identify [^Class c] (.getCanonicalName c))
+  Suggestable (-suggest [_] (pull-spec [.getCanonicalName .getMethods .getFields])))
 
+(extend-type java.lang.reflect.Method
+  Identifiable (-identify [^java.lang.reflect.Method o]
+                 (->> (.getParameterTypes o)
+                   (mapv #(.getTypeName %))
+                   (cons (.getName o))))
+  Suggestable (-suggest [_] (pull-spec [.getName .getParameterTypes])))
+
+(extend-type Object
+  Identifiable (-identify [x] (.hashCode x))
+  Suggestable (-suggest [x]
+                #_(suggest-java-class-members x) ; todo
+                (pull-spec [type]))) ; suggestion of last resort, gets you to the methods

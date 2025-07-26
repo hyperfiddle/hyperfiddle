@@ -112,18 +112,13 @@
   Identifiable (-identify [^java.lang.StackTraceElement x] (hash x)) ; better to use local index fallback
   Datafiable (datafy [^java.lang.StackTraceElement x] {::toString (.toString x)})) ; members are private
 
-(defn class-fields [^Class clazz] (vec (.getFields clazz)))
-(defn class-methods [^Class clazz] (vec (.getMethods clazz)))
 (defn method-parameter-types [^java.lang.reflect.Method m] (vec (.getParameterTypes m)))
 
 (extend-protocol Suggestable
-  Class
-  (-suggest [_] (pull-spec [.getCanonicalName class-fields class-methods]))
   java.lang.reflect.Method
   (-suggest [_] (pull-spec [.getName method-parameter-types])))
 
 (extend-protocol Identifiable
-  Class (-identify [^Class c] (.getCanonicalName c))
   java.lang.reflect.Method
   (-identify [^java.lang.reflect.Method m]
     (cons (.getName m) (mapv #(.getTypeName %) (.getParameterTypes m)))))
