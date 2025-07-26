@@ -96,7 +96,8 @@
 
 (e/defn FiddleMain [ring-req fiddles & {:as props}] ; dev, optionally in prod (e.g. tutorial)
   (binding [e/http-request (e/server ring-req)
-            dom/node js/document.body]
+            dom/node js/document.body
+            e/*exports* (e/server (e/exports))]
     (dom/div ; mandatory wrapper div https://github.com/hyperfiddle/electric/issues/74
       (r/router (r/HTML5-History)
         (FiddleRoot (merge {`FiddleIndex FiddleIndex} fiddles) props)))))
