@@ -43,6 +43,7 @@
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body)) ; TODO remove
 
+; this is ElectricFiddle not Hyperfiddle
 (e/defn Hyperfiddle [user-apps & {:keys [default] :or {default `(Index)}}]
   (r/router (r/HTML5-History)
     (let [[app-name & _] r/route]
