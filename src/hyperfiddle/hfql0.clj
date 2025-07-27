@@ -388,7 +388,7 @@ navigable pulled maps, without touching all attributes."
   Suggestable (-suggest [_] (pull-spec [.getName .getParameterTypes])))
 
 (extend-type Object
-  Identifiable (-identify [x] (.hashCode x))
+  #_#_Identifiable (-identify [x] (.hashCode x)) ; unclear if OK - we check for presence?
   Suggestable (-suggest [x]
                 #_(suggest-java-class-members x) ; todo
-                (pull-spec [type]))) ; suggestion of last resort, gets you to the methods
+                (pull-spec [identity identify type]))) ; suggestion of last resort, gets you to the methods
