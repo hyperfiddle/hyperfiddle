@@ -1,6 +1,11 @@
 ;; * Rules of HFQL
 ;;
-;; ** Don't resolve
+;; ** Don't force an evaluation model ①
+;;    HFQL can be lazy or eager. But it's on the user to decide how to run it.
+;;    HFQL should produce values step by step and provide continuations for next
+;;    steps. The user can then run all eagerly or consume one step at a time.
+;;
+;; ** Don't resolve ②
 ;;    Resolving in clojure is easy, but not simple. Resolving in clojurescript is
 ;;    neither at compile time, and impossible at runtime in practice. Gathering the
 ;;    knowledge to resolve correctly (in context) causes headaches and makes code
@@ -12,7 +17,7 @@
 ;;    `{:form '~form, :evaluated ~form})
 ;;    ```
 ;;
-;; ** Don't eval
+;; ** Don't eval ③
 ;;    Eval is resolve's angry big brother. Eval in clojure is easy, but so hard to
 ;;    get right out of dummy cases that it's not practical. Eval in cljs is
 ;;    borderline impossible out of toy projects. Eval does resolve, so it requires
@@ -23,7 +28,7 @@
 ;;    instead of calling a new eval context, leverage the current one. Don't
 ;;    capture code and then inject a runtime interpreter, instead rewrite code and
 ;;    let it be interpreted by the current -already running- interpreter :
-
+;;
 ;;    ```
 ;;    (defmacro applicative-let [bindings & body]
 ;;      ; don't do that
@@ -33,7 +38,7 @@
 ;;        ~@body))
 ;;    ```
 ;;
-;; ** Capture all you can
+;; ** Capture all you can ④
 ;;    The need for resolve or eval often indicates a lack of information, and an
 ;;    attempt at recovering it. By capturing as much as you can at compile time and
 ;;    passing it to runtime, you can minimize the need to reconstruct information.
@@ -47,7 +52,7 @@
 ;;        }))
 ;;    ```
 ;;
-;; ** Pass raw forms to userland
+;; ** Pass raw forms to userland ⑤
 ;;
 ;;    Some values must be wrapped to be annotated. Keywords are famously annoying
 ;;    to annotate because they don't support metadata, compare by reference
@@ -81,11 +86,7 @@
 ;;    Idea: One could even cheat and overload `cc/meta` to look for a a value in
 ;;    dynamic scope.
 ;;
-;; ** Don't use dynamic scope with lazy traversals
-;;    Instead macroexpand to lexical scopes and close over it.
-;;
-;;
-;; ** Don't assume information will be available
+;; ** Don't assume information will be available ⑥
 ;;    Clojure read is destructive. One example is keyword alias expansion: it
 ;;    happens at read time. At compile time (macro time) the original keyword form
 ;;    (the one made of chars in source file on disk) is already gone, and we can't
@@ -93,20 +94,24 @@
 ;;    sure, but the presence of a matching alias doesn't necessarily mean the
 ;;    keyword was aliased. It could have been fully qualified.
 ;;
-;; ** Always quote (meta &form)
+;; ** Always quote (meta &form) ⑦
 ;;    You can never know what's in there, libraries and devtools may mess with it,
 ;;    and it's never meant to be evaluated (e.g. :tag, or :arglists).
 ;;
-;; ** Avoid large macros, use many small ones
+;; ** Avoid large macros, use many small ones ⑧
 ;;    This advice is specific to HFQL. Avoid large macros taking one form and doing
 ;;    all transforms at once. Instead use many small macros so to collect as much
 ;;    &form instances as possible, and so augment source knowledge. You'll get more
 ;;    granular source mapping, less coupling and better testing. Remember
 ;;    macroexpand is a pre-walk: having a top-level macro sprinkle small ones over
 ;;    the form won't produce source mapping metadata on the sprinkled &forms.
+;;
+;; ** Don't use dynamic scope with lazy traversals ⑨
+;;    Instead macroexpand to lexical scopes and close over it.
+
 
 (ns hyperfiddle.hfql1
-  (:refer-clojure :exclude [meta unquote])
+  (:refer-clojure :exclude [meta unquote replace])
   (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
             [clojure.string]
             [hyperfiddle.rcf :as rcf :refer [tests]]
@@ -124,13 +129,13 @@
 (defn- form [edge] (::form (meta edge)))
 (defn- value [edge] (::value (meta edge)))
 
-(defn- get-or-apply [f object]
+(defn- get-or-apply [f object & args]
   {:pre [(ifn? f)]}
   (if (try (contains? object f) (catch #?(:clj Throwable, :cljs :default) _
                                   (log/debug "object doesn't support `contains?`" (type object))
                                   false))
     (get object f)
-    (f object)))
+    (apply f object args)))
 
 (defn- quoted? [form]
   (and (seq? form) (= 'quote (first form))))
@@ -153,25 +158,73 @@
     ;; ?
     :else edge-form))
 
+(defn- replace
+  ([replacements form] (replace identity replacements form))
+  ([not-found-f replacements form]
+   (cond (seq? form) (map (fn [item] (get replacements item (not-found-f item))) form)
+         (ident? form) (get replacements form (not-found-f form))
+         :else form)))
+
+(defn- with-% [f]
+  (fn
+    ([] (f nil nil))
+    ([object] (f {'% object} object))
+    ([env object] (f (assoc env '% object) object))
+    ([env object & args] (apply f env object args))))
+
+(defn- zip-by
+  ([coll-a coll-b] (zip-by (constantly true) coll-a coll-b))
+  ([pred coll-a coll-b]
+   (let [max-size (max (count coll-a) (count coll-b))
+         coll-a (take max-size (concat coll-a (repeat nil)))
+         coll-b (take max-size (concat coll-b (repeat nil)))]
+     (map (fn [a b] (if (pred a) b a)) coll-a coll-b))))
+
+(tests
+  (zip-by [1 2 3] [:a :b :c])
+  := '(:a :b :c)
+
+  (zip-by '#{_} '[1 _ 3] [:a :b :c])
+  := '(1 :b 3)
+
+  )
+
+(defmulti symbolic-form (fn [form value] (if (or (::symbolic (meta form)) (::symbolic (meta value))) ::symbolic (type value))))
+(defmethod symbolic-form ::symbolic [form value] form)
+(defmethod symbolic-form :default [form value] value)
+
+(defn- template-call-args-from-env [lexical-env symbolic-call-form call-form]
+  (let [[f & args] call-form
+        [_symbolic-f & symbolic-args] symbolic-call-form
+        templated-args (replace (constantly ::hole) lexical-env symbolic-args)
+        args (zip-by #{::hole} templated-args args)
+        args (map symbolic-form symbolic-args args)]
+    (cons f args)))
+
+
 (defn- lift-traversal [fn-like metadata]
   {:pre [(map? fn-like)]}
   (assert (= 1 (count fn-like)) (str "A traversal can only contain one edge. Received: " (keys fn-like) "."))
   (let [[edge-fn edges] (first fn-like) ; only keep first key/val pair
          ]
-    (fn traverse [& [lexical-context]] ; optional
-      {(replace lexical-context (ffirst (::form metadata)))
-       (edges (edge-fn lexical-context))})))
+    (with-% (fn traverse [lexical-env object] ; optional
+              (let [value (edge-fn lexical-env object)
+                    symbolic-edge (ffirst (::form metadata))
+                    templated-edge (template-call-args-from-env (merge (::lexical-env metadata) lexical-env) symbolic-edge fn-like)]
+                {::edge (cons (first symbolic-edge) (rest templated-edge))
+                 ::value value
+                 ::continuation edges})))))
 
 (defn lift
   ([fn-like] (lift fn-like {}))
   ([fn-like metadata]
    (let [lifted-fn
          (cond
-           (ident? fn-like) #(get % fn-like)
-           (string? fn-like) #(get % fn-like)
-           (var? fn-like) #(apply fn-like %&) ; must wrap, putting meta on a var is a side effect
-           (fn? fn-like) #(get-or-apply fn-like %)
-           (var-form? fn-like) #(get % (::value metadata)) ; quoted var
+           (ident? fn-like)  (with-% (fn [_lexical-env object] (get object fn-like)))
+           (string? fn-like) (with-% (fn [_lexical-env object] (get object fn-like)))
+           (var? fn-like) (with-% (fn [_lexical-env & args] (apply fn-like args))) ; must wrap, putting meta on a var is a side effect
+           (fn? fn-like) (with-% (fn [_lexical-env object & args] (apply get-or-apply fn-like object args)))
+           (var-form? fn-like) (with-% (fn [_lexical-env object] (get object (::value metadata)))) ; quoted var
            ;; TODO class method calls?
            (map? fn-like) (lift-traversal fn-like metadata)
            (vector? fn-like) (let [fns fn-like]
@@ -179,11 +232,12 @@
                                  (constantly {})
                                  (let [keys (map edge-name (form fns))
                                        vals (apply juxt fns)]
-                                   (fn edges [map] (zipmap keys (concat (vals map) (repeat nil)))))))
-           (seq? fn-like) (let [[f & args] fn-like]
-                            (fn call [& [lexical-context]] ; optional
-                              (apply (value f) (replace lexical-context args))))
-           :else #(apply fn-like %&))]
+                                   (with-% (fn edges [_lexical-env map-object] (zipmap keys (concat (vals map-object) (repeat nil))))))))
+           (seq? fn-like) (with-% (fn call [lexical-env & _args] ; optional
+                                    (let [lexical-env (merge (::lexical-env metadata) lexical-env)
+                                          [f & args] (template-call-args-from-env lexical-env (::form metadata) fn-like)]
+                                      (apply (value f) args))))
+           :else (with-% (fn [_lexical-env & args] (apply fn-like args))))]
      (with-meta lifted-fn metadata))))
 
 ;;;;;;;;;;;;;;;;;;;;;
@@ -242,7 +296,7 @@
 (defn- edge-raw-form [edge]
   (cond (quoted-var-form? edge) edge ; this trick/special case prevents a later call to `resolve`
         (is-kw-fn? edge) (get-kw-fn-form-kw edge)
-        :else (list 'quote edge)))
+        :else edge))
 
 (defn- edge-raw-value [edge]
   (cond (quoted-var-form? edge) (unquote edge)  ; this trick/special case prevents a later call to `resolve`
@@ -264,13 +318,28 @@
       (update-vals #(list `pull-expr %)))
     form))
 
+#_(defn- escape-symbols [form]
+  (if (symbol? form)
+    (escape-calls `(identity ~form))
+    form))
+
+;; (def %env {})
+
+(defn- lexical-bindings-map [lexical-env]
+  (zipmap (map #(list 'quote %) (keys lexical-env))
+    (keys lexical-env)))
+
 (defmacro edge [fn-like-form]
-  (def _env &env)
+  ;; (def _env &env)
   `(lift ~(escape-calls (escape-traversals fn-like-form))
-     ~(merge (meta &form)
-        {::form (edge-raw-form fn-like-form)
-         ::value (escape-calls (escape-traversals (edge-raw-value fn-like-form)))}
-        (meta fn-like-form))))
+     (merge '~(meta &form) ; ⑦
+       {::form ; ②
+        '~(edge-raw-form fn-like-form)
+        ::value ; ②
+        ~(escape-calls (escape-traversals (edge-raw-value fn-like-form)))
+        ::lexical-env ~(lexical-bindings-map &env)}
+       '~(meta fn-like-form) ; ⑦
+       )))
 
 
 (tests
@@ -312,10 +381,11 @@
 
 (defmacro pull-expr [pull-expr]
   (cond
-    (empty? pull-expr) `(constantly {})
+    (empty? pull-expr) `(with-meta (constantly {}) {::form []})
     (vector? pull-expr)
-    `(edge ~(with-meta (mapv (fn [fn-like-form] `(edge ~fn-like-form)) pull-expr)
-              {::form (edge-raw-form pull-expr)})
+    `(edge ~(with-meta
+              (mapv (fn [fn-like-form] `(edge ~fn-like-form)) pull-expr) ; ⑧
+              {::form (list 'quote (edge-raw-form pull-expr))})
        #_~(merge (meta pull-expr) (meta &form) {::form (list 'quote pull-expr)}))
     :else `(edge ~pull-expr)))
 
@@ -335,14 +405,59 @@
 
 
 (tests
-  (edge (identity 1))
+  ;; (clojure.data/diff)
+  (let [alice {:db/id 9, :user/email "alice@example.com"}]
+    ((edge {identity [:user/email]}) alice) )
+
+  := {::edge 'identity,
+      ::value {:db/id 9, :user/email "alice@example.com"},
+      ::continuation _} ; ①
+  )
+
+(defn pull-1 ; ①
+  ([edge-fn] (pull-1 edge-fn nil))
+  ([edge-fn object] (pull-1 edge-fn {'% object} object))
+  ([edge-fn env object]
+   (edge-fn (assoc env '% object) object)))
+
+(defn pull ; ①
+  ([edge-fn] (pull edge-fn nil))
+  ([edge-fn object] (pull edge-fn {'% object} object))
+  ([edge-fn env object]
+   (let [env (assoc env '% object)
+         result (edge-fn env object)]
+     (if (and (map? result) (contains? result ::continuation))
+       (let [{::keys [edge value continuation]} result]
+         {edge (pull continuation (assoc env edge value) value)})
+       result))))
+
+(tests
+  (pull-1 (edge :a) {:a 1})
+  := 1
+
+  (let [alice {:db/id 9, :user/email "alice@example.com"}]
+    (pull-1 (edge {identity [:user/email]}) alice))
+   := {:hyperfiddle.hfql1/edge 'identity,
+      :hyperfiddle.hfql1/value {:db/id 9, :user/email "alice@example.com"},
+      :hyperfiddle.hfql1/continuation _}
+
+   (let [alice {:db/id 9, :user/email "alice@example.com"}]
+     (pull (edge {identity [:user/email]}) alice))
+    := {'identity {:user/email "alice@example.com"}}
+  )
+
+(tests
+  (edge (identity 1) )
 
   ((edge (identity 1)))
   := 1
-  ((edge (identity '%)) {'% "hello"})
+  ((edge (identity '%)) "hello") ; FIXME, regression on env-templated call forms
   := "hello"
-  ((edge (str "value is: " '%)) {'% 'foo})
+  ((edge (str "value is: " '%)) 'foo)
   := "value is: foo"
+
+  ((edge (str "value is: " '%)) {'% 'foo} 'bar)
+  := "value is: bar"
 
   ((let [x 1] (edge (identity x))))
   := 1
@@ -350,20 +465,33 @@
   ((let [x 2] (edge (vector 1 x 3))))
   := [1 2 3]
 
-  ((let [x 2] (edge (vector 1 x 3 'y))) {'y 4})
+  ((let [x 2] (edge (vector 1 x 3 'y))) {'y 4} nil)
   := [1 2 3 4]
+
+  ((let [x 2] (edge (vector 1 x 3 'y '%))) {'y 4} 5)
+   := [1 2 3 4 5]
   )
+
+
 
 (tests
   (let [alice   {:db/id 9, :user/email "alice@example.com", :user/first-name "Alice"}
         bob     {:db/id 10, :user/email "bob@example.com", :user/first-name "Bob"}
         charlie {:db/id 11, :user/email "chalie@example.com", :user/first-name "Charlie"}
-        db      {9 alice, 10 bob, charlie 11}
+        db      ^::symbolic {9 alice, 10 bob, charlie 11}
         d-entity (fn [db eid] (get db eid))
         user-summary #(str (:user/first-name %) " – " (:user/email %))
-        selected 9]
-    ((edge {(d-entity db selected) [:db/id :user/email user-summary keys clojure.core/keys]})))
-  := '{(d-entity db selected) ; FIXME
+        selected 9
+        expr (edge {(d-entity db selected) [:db/id :user/email user-summary keys clojure.core/keys]})]
+    (pull expr ))
+   := {'(d-entity db 9)
+      {:db/id nil,
+       :user/email nil,
+       'user-summary " – ",
+       'keys nil,
+       'clojure.core/keys nil}}
+  
+  #_#_:= '{(d-entity db 9) ; FIXME
        {:db/id 9,
         :user/email "alice@example.com",
         user-summary "Alice – alice@example.com",
@@ -377,6 +505,6 @@
         charlie {:db/id 11, :user/email "chalie@example.com", :user/first-name "Charlie"}
         d-entity {9 alice, 10 bob, charlie 11}
         selected 9]
-    ((edge {(d-entity selected) [{:user/address [:address/number]}]})))
+    (pull (edge {(d-entity selected) [{:user/address [:address/number]}]})))
    := {:user/address #:address{:number 42}} ; FIXME
  )
