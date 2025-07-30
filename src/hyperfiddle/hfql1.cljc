@@ -116,6 +116,7 @@
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [clojure.string :as str]
             [clojure.datafy :as datafy]
+            [clojure.core.protocols :as ccp]
             #?(:clj [clojure.tools.logging :as log])))
 
 (defn- has-meta? [object]
@@ -437,7 +438,7 @@
   ([object edge value] (nav nil object edge value))
   ([env object edge value]
    (if (edge? edge)
-     (call edge (assoc env '% object) object)
+     (call edge (assoc env '% object) (if (satisfies? ccp/Navigable object) (or (datafy/nav object edge value) object) object))
      (datafy/nav object edge (if (or (nil? value) (= object value))
                                (if (associative? object)
                                  (get object edge value)
@@ -469,13 +470,22 @@
 
 (declare pull)
 
+(defn- multiplicity-many? [object]
+  (and (seqable? object)
+    (not (map? object))))
+
 (defn- traverse [object edge env]
   {:pre [(traversal? edge)]}
-  (reduce-kv (fn [r edge pull-expr]
-               (let [[f & args] (template-call-from-env env (form edge) (value edge))
-                     [symbolic-f & _symbolic-args] (add-point-to-call-form (form edge))]
-                 (assoc r (if (seq? (form edge)) (cons symbolic-f args) (form edge))
-                   (pull pull-expr object (assoc env '% object))))) {} (value edge)))
+  (if (multiplicity-many? object)
+    (->> (map (fn [collection-element] (traverse (datafy/nav object edge collection-element) edge (assoc env '% object))) object)
+      (reduce (fn [r traversed] (merge-with (fn [a b] (if (vector? a) (conj a b) [a b])) r traversed)) {}))
+    (reduce-kv (fn [r edge pull-expr]
+                 (let [[f & args] (template-call-from-env env (form edge) (value edge))
+                       [symbolic-f & _symbolic-args] (add-point-to-call-form (form edge))]
+                   (assoc r (if (seq? (form edge)) (cons symbolic-f args) (form edge))
+                     (pull pull-expr object (assoc env '% object))))) {} (value edge))))
+
+;; (pull (hfql {(_people_) [:user/name]}))
 
 (defn pull "Eagerly navigates, realizing the entire pull expression." ; ①
   ([pull-expr] (pull pull-expr nil))
@@ -534,12 +544,20 @@
   )
 
 
+(defn navigable-indexed [nav-fn collection]
+  (vary-meta collection assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value)))) ; #?(:clj bound-fn :cljs fn)
+
+(defn navigable [nav-fn collection] (navigable-indexed (fn [_index value] (nav-fn value)) collection))
+
+
 (def ^:private _alice_    {:db/id 9, :user/email "alice@example.com", :user/name "Alice" :user/address {:address/number 42}})
 (def ^:private _bob_      {:db/id 10, :user/email "bob@example.com", :user/name "Bob"})
 (def ^:private _charlie_  {:db/id 11, :user/email "chalie@example.com", :user/name "Charlie"})
-(def ^:private _db_       ^::symbolic {9 _alice_, 10 _bob_, _charlie_ 11})
+(def ^:private _db_       ^::symbolic {9 _alice_, 10 _bob_, 11 _charlie_})
 (def ^:private _d-entity_ (fn [db eid] (get db eid)))
-(defn- _people_ [] (list 9 10 11))
+(defn- _people_ []
+  (->> (list 9 10 11)
+    (navigable (partial _d-entity_ _db_) )))
 
 (tests
   (let [user-summary #(str (:user/name %) " – " (:user/email %))
@@ -568,3 +586,24 @@
    := _alice_
   (pull (hfql {identity [:db/id *]}) _alice_)
   := {'identity _alice_})
+
+
+(tests "multiplicity many"
+
+  ((hfql {(_people_) [:user/name]})) := (list 9 10 11)
+
+  (let [pull-expr (hfql {(_people_) [:user/name]})
+        people (nav pull-expr)]
+    people := (list 9 10 11)
+    (for [person-id people
+          next-pull-expr (next pull-expr)]
+      (nav people next-pull-expr person-id)))
+  := [{:user/name "Alice"}
+      {:user/name "Bob"}
+      {:user/name "Charlie"}]
+
+  (pull (hfql {(_people_) [:user/name]}))
+  := {'(_people_) [{:user/name "Alice"}
+                   {:user/name "Bob"}
+                   {:user/name "Charlie"}]}
+  )
