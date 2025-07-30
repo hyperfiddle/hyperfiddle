@@ -269,7 +269,7 @@
 (defn- generated-symbol? [sym]
   {:pre [(symbol? sym)]}
   (and (simple-symbol? sym)
-    (clojure.string/ends-with? (name sym) "#")))
+    (str/ends-with? (name sym) "#")))
 
 (defn- expanded-fn-form? [form]
   (and (seq? form)
@@ -497,16 +497,16 @@
 
 (defn pull "Eagerly navigates to realize the entire pull expression." ; ①
   ([pull-expr] (pull pull-expr nil))
-  ([pull-expr object] (pull {'% object} pull-expr object))
-  ([env pull-expr object]
+  ([pull-expr object] (pull pull-expr object {'% object}))
+  ([pull-expr object env]
    (assert (edge? pull-expr) "The given pull expression must be prepossessed by `(hfql <pull-expr>)`.")
    (let [env (assoc env '% object)
          do-nav #(nav env object pull-expr nil)]
      (cond
        (traversal? pull-expr) (let [result (do-nav)]
-                                (reduce-kv (fn [r k v] (assoc r (form k) (pull (assoc env '% result) v result))) {} (value pull-expr)))
+                                (reduce-kv (fn [r k pull-expr] (assoc r (form k) (pull pull-expr result (assoc env '% result)))) {} (value pull-expr)))
        (pull? pull-expr) (reduce (fn [r pull-expr]
-                                   (let [pulled (pull env pull-expr object)]
+                                   (let [pulled (pull pull-expr object env)]
                                      (if (traversal? pull-expr)
                                        (into r pulled)
                                        (assoc r (edge-name (form pull-expr)) pulled)))) {} (value pull-expr))
@@ -526,28 +526,28 @@
   )
 
 (tests
-  (edge (identity 1) )
+  (hfql (identity 1) )
 
-  ((edge (identity 1)))
+  ((hfql (identity 1)))
   := 1
-  ((edge (identity '%)) "hello") ; FIXME, regression on env-templated call forms
+  ((hfql (identity '%)) "hello") ; FIXME, regression on env-templated call forms
   := "hello"
-  ((edge (str "value is: " '%)) 'foo)
+  ((hfql (str "value is: " '%)) 'foo)
   := "value is: foo"
 
-  ((edge (str "value is: " '%)) {'% 'foo} 'bar)
+  ((hfql (str "value is: " '%)) {'% 'foo} 'bar)
   := "value is: bar"
 
-  ((let [x 1] (edge (identity x))))
+  ((let [x 1] (hfql (identity x))))
   := 1
 
-  ((let [x 2] (edge (vector 1 x 3))))
+  ((let [x 2] (hfql (vector 1 x 3))))
   := [1 2 3]
 
-  ((let [x 2] (edge (vector 1 x 3 'y))) {'y 4} nil)
+  ((let [x 2] (hfql (vector 1 x 3 'y))) {'y 4} nil)
   := [1 2 3 4]
 
-  ((let [x 2] (edge (vector 1 x 3 'y '%))) {'y 4} 5)
+  ((let [x 2] (hfql (vector 1 x 3 'y '%))) {'y 4} 5)
    := [1 2 3 4 5]
   )
 
