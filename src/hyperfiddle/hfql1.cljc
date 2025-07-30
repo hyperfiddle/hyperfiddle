@@ -199,8 +199,8 @@
     symbolic-call-form
     (list symbolic-call-form '%)))
 
-(defn- template-call-args-from-env [lexical-env symbolic-call-form call-form]
-  (let [[f & args] call-form
+(defn- template-call-from-env [lexical-env symbolic-call-form call-form]
+  (let [[f & args] (add-point-to-call-form call-form)
         [_symbolic-f & symbolic-args] (add-point-to-call-form symbolic-call-form)
         symbolic-args (map unquote symbolic-args)
         templated-args (replace (constantly ::hole) lexical-env symbolic-args)
@@ -216,7 +216,7 @@
     (with-% (fn traverse [lexical-env object] ; optional
               (let [;; symbolic-edge (ffirst (::form metadata))
                     ;; lexical-env (assoc lexical-env '% object)
-                    ;; #_#_templated-edge (template-call-args-from-env (merge (::lexical-env metadata) lexical-env)
+                    ;; #_#_templated-edge (template-call-from-env (merge (::lexical-env metadata) lexical-env)
                     ;;                  (add-point-to-call-form (ffirst (::form metadata)))
                     ;;                  (add-point-to-call-form (ffirst (::value metadata))))
                     [f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
@@ -255,7 +255,7 @@
                                    (with-% (fn edges [_lexical-env map-object] (zipmap keys (concat (vals map-object) (repeat nil))))))))
            (seq? fn-like) (with-% (fn call [lexical-env & _args] ; optional
                                     (let [lexical-env (merge (::lexical-env metadata) lexical-env)
-                                          [f & args] (template-call-args-from-env lexical-env (::form metadata) fn-like)]
+                                          [f & args] (template-call-from-env lexical-env (::form metadata) fn-like)]
                                       (apply (value f) args))))
            :else (with-% (fn [_lexical-env & args] (apply fn-like args))))]
      (with-meta lifted-fn (assoc metadata :type ::edge)))))
@@ -487,15 +487,24 @@
 (defn- traversal? [pull-expr] (and (edge? pull-expr) (map? (value pull-expr))))
 (defn- pull? [pull-expr] (and (edge? pull-expr) (vector? (value pull-expr))))
 
-#_
-(defn- traverse [lexical-env pull-expr object]
+#_(defn- traverse [lexical-env pull-expr object]
   {:pre [(map? (form pull-expr))]}
   (let [symbolic-edge (ffirst (form pull-expr))
-        templated-edge (template-call-args-from-env (merge (::lexical-env (meta pull-expr)) lexical-env) (add-point-to-call-form (ffirst (form pull-expr))) (value pull-expr))
+        templated-edge (template-call-from-env (merge (::lexical-env (meta pull-expr)) lexical-env) (add-point-to-call-form (ffirst (form pull-expr))) (value pull-expr))
         edge (if (seq? symbolic-edge) templated-edge symbolic-edge)]
     {edge (nav lexical-env object pull-expr nil)}))
 
-(defn pull "Eagerly navigates to realize the entire pull expression." ; ①
+(declare pull)
+
+(defn- traverse [object edge env]
+  {:pre [(traversal? edge)]}
+  (reduce-kv (fn [r edge pull-expr]
+               (let [[f & args] (template-call-from-env env (form edge) (value edge))
+                     [symbolic-f & _symbolic-args] (add-point-to-call-form (form edge))]
+                 (assoc r (if (seq? (form edge)) (cons symbolic-f args) (form edge))
+                   (pull pull-expr object (assoc env '% object))))) {} (value edge)))
+
+(defn pull "Eagerly navigates, realizing the entire pull expression." ; ①
   ([pull-expr] (pull pull-expr nil))
   ([pull-expr object] (pull pull-expr object {'% object}))
   ([pull-expr object env]
@@ -503,8 +512,7 @@
    (let [env (assoc env '% object)
          do-nav #(nav env object pull-expr nil)]
      (cond
-       (traversal? pull-expr) (let [result (do-nav)]
-                                (reduce-kv (fn [r k pull-expr] (assoc r (form k) (pull pull-expr result (assoc env '% result)))) {} (value pull-expr)))
+       (traversal? pull-expr) (traverse (do-nav) pull-expr env)
        (pull? pull-expr) (reduce (fn [r pull-expr]
                                    (let [pulled (pull pull-expr object env)]
                                      (if (traversal? pull-expr)
@@ -562,7 +570,7 @@
         selected 9
         expr (hfql {(d-entity db selected) [:db/id :user/email user-summary keys clojure.core/keys]})]
     (pull expr))
-   := {'(d-entity db selected)
+   := {'(d-entity db 9)
       {:db/id 9,
        :user/email "alice@example.com",
        'user-summary "Alice – alice@example.com",
@@ -577,5 +585,5 @@
         d-entity {9 alice, 10 bob, charlie 11}
         selected 9]
     (pull (hfql {(d-entity selected) [:user/name {:user/address [:address/number]}]})))
-  := {'(d-entity selected) {:user/name "Alice", :user/address {:address/number 42}}} ; FIXME user/adress is repeated
+  := {'(d-entity 9) {:user/name "Alice", :user/address {:address/number 42}}} ; FIXME user/adress is repeated
  )
