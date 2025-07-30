@@ -111,11 +111,12 @@
 
 
 (ns hyperfiddle.hfql1
-  (:refer-clojure :exclude [meta unquote replace])
+  (:refer-clojure :exclude [meta unquote replace next empty?])
   (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
             [clojure.string]
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [clojure.string :as str]
+            [clojure.datafy :as datafy]
             #?(:clj [clojure.tools.logging :as log])))
 
 (defn- has-meta? [object]
@@ -193,14 +194,19 @@
 (defmethod symbolic-form ::symbolic [form value] form)
 (defmethod symbolic-form :default [form value] value)
 
+(defn- add-point-to-call-form [symbolic-call-form]
+  (if (seq? symbolic-call-form)
+    symbolic-call-form
+    (list symbolic-call-form '%)))
+
 (defn- template-call-args-from-env [lexical-env symbolic-call-form call-form]
   (let [[f & args] call-form
-        [_symbolic-f & symbolic-args] symbolic-call-form
+        [_symbolic-f & symbolic-args] (add-point-to-call-form symbolic-call-form)
+        symbolic-args (map unquote symbolic-args)
         templated-args (replace (constantly ::hole) lexical-env symbolic-args)
         args (zip-by #{::hole} templated-args args)
         args (map symbolic-form symbolic-args args)]
     (cons f args)))
-
 
 (defn- lift-traversal [fn-like metadata]
   {:pre [(map? fn-like)]}
@@ -208,12 +214,26 @@
   (let [[edge-fn edges] (first fn-like) ; only keep first key/val pair
          ]
     (with-% (fn traverse [lexical-env object] ; optional
-              (let [value (edge-fn lexical-env object)
-                    symbolic-edge (ffirst (::form metadata))
-                    templated-edge (template-call-args-from-env (merge (::lexical-env metadata) lexical-env) symbolic-edge fn-like)]
-                {::edge (cons (first symbolic-edge) (rest templated-edge))
-                 ::value value
-                 ::continuation edges})))))
+              (let [;; symbolic-edge (ffirst (::form metadata))
+                    ;; lexical-env (assoc lexical-env '% object)
+                    ;; #_#_templated-edge (template-call-args-from-env (merge (::lexical-env metadata) lexical-env)
+                    ;;                  (add-point-to-call-form (ffirst (::form metadata)))
+                    ;;                  (add-point-to-call-form (ffirst (::value metadata))))
+                    [f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
+                    args (replace (merge (::lexical-env metadata) lexical-env {'% object}) args)
+                    ;#_#_edge (if (seq? symbolic-edge) templated-edge symbolic-edge)
+                        ]
+                (apply f args)
+                ;; (apply (first templated-edge) (rest templated-edge))
+                ;#_{edge (edge-fn lexical-env object)}
+                ;; #_{::edge (if (seq? symbolic-edge) templated-edge symbolic-edge)
+                ;;  ::value value
+                ;;  ::continuation edges}
+                )))))
+
+(defn empty? [object]
+  (when (seqable? object)
+    (clojure.core/empty? object)))
 
 (defn lift
   ([fn-like] (lift fn-like {}))
@@ -238,7 +258,9 @@
                                           [f & args] (template-call-args-from-env lexical-env (::form metadata) fn-like)]
                                       (apply (value f) args))))
            :else (with-% (fn [_lexical-env & args] (apply fn-like args))))]
-     (with-meta lifted-fn metadata))))
+     (with-meta lifted-fn (assoc metadata :type ::edge)))))
+
+(defn- edge? [object] (= ::edge (type object)))
 
 ;;;;;;;;;;;;;;;;;;;;;
 ;; KW special form ;;
@@ -310,12 +332,11 @@
         form))
     form))
 
-(def ^:private traversal? map?)
 (defn- escape-traversals [form]
-  (if (traversal? form)
+  (if (map? form)
     (-> form
       (update-keys #(list `edge %))
-      (update-vals #(list `pull-expr %)))
+      (update-vals #(list `hfql %)))
     form))
 
 #_(defn- escape-symbols [form]
@@ -341,45 +362,7 @@
        '~(meta fn-like-form) ; ⑦
        )))
 
-
-(tests
-  ((edge :a) {:a 1 :b 2})
-  := 1
-
-  ((edge 'c) {:a 1, :b 2, 'c 3})
-  := 3
-
-  ((edge "d") {:a 1, :b 2, 'c 3, "d" 4})
-  := 4
-
-  ((edge str) {:a 1, :b 2})
-  := "{:a 1, :b 2}"
-  )
-
-
-(tests
-  ((edge 'str) {'str 'str, str str, #'str #'str})
-  := 'str
-  ((edge str) {'str 'str, str str, #'str #'str})
-  := str
-  ((edge #'str) {'str 'str, str str, #'str #'str})
-  := "{str str, #function[clojure.core/str] #function[clojure.core/str], #'clojure.core/str #'clojure.core/str}"
-  ((edge '#'str) {'str 'str, str str, #'str #'str})
-  := #'clojure.core/str
-
-  ((edge 'str) {str str, #'str #'str})
-  := nil
-  ((edge '#'str) {'str 'str, str str})
-   := nil
-  )
-
-
-(tests
-  (form (edge #(:bar %))) := :bar
-  (:foo (meta (edge ^:foo #(:bar %)))) := true
-  )
-
-(defmacro pull-expr [pull-expr]
+(defmacro hfql [pull-expr]
   (cond
     (empty? pull-expr) `(with-meta (constantly {}) {::form []})
     (vector? pull-expr)
@@ -389,60 +372,156 @@
        #_~(merge (meta pull-expr) (meta &form) {::form (list 'quote pull-expr)}))
     :else `(edge ~pull-expr)))
 
+(defn next [edge-fn]
+  (if-let [edge-fns (value edge-fn)]
+    (cond
+      (map? edge-fns) (vals edge-fns)
+      (vector? edge-fns) (seq edge-fns)
+      :else ())
+    ()))
+
 (tests
-  ((pull-expr []) {:a 1})
+  (next nil) := ()
+  (next (hfql 1)) := ()
+  (next (hfql [:a])) := [_]
+  (next (hfql {identity [:a]}) ) := [_]
+
+  )
+
+(tests
+  ((hfql :a) {:a 1 :b 2})
+  := 1
+
+  ((hfql 'c) {:a 1, :b 2, 'c 3})
+  := 3
+
+  ((hfql "d") {:a 1, :b 2, 'c 3, "d" 4})
+  := 4
+
+  ((hfql str) {:a 1, :b 2})
+  := "{:a 1, :b 2}"
+  )
+
+
+(tests
+  ((hfql 'str) {'str 'str, str str, #'str #'str})
+  := 'str
+  ((hfql str) {'str 'str, str str, #'str #'str})
+  := str
+  ((hfql #'str) {'str 'str, str str, #'str #'str})
+  := "{str str, #function[clojure.core/str] #function[clojure.core/str], #'clojure.core/str #'clojure.core/str}"
+  ((hfql '#'str) {'str 'str, str str, #'str #'str})
+  := #'clojure.core/str
+
+  ((hfql 'str) {str str, #'str #'str})
+  := nil
+  ((hfql '#'str) {'str 'str, str str})
+   := nil
+  )
+
+(tests
+  (form (hfql #(:bar %))) := :bar
+  (:foo (meta (hfql ^:foo #(:bar %)))) := true
+  )
+
+
+
+(tests
+  ((hfql []) {:a 1})
   := {}
 
-  ((pull-expr [:a]) {:a 1, :b 2})
+  ((hfql [:a]) {:a 1, :b 2})
   := {:a 1}
 
-  ((pull-expr [:a :c]) {:a 1, :b 2})
+  ((hfql [:a :c]) {:a 1, :b 2})
   := {:a 1, :c nil}
 
-  ((pull-expr [:a :c str]) {:a 1, :b 2})
+  ((hfql [:a :c str]) {:a 1, :b 2})
    := {:a 1, :c nil, 'str "{:a 1, :b 2}"}
    )
 
 
 (tests
-  ;; (clojure.data/diff)
   (let [alice {:db/id 9, :user/email "alice@example.com"}]
-    ((edge {identity [:user/email]}) alice) )
-
-  := {::edge 'identity,
-      ::value {:db/id 9, :user/email "alice@example.com"},
-      ::continuation _} ; ①
+    ((hfql {identity [:user/email]}) alice) )
+  := {:db/id 9, :user/email "alice@example.com"}
+  ;; ① – We only return the edge application result. User can call `next` to nav further.
   )
 
-(defn pull-1 ; ①
-  ([edge-fn] (pull-1 edge-fn nil))
-  ([edge-fn object] (pull-1 edge-fn {'% object} object))
-  ([edge-fn env object]
-   (edge-fn (assoc env '% object) object)))
+(defn- call [f & args] (apply f args))
 
-(defn pull ; ①
-  ([edge-fn] (pull edge-fn nil))
-  ([edge-fn object] (pull edge-fn {'% object} object))
-  ([edge-fn env object]
+(defn nav ; ①
+  ([edge] (nav nil edge))
+  ([object edge]
+   (nav nil object edge object))
+  ([object edge value] (nav nil object edge value))
+  ([env object edge value]
+   (if (edge? edge)
+     (call edge (assoc env '% object) object)
+     (datafy/nav object edge (if (or (nil? value) (= object value))
+                               (if (associative? object)
+                                 (get object edge value)
+                                 (nth object edge value))
+                               value)))))
+
+(tests ; ①
+  (nav {:a 1} :a) := 1
+  (nav {:a 1} :b ::not-found) := ::not-found
+  (nav [:a :b :c] 1) := :b
+  (nav [:a :b :c] 3 ::not-found) := ::not-found
+
+  (let [alice {:db/id 9, :user/name "Alice" :user/email "alice@example.com"}
+        pull-expression (hfql {identity [:user/name :user/email]})]
+
+    (nav alice pull-expression)
+    := alice
+
+    (nav alice (first (next pull-expression)))
+    := {:user/name "Alice", :user/email "alice@example.com"}
+
+    (map (partial nav alice) (next (first (next pull-expression))))
+    := ["Alice" "alice@example.com"]
+
+    ))
+
+(defn- traversal? [pull-expr] (and (edge? pull-expr) (map? (value pull-expr))))
+(defn- pull? [pull-expr] (and (edge? pull-expr) (vector? (value pull-expr))))
+
+#_
+(defn- traverse [lexical-env pull-expr object]
+  {:pre [(map? (form pull-expr))]}
+  (let [symbolic-edge (ffirst (form pull-expr))
+        templated-edge (template-call-args-from-env (merge (::lexical-env (meta pull-expr)) lexical-env) (add-point-to-call-form (ffirst (form pull-expr))) (value pull-expr))
+        edge (if (seq? symbolic-edge) templated-edge symbolic-edge)]
+    {edge (nav lexical-env object pull-expr nil)}))
+
+(defn pull "Eagerly navigates to realize the entire pull expression." ; ①
+  ([pull-expr] (pull pull-expr nil))
+  ([pull-expr object] (pull {'% object} pull-expr object))
+  ([env pull-expr object]
+   (assert (edge? pull-expr) "The given pull expression must be prepossessed by `(hfql <pull-expr>)`.")
    (let [env (assoc env '% object)
-         result (edge-fn env object)]
-     (if (and (map? result) (contains? result ::continuation))
-       (let [{::keys [edge value continuation]} result]
-         {edge (pull continuation (assoc env edge value) value)})
-       result))))
+         do-nav #(nav env object pull-expr nil)]
+     (cond
+       (traversal? pull-expr) (let [result (do-nav)]
+                                (reduce-kv (fn [r k v] (assoc r (form k) (pull (assoc env '% result) v result))) {} (value pull-expr)))
+       (pull? pull-expr) (reduce (fn [r pull-expr]
+                                   (let [pulled (pull env pull-expr object)]
+                                     (if (traversal? pull-expr)
+                                       (into r pulled)
+                                       (assoc r (edge-name (form pull-expr)) pulled)))) {} (value pull-expr))
+       :else (do-nav)))))
 
 (tests
-  (pull-1 (edge :a) {:a 1})
+  (nav {:a 1} (hfql :a))
   := 1
 
   (let [alice {:db/id 9, :user/email "alice@example.com"}]
-    (pull-1 (edge {identity [:user/email]}) alice))
-   := {:hyperfiddle.hfql1/edge 'identity,
-      :hyperfiddle.hfql1/value {:db/id 9, :user/email "alice@example.com"},
-      :hyperfiddle.hfql1/continuation _}
+    (nav alice (hfql {identity [:user/email]}))
+    := alice)
 
-   (let [alice {:db/id 9, :user/email "alice@example.com"}]
-     (pull (edge {identity [:user/email]}) alice))
+   (let [alice {:db/id 9, :user/name "Alice", :user/email "alice@example.com"}]
+     (pull (hfql {identity [:user/email]}) alice) )
     := {'identity {:user/email "alice@example.com"}}
   )
 
@@ -473,38 +552,30 @@
   )
 
 
-
 (tests
-  (let [alice   {:db/id 9, :user/email "alice@example.com", :user/first-name "Alice"}
-        bob     {:db/id 10, :user/email "bob@example.com", :user/first-name "Bob"}
-        charlie {:db/id 11, :user/email "chalie@example.com", :user/first-name "Charlie"}
+  (let [alice   {:db/id 9, :user/email "alice@example.com", :user/name "Alice"}
+        bob     {:db/id 10, :user/email "bob@example.com", :user/name "Bob"}
+        charlie {:db/id 11, :user/email "chalie@example.com", :user/name "Charlie"}
         db      ^::symbolic {9 alice, 10 bob, charlie 11}
         d-entity (fn [db eid] (get db eid))
-        user-summary #(str (:user/first-name %) " – " (:user/email %))
+        user-summary #(str (:user/name %) " – " (:user/email %))
         selected 9
-        expr (edge {(d-entity db selected) [:db/id :user/email user-summary keys clojure.core/keys]})]
-    (pull expr ))
-   := {'(d-entity db 9)
-      {:db/id nil,
-       :user/email nil,
-       'user-summary " – ",
-       'keys nil,
-       'clojure.core/keys nil}}
-  
-  #_#_:= '{(d-entity db 9) ; FIXME
-       {:db/id 9,
-        :user/email "alice@example.com",
-        user-summary "Alice – alice@example.com",
-        keys (:db/id :user/email :user/first-name),
-        clojure.core/keys (:db/id :user/email :user/first-name)}})
-
+        expr (hfql {(d-entity db selected) [:db/id :user/email user-summary keys clojure.core/keys]})]
+    (pull expr))
+   := {'(d-entity db selected)
+      {:db/id 9,
+       :user/email "alice@example.com",
+       'user-summary "Alice – alice@example.com",
+       'keys '(:db/id :user/email :user/name),
+       'clojure.core/keys '(:db/id :user/email :user/name)}}
+   )
 
 (tests
-  (let [alice {:db/id 9, :user/email "alice@example.com", :user/first-name "Alice" :user/address {:address/number 42}}
-        bob {:db/id 10, :user/email "bob@example.com", :user/first-name "Bob"}
-        charlie {:db/id 11, :user/email "chalie@example.com", :user/first-name "Charlie"}
+  (let [alice {:db/id 9, :user/email "alice@example.com", :user/name "Alice" :user/address {:address/number 42}}
+        bob {:db/id 10, :user/email "bob@example.com", :user/name "Bob"}
+        charlie {:db/id 11, :user/email "chalie@example.com", :user/name "Charlie"}
         d-entity {9 alice, 10 bob, charlie 11}
         selected 9]
-    (pull (edge {(d-entity selected) [{:user/address [:address/number]}]})))
-   := {:user/address #:address{:number 42}} ; FIXME
+    (pull (hfql {(d-entity selected) [:user/name {:user/address [:address/number]}]})))
+  := {'(d-entity selected) {:user/name "Alice", :user/address {:address/number 42}}} ; FIXME user/adress is repeated
  )
