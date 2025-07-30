@@ -518,30 +518,31 @@
    := [1 2 3 4 5]
   )
 
+
+(def ^:private _alice_    {:db/id 9, :user/email "alice@example.com", :user/name "Alice" :user/address {:address/number 42}})
+(def ^:private _bob_      {:db/id 10, :user/email "bob@example.com", :user/name "Bob"})
+(def ^:private _charlie_  {:db/id 11, :user/email "chalie@example.com", :user/name "Charlie"})
+(def ^:private _db_       ^::symbolic {9 _alice_, 10 _bob_, _charlie_ 11})
+(def ^:private _d-entity_ (fn [db eid] (get db eid)))
+(defn- _people_ [] (list 9 10 11))
+
 (tests
-  (let [alice   {:db/id 9, :user/email "alice@example.com", :user/name "Alice"}
-        bob     {:db/id 10, :user/email "bob@example.com", :user/name "Bob"}
-        charlie {:db/id 11, :user/email "chalie@example.com", :user/name "Charlie"}
-        db      ^::symbolic {9 alice, 10 bob, charlie 11}
-        d-entity (fn [db eid] (get db eid))
-        user-summary #(str (:user/name %) " – " (:user/email %))
+  (let [user-summary #(str (:user/name %) " – " (:user/email %))
         selected 9
-        expr (hfql {(d-entity db selected) [:db/id :user/email user-summary keys clojure.core/keys]})]
+        expr (hfql {(_d-entity_ _db_ selected) [:db/id :user/email user-summary keys clojure.core/keys]})]
     (pull expr))
-   := {'(d-entity db 9)
+  := {'(_d-entity_ _db_ 9)
       {:db/id 9,
        :user/email "alice@example.com",
        'user-summary "Alice – alice@example.com",
-       'keys '(:db/id :user/email :user/name),
-       'clojure.core/keys '(:db/id :user/email :user/name)}}
-   )
+       'keys '(:db/id :user/email :user/name :user/address),
+       'clojure.core/keys '(:db/id :user/email :user/name :user/address)}}
+  )
 
 (tests
-  (let [alice {:db/id 9, :user/email "alice@example.com", :user/name "Alice" :user/address {:address/number 42}}
-        bob {:db/id 10, :user/email "bob@example.com", :user/name "Bob"}
-        charlie {:db/id 11, :user/email "chalie@example.com", :user/name "Charlie"}
-        d-entity {9 alice, 10 bob, charlie 11}
-        selected 9]
-    (pull (hfql {(d-entity selected) [:user/name {:user/address [:address/number]}]})))
-  := {'(d-entity 9) {:user/name "Alice", :user/address {:address/number 42}}} ; FIXME user/adress is repeated
- )
+  (let [selected 9]
+    (pull (hfql {(_d-entity_ _db_ selected) [:user/name {:user/address [:address/number]}]})))
+  := {'(_d-entity_ _db_ 9) {:user/name "Alice", :user/address {:address/number 42}}}
+  )
+
+(tests
