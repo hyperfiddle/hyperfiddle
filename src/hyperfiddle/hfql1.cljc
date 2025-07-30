@@ -215,14 +215,22 @@
                   args (replace (merge (::lexical-env metadata) lexical-env {'% object}) args)]
               (apply f args)))))
 
+(def ^:private star? #{'*})
+
+(defn- touch [object] (if (seqable? object) (doall object) object))
+(def ^:private star (with-% (fn star [_lexical-env object] (touch object))))
+(defn- getter [fn-like] (with-% (fn [_lexical-env object] (get object fn-like))))
+(defn- caller [fn-like] (with-% (fn [_lexical-env & args] (apply fn-like args))))
+
 (defn lift
   ([fn-like] (lift fn-like {}))
   ([fn-like metadata]
    (let [lifted-fn
          (cond
-           (ident? fn-like)  (with-% (fn [_lexical-env object] (get object fn-like)))
-           (string? fn-like) (with-% (fn [_lexical-env object] (get object fn-like)))
-           (var? fn-like) (with-% (fn [_lexical-env & args] (apply fn-like args))) ; must wrap, putting meta on a var is a side effect
+           (star? fn-like)  star
+           (ident? fn-like)  (getter fn-like)
+           (string? fn-like) (getter fn-like)
+           (var? fn-like) (caller fn-like) ; must wrap, putting meta on a var is a side effect
            (fn? fn-like) (with-% (fn [_lexical-env object & args] (apply get-or-apply fn-like object args)))
            (var-form? fn-like) (with-% (fn [_lexical-env object] (get object (::value metadata)))) ; quoted var
            ;; TODO class method calls?
@@ -237,7 +245,7 @@
                                     (let [lexical-env (merge (::lexical-env metadata) lexical-env)
                                           [f & args] (template-call-from-env lexical-env (::form metadata) fn-like)]
                                       (apply (value f) args))))
-           :else (with-% (fn [_lexical-env & args] (apply fn-like args))))]
+           :else (caller fn-like))]
      (with-meta lifted-fn (assoc metadata :type ::edge)))))
 
 (defn- edge? [object] (= ::edge (type object)))
@@ -323,13 +331,19 @@
   (zipmap (map #(list 'quote %) (keys lexical-env))
     (keys lexical-env)))
 
+(defn- escape-star [form] (if (star? form) ''* form))
+
 (defmacro edge [fn-like-form]
-  `(lift ~(escape-calls (escape-traversals fn-like-form))
+  `(lift ~(escape-star (escape-calls (escape-traversals fn-like-form)))
      (merge '~(meta &form) ; ⑦
        {::form ; ②
         '~(edge-raw-form fn-like-form)
         ::value ; ②
-        ~(escape-calls (escape-traversals (edge-raw-value fn-like-form)))
+        ~(as-> fn-like-form %
+           (edge-raw-value %)
+           (escape-traversals %)
+           (escape-calls %)
+           ({'* `star} % %))
         ::lexical-env ~(lexical-bindings-map &env)}
        '~(meta fn-like-form) ; ⑦
        )))
@@ -474,9 +488,10 @@
        (traversal? pull-expr) (traverse (do-nav) pull-expr env)
        (pull? pull-expr) (reduce (fn [r pull-expr]
                                    (let [pulled (pull pull-expr object env)]
-                                     (if (traversal? pull-expr)
-                                       (into r pulled)
-                                       (assoc r (edge-name (form pull-expr)) pulled)))) {} (value pull-expr))
+                                     (cond
+                                       (traversal? pull-expr) (into r pulled)
+                                       (star? (form pull-expr)) (into r pulled)
+                                       :else (assoc r (edge-name (form pull-expr)) pulled)))) {} (value pull-expr))
        :else (do-nav)))))
 
 (tests
@@ -546,3 +561,10 @@
   )
 
 (tests
+  (hfql *) := _
+  ((hfql *) {:a 1})
+   := {:a 1}
+  (pull (hfql *) _alice_)
+   := _alice_
+  (pull (hfql {identity [:db/id *]}) _alice_)
+  := {'identity _alice_})
