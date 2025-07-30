@@ -111,7 +111,7 @@
 
 
 (ns hyperfiddle.hfql1
-  (:refer-clojure :exclude [meta unquote replace next empty?])
+  (:refer-clojure :exclude [meta unquote replace next])
   (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [clojure.string :as str]
@@ -214,10 +214,6 @@
             (let [[f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
                   args (replace (merge (::lexical-env metadata) lexical-env {'% object}) args)]
               (apply f args)))))
-
-(defn empty? [object]
-  (when (seqable? object)
-    (clojure.core/empty? object)))
 
 (defn lift
   ([fn-like] (lift fn-like {}))
@@ -340,7 +336,7 @@
 
 (defmacro hfql [pull-expr]
   (cond
-    (empty? pull-expr) `(with-meta (constantly {}) {::form []})
+    (and (seqable? pull-expr) (empty? pull-expr)) `(with-meta (constantly {}) {::form []})
     (vector? pull-expr)
     `(edge ~(with-meta
               (mapv (fn [fn-like-form] `(edge ~fn-like-form)) pull-expr) ; ⑧
