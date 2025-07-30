@@ -349,6 +349,26 @@
        '~(meta fn-like-form) ; ⑦
        )))
 
+#?(:clj
+   (defn aliased-form [ns-sym ident]
+     (if-not (qualified-ident? ident)
+       ident
+       (let [aliases (ns-aliases (find-ns ns-sym))
+             ns->alias (zipmap (vals aliases) (keys aliases))
+             ns-str->alias-str (-> ns->alias
+                                 (update-keys (comp str ns-name))
+                                 (update-vals str))
+             alias (or (get ns-str->alias-str (namespace ident)) (namespace ident))]
+         (if (keyword? ident)
+           (str "::" alias "/" (name ident))
+           (symbol alias (name ident)))))))
+
+(tests
+  (aliased-form (ns-name *ns*) ::ccp/test) := "::ccp/test"
+  (aliased-form (ns-name *ns*) `ccp/test) := 'ccp/test
+  (hfql ::ccp/test)
+  )
+
 (defmacro hfql [pull-expr]
   (cond
     (and (seqable? pull-expr) (empty? pull-expr)) `(with-meta (constantly {}) {::form []})
@@ -485,7 +505,6 @@
                    (assoc r (if (seq? (form edge)) (cons symbolic-f args) (form edge))
                      (pull pull-expr object (assoc env '% object))))) {} (value edge))))
 
-;; (pull (hfql {(_people_) [:user/name]}))
 
 (defn pull "Eagerly navigates, realizing the entire pull expression." ; ①
   ([pull-expr] (pull pull-expr nil))
@@ -606,4 +625,13 @@
   := {'(_people_) [{:user/name "Alice"}
                    {:user/name "Bob"}
                    {:user/name "Charlie"}]}
+  )
+
+
+(tests
+  "keyword aliases"
+  
+  (form (hfql :test)) := :test
+  (form (hfql ::test)) := :hyperfiddle.hfql1/test
+  (form (hfql ::ccp/test)) := :clojure.core.protocols/test
   )
