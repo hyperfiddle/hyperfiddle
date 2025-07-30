@@ -113,7 +113,6 @@
 (ns hyperfiddle.hfql1
   (:refer-clojure :exclude [meta unquote replace next empty?])
   (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
-            [clojure.string]
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [clojure.string :as str]
             [clojure.datafy :as datafy]
@@ -211,25 +210,10 @@
 (defn- lift-traversal [fn-like metadata]
   {:pre [(map? fn-like)]}
   (assert (= 1 (count fn-like)) (str "A traversal can only contain one edge. Received: " (keys fn-like) "."))
-  (let [[edge-fn edges] (first fn-like) ; only keep first key/val pair
-         ]
-    (with-% (fn traverse [lexical-env object] ; optional
-              (let [;; symbolic-edge (ffirst (::form metadata))
-                    ;; lexical-env (assoc lexical-env '% object)
-                    ;; #_#_templated-edge (template-call-from-env (merge (::lexical-env metadata) lexical-env)
-                    ;;                  (add-point-to-call-form (ffirst (::form metadata)))
-                    ;;                  (add-point-to-call-form (ffirst (::value metadata))))
-                    [f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
-                    args (replace (merge (::lexical-env metadata) lexical-env {'% object}) args)
-                    ;#_#_edge (if (seq? symbolic-edge) templated-edge symbolic-edge)
-                        ]
-                (apply f args)
-                ;; (apply (first templated-edge) (rest templated-edge))
-                ;#_{edge (edge-fn lexical-env object)}
-                ;; #_{::edge (if (seq? symbolic-edge) templated-edge symbolic-edge)
-                ;;  ::value value
-                ;;  ::continuation edges}
-                )))))
+  (with-% (fn traverse [lexical-env object] ; optional
+            (let [[f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
+                  args (replace (merge (::lexical-env metadata) lexical-env {'% object}) args)]
+              (apply f args)))))
 
 (defn empty? [object]
   (when (seqable? object)
@@ -339,19 +323,11 @@
       (update-vals #(list `hfql %)))
     form))
 
-#_(defn- escape-symbols [form]
-  (if (symbol? form)
-    (escape-calls `(identity ~form))
-    form))
-
-;; (def %env {})
-
 (defn- lexical-bindings-map [lexical-env]
   (zipmap (map #(list 'quote %) (keys lexical-env))
     (keys lexical-env)))
 
 (defmacro edge [fn-like-form]
-  ;; (def _env &env)
   `(lift ~(escape-calls (escape-traversals fn-like-form))
      (merge '~(meta &form) ; ⑦
        {::form ; ②
@@ -368,8 +344,7 @@
     (vector? pull-expr)
     `(edge ~(with-meta
               (mapv (fn [fn-like-form] `(edge ~fn-like-form)) pull-expr) ; ⑧
-              {::form (list 'quote (edge-raw-form pull-expr))})
-       #_~(merge (meta pull-expr) (meta &form) {::form (list 'quote pull-expr)}))
+              {::form (list 'quote (edge-raw-form pull-expr))}))
     :else `(edge ~pull-expr)))
 
 (defn next [edge-fn]
@@ -385,7 +360,6 @@
   (next (hfql 1)) := ()
   (next (hfql [:a])) := [_]
   (next (hfql {identity [:a]}) ) := [_]
-
   )
 
 (tests
@@ -401,7 +375,6 @@
   ((hfql str) {:a 1, :b 2})
   := "{:a 1, :b 2}"
   )
-
 
 (tests
   ((hfql 'str) {'str 'str, str str, #'str #'str})
@@ -424,8 +397,6 @@
   (:foo (meta (hfql ^:foo #(:bar %)))) := true
   )
 
-
-
 (tests
   ((hfql []) {:a 1})
   := {}
@@ -439,7 +410,6 @@
   ((hfql [:a :c str]) {:a 1, :b 2})
    := {:a 1, :c nil, 'str "{:a 1, :b 2}"}
    )
-
 
 (tests
   (let [alice {:db/id 9, :user/email "alice@example.com"}]
@@ -487,13 +457,6 @@
 (defn- traversal? [pull-expr] (and (edge? pull-expr) (map? (value pull-expr))))
 (defn- pull? [pull-expr] (and (edge? pull-expr) (vector? (value pull-expr))))
 
-#_(defn- traverse [lexical-env pull-expr object]
-  {:pre [(map? (form pull-expr))]}
-  (let [symbolic-edge (ffirst (form pull-expr))
-        templated-edge (template-call-from-env (merge (::lexical-env (meta pull-expr)) lexical-env) (add-point-to-call-form (ffirst (form pull-expr))) (value pull-expr))
-        edge (if (seq? symbolic-edge) templated-edge symbolic-edge)]
-    {edge (nav lexical-env object pull-expr nil)}))
-
 (declare pull)
 
 (defn- traverse [object edge env]
@@ -538,7 +501,7 @@
 
   ((hfql (identity 1)))
   := 1
-  ((hfql (identity '%)) "hello") ; FIXME, regression on env-templated call forms
+  ((hfql (identity '%)) "hello")
   := "hello"
   ((hfql (str "value is: " '%)) 'foo)
   := "value is: foo"
@@ -558,7 +521,6 @@
   ((let [x 2] (hfql (vector 1 x 3 'y '%))) {'y 4} 5)
    := [1 2 3 4 5]
   )
-
 
 (tests
   (let [alice   {:db/id 9, :user/email "alice@example.com", :user/name "Alice"}
