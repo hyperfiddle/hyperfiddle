@@ -114,6 +114,7 @@
   (:refer-clojure :exclude [meta unquote replace next])
   (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
             [hyperfiddle.rcf :as rcf :refer [tests]]
+            [clojure.core :as cc]
             [clojure.string :as str]
             [clojure.datafy :as datafy]
             [clojure.core.protocols :as ccp]
@@ -581,14 +582,15 @@
 (tests
   (let [user-summary #(str (:user/name %) " – " (:user/email %))
         selected 9
-        expr (hfql {(_d-entity_ _db_ selected) [:db/id :user/email user-summary keys clojure.core/keys]})]
+        expr (hfql {(_d-entity_ _db_ selected) [:db/id :user/email user-summary keys clojure.core/keys cc/keys]})]
     (pull expr))
   := {'(_d-entity_ _db_ 9)
       {:db/id 9,
        :user/email "alice@example.com",
        'user-summary "Alice – alice@example.com",
        'keys '(:db/id :user/email :user/name :user/address),
-       'clojure.core/keys '(:db/id :user/email :user/name :user/address)}}
+       'clojure.core/keys '(:db/id :user/email :user/name :user/address)
+       'cc/keys '(:db/id :user/email :user/name :user/address)}}
   )
 
 (tests
