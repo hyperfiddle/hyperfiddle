@@ -129,6 +129,7 @@
     (clojure.core/meta object)))
 
 (defn- form [edge] (::form (meta edge)))
+(defn- short-form [edge] (::short-form (meta edge) (form edge)))
 (defn- value [edge] (::value (meta edge)))
 
 (defn- get-or-apply [f object & args]
@@ -374,51 +375,75 @@
     obj
     (apply vary-meta obj f args)))
 
+#?(:clj
+   (defn aliased-form [ns-sym ident]
+     (if-not (qualified-ident? ident)
+       ident
+       (if (= (namespace ident) (name ns-sym))
+         (if (keyword? ident)
+           (str "::" (name ident))
+           (symbol (name ident)))
+         (let [ns (find-ns ns-sym)
+               aliases (ns-aliases ns)
+               ns->alias (zipmap (vals aliases) (keys aliases))
+               ns-str->alias-str (-> ns->alias
+                                   (update-keys (comp str ns-name))
+                                   (update-vals str))
+               alias (or (get ns-str->alias-str (namespace ident)) (namespace ident))]
+           (if (keyword? ident)
+             (str "::" alias "/" (name ident))
+             (symbol alias (name ident))))))))
+
+(defn- attempt-shorten-form "return aliased form for an ident or nil if form is not an ident or cannot be shortened"
+  [form]
+  (when (qualified-ident? form)
+    (let [short-form (aliased-form (ns-name *ns*) form)]
+      (when-not (= form short-form)
+        short-form))))
+
+;; (hfql (identity '%))
+
 (defmacro edge [fn-like-form]
-  (let [form        (#'quote (edge-raw-form fn-like-form))  ; ②
-        value       (as-> fn-like-form %                   ; ②
-                      (edge-raw-value %)
-                      (escape-traversals %)
-                      (escape-calls %)
-                      ({'* `star} % %))
-        lexical-env (lexical-bindings-map &env)
+  (let [raw-form      (edge-raw-form fn-like-form) ; ②
+        form          (#'quote raw-form)
+        short-form    (#'quote (attempt-shorten-form raw-form))
+        value         (as-> fn-like-form %                   ; ②
+                        (edge-raw-value %)
+                        (escape-traversals %)
+                        (escape-calls %)
+                        ({'* `star} % %))
+        lexical-env   (lexical-bindings-map &env)
         symbolic-form (-> fn-like-form
                         (escape-traversals)
                         (escape-calls)
                         (escape-star)
                         (vary-meta* (comp not-empty dissoc) ::form))
-        value (if (= value symbolic-form) nil value)
-        metadata (emit-merge
-                   (#'quote (meta &form))                                     ; ⑦
-                   (prune-metamap {::form        (if (and (litteral? form) (not (is-kw-fn? fn-like-form))) nil form) ; no need to repeat it
-                                   ::value       value
-                                   ::lexical-env lexical-env})
-                   (#'quote (dissoc (meta fn-like-form) ::form)) ; ⑦
-                   )]
+        value         (if (= value symbolic-form) nil value)
+        metadata      (emit-merge
+                        (#'quote (meta &form))                                     ; ⑦
+                        (prune-metamap {::form        (if (and (litteral? form) (not (is-kw-fn? fn-like-form))) nil form) ; no need to repeat it
+                                        ::short-form  short-form
+                                        ::value       value
+                                        ::lexical-env lexical-env})
+                        (#'quote (dissoc (meta fn-like-form) ::form)) ; ⑦
+                        )]
     (if (not-empty metadata)
       `(lift ~symbolic-form ~metadata)
       `(lift ~symbolic-form))))
 
-;; (hfql (identity '%))
-
-#?(:clj
-   (defn aliased-form [ns-sym ident]
-     (if-not (qualified-ident? ident)
-       ident
-       (let [aliases (ns-aliases (find-ns ns-sym))
-             ns->alias (zipmap (vals aliases) (keys aliases))
-             ns-str->alias-str (-> ns->alias
-                                 (update-keys (comp str ns-name))
-                                 (update-vals str))
-             alias (or (get ns-str->alias-str (namespace ident)) (namespace ident))]
-         (if (keyword? ident)
-           (str "::" alias "/" (name ident))
-           (symbol alias (name ident)))))))
-
 (tests
-  (aliased-form (ns-name *ns*) ::ccp/test) := "::ccp/test"
-  (aliased-form (ns-name *ns*) `ccp/test) := 'ccp/test
-  (hfql ::ccp/test)
+  (aliased-form (ns-name *ns*) ::test) := "::test"
+  (aliased-form (ns-name *ns*) :hyperfiddle.hfql1/test) := "::test"
+  (aliased-form (ns-name *ns*) :clojure.core/test) := "::cc/test"
+  (aliased-form (ns-name *ns*) ::cc/test) := "::cc/test"
+  (aliased-form (ns-name *ns*) `asdf) := 'asdf
+  (aliased-form (ns-name *ns*) 'hyperfiddle.hfql1/asdf) := 'asdf
+
+  (short-form (hfql clojure.core/str)) := 'cc/str
+  (short-form (hfql cc/str)) := 'cc/str
+  (short-form (hfql :clojure.core/test)) := "::cc/test"
+  (short-form (hfql ::cc/test)) := "::cc/test"
+  (short-form (hfql ::test))  := "::test"
   )
 
 (defmacro hfql [pull-expr]
@@ -692,4 +717,6 @@
   (form (hfql :test)) := :test
   (form (hfql ::test)) := :hyperfiddle.hfql1/test
   (form (hfql ::ccp/test)) := :clojure.core.protocols/test
+  (aliased-form (ns-name *ns*) ::ccp/test) := "::ccp/test"
+  (aliased-form (ns-name *ns*) `ccp/test) := 'ccp/test
   )
