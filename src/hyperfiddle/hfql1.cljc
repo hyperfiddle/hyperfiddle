@@ -225,9 +225,13 @@
 (defn- caller [fn-like] (with-% (fn [_lexical-env & args] (apply fn-like args))))
 
 (defn lift
-  ([fn-like] (lift fn-like {}))
+  ([fn-like] (lift fn-like (meta fn-like)))
   ([fn-like metadata]
-   (let [lifted-fn
+   (let [metadata (-> metadata
+                    (update ::value #(or % fn-like))
+                    (update ::form #(or % (if (litteral? fn-like) fn-like nil)))
+                    (assoc :type ::edge))
+         lifted-fn
          (cond
            (star? fn-like)  star
            (ident? fn-like)  (getter fn-like)
@@ -240,15 +244,16 @@
            (vector? fn-like) (let [fns fn-like]
                               (if (empty? fns)
                                  (constantly {})
-                                 (let [keys (map edge-name (form fns))
-                                       vals (apply juxt fns)]
-                                   (with-% (fn edges [_lexical-env map-object] (zipmap keys (concat (vals map-object) (repeat nil))))))))
+                                 (let [keys (map edge-name (::form metadata))
+                                       pull (apply juxt fns)]
+                                   (with-% (fn edges [_lexical-env map-object] (zipmap keys (concat (pull map-object) (repeat nil))))))))
            (seq? fn-like) (with-% (fn call [lexical-env & _args] ; optional
                                     (let [lexical-env (merge (::lexical-env metadata) lexical-env)
                                           [f & args] (template-call-from-env lexical-env (::form metadata) fn-like)]
-                                      (apply (value f) args))))
-           :else (caller fn-like))]
-     (with-meta lifted-fn (assoc metadata :type ::edge)))))
+                                      (apply f args))))
+           :else (caller fn-like))
+         ]
+     (with-meta lifted-fn metadata))))
 
 (defn- edge? [object] (= ::edge (type object)))
 
@@ -308,7 +313,7 @@
 (defn- edge-raw-form [edge]
   (cond (quoted-var-form? edge) edge ; this trick/special case prevents a later call to `resolve`
         (is-kw-fn? edge) (get-kw-fn-form-kw edge)
-        :else edge))
+        :else (::form (meta edge) edge)))
 
 (defn- edge-raw-value [edge]
   (cond (quoted-var-form? edge) (unquote edge)  ; this trick/special case prevents a later call to `resolve`
@@ -316,16 +321,16 @@
 
 (defn- escape-calls [form]
   (if (seq? form)
-    (let [[f & args] form]
+    (let [[f & _args] form]
       (if (and (symbol? f) (not ('#{fn fn* quote var} f)))
-        `(list* (vary-meta ~f assoc ::value ~f) ~(vec args))
+        `(list ~@form)
         form))
     form))
 
 (defn- escape-traversals [form]
   (if (map? form)
     (-> form
-      (update-keys #(list `edge %))
+      (update-keys #(list `hfql %))
       (update-vals #(list `hfql %)))
     form))
 
@@ -335,20 +340,66 @@
 
 (defn- escape-star [form] (if (star? form) ''* form))
 
+(defn litteral? [obj]
+  (or (nil? obj)
+    (number? obj)
+    (string? obj)
+    (keyword? obj)))
+
+(defn- quote "Quote a form. Invoke it as `(#'quote x)` to avoid conflict with the 'quote special form."
+  [form]
+  (if (or (litteral? form) (quoted? form))
+    form
+    (list 'quote form)))
+
+(defn- emit-merge [& maps]
+  (let [non-empties (filter (comp not-empty unquote) maps)]
+    (case (count non-empties)
+      0 nil
+      1 (first non-empties)
+      (cons `merge non-empties))))
+
+(defn- filter-kv [pred map] (reduce-kv (fn [r k v] (if (pred k v) r (dissoc r k))) map map))
+(defn- remove-kv [pred map] (filter-kv (complement pred) map))
+
+(defn- prune-metamap [map]
+  (remove-kv (fn [k v]
+               (case k
+                 ::lexical-env (empty? v)
+                 (nil? v)))
+    map))
+
+(defn- vary-meta* [obj f & args]
+  (if-not (has-meta? obj)
+    obj
+    (apply vary-meta obj f args)))
+
 (defmacro edge [fn-like-form]
-  `(lift ~(escape-star (escape-calls (escape-traversals fn-like-form)))
-     (merge '~(meta &form) ; ⑦
-       {::form ; ②
-        '~(edge-raw-form fn-like-form)
-        ::value ; ②
-        ~(as-> fn-like-form %
-           (edge-raw-value %)
-           (escape-traversals %)
-           (escape-calls %)
-           ({'* `star} % %))
-        ::lexical-env ~(lexical-bindings-map &env)}
-       '~(meta fn-like-form) ; ⑦
-       )))
+  (let [form        (#'quote (edge-raw-form fn-like-form))  ; ②
+        value       (as-> fn-like-form %                   ; ②
+                      (edge-raw-value %)
+                      (escape-traversals %)
+                      (escape-calls %)
+                      ({'* `star} % %))
+        lexical-env (lexical-bindings-map &env)
+        symbolic-form (-> fn-like-form
+                        (escape-traversals)
+                        (escape-calls)
+                        (escape-star)
+                        (vary-meta* (comp not-empty dissoc) ::form))
+        value (if (= value symbolic-form) nil value)
+        metadata (emit-merge
+                   (#'quote (meta &form))                                     ; ⑦
+                   (prune-metamap {::form        (if (and (litteral? form) (not (is-kw-fn? fn-like-form))) nil form) ; no need to repeat it
+                                   ::value       value
+                                   ::lexical-env lexical-env})
+                   (#'quote (dissoc (meta fn-like-form) ::form)) ; ⑦
+                   )]
+    (if (not-empty metadata)
+      `(lift ~symbolic-form ~metadata)
+      `(lift ~symbolic-form))))
+
+;; (hfql (identity '%))
 
 #?(:clj
    (defn aliased-form [ns-sym ident]
@@ -372,12 +423,17 @@
 
 (defmacro hfql [pull-expr]
   (cond
-    (and (seqable? pull-expr) (empty? pull-expr)) `(with-meta (constantly {}) {::form []})
+    (and (seqable? pull-expr) (empty? pull-expr)) `(with-meta (constantly {}) {::form ~(#'quote pull-expr)})
     (vector? pull-expr)
     `(edge ~(with-meta
               (mapv (fn [fn-like-form] `(edge ~fn-like-form)) pull-expr) ; ⑧
               {::form (list 'quote (edge-raw-form pull-expr))}))
     :else `(edge ~pull-expr)))
+
+(comment
+  (hfql {identity [:a]}) 
+  (hfql [:a]) 
+  )
 
 (defn next [edge-fn]
   (if-let [edge-fns (value edge-fn)]
