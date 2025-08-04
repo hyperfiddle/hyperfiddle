@@ -97,7 +97,9 @@ navigable pulled maps, without touching all attributes."
 (defprotocol Suggestable :extend-via-metadata true
   (-suggest [o]))
 
-(defn suggest [o] (-suggest o))
+(defmulti suggest type)
+(defmethod suggest :default [object] (-suggest object))
+(defmethod suggest clojure.lang.IRecord [record] (map keyword (-> (type record) (.getMethod "getBasis" nil) (.invoke nil nil))))
 
 (defn simplify-call-pattern [call-pattern]
   {:pre [(seq? call-pattern)]}
