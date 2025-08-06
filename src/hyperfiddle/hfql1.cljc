@@ -111,7 +111,7 @@
 
 
 (ns hyperfiddle.hfql1
-  (:refer-clojure :exclude [meta unquote replace next find concat])
+  (:refer-clojure :exclude [meta unquote replace next find concat count merge])
   (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [clojure.core :as cc]
@@ -131,15 +131,22 @@
     (clojure.core/meta object)))
 
 (defn form [edge] (::form (meta edge)))
-(defn short-form [edge] (::short-form (meta edge) (form edge)))
+(defn short-form [edge] (or (::short-form (meta edge)) (form edge)))
 (defn resolved-form [edge] (::resolved-form (meta edge) (form edge)))
 (defn value [edge] (::value (meta edge)))
+(defn edge? [object] (= ::edge (type object)))
+
+(defn count [edge-or-coll]
+  (if (edge? edge-or-coll)
+    (cc/count (value edge-or-coll))
+    (cc/count edge-or-coll)))
 
 (defn- get-or-apply [f object & args]
   {:pre [(ifn? f)]}
-  (if (try (contains? object f) (catch #?(:clj Throwable, :cljs :default) _
-                                  (#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
-                                  false))
+  (if (try (contains? object f)
+           (catch #?(:clj Throwable, :cljs :default) _
+             (#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+             false))
     (get object f)
     (apply f object args)))
 
@@ -218,7 +225,7 @@
   #_(assert (= 1 (count fn-like)) (str "A traversal can only contain one edge. Received: " (keys fn-like) "."))
   (with-% (fn traverse [lexical-env object] ; optional
             (let [[f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
-                  args (replace (merge (::lexical-env metadata) lexical-env {'% object}) args)]
+                  args (replace (cc/merge (::lexical-env metadata) lexical-env {'% object}) args)]
               (apply f args)))))
 
 (def ^:private star? #{'*})
@@ -247,7 +254,11 @@
            (ident? edge)  (getter edge)
            (string? edge) (getter edge)
            (var? edge) (caller edge) ; must wrap, putting meta on a var is a side effect
-           (fn? edge) (with-% (fn [_lexical-env object & args] (apply get-or-apply edge object args)))
+           (fn? edge) (with-% (fn [_lexical-env object & args]
+                                (try (apply get-or-apply edge object args)
+                                     (catch #?(:clj Throwable, :cljs :default) err
+                                       (#?(:clj log/warn, :cljs js/console.warn) "Failed to apply" (::form metadata) "onto" (cons object args))
+                                       err))))
            (var-form? edge) (with-% (fn [_lexical-env object] (get object (::value metadata)))) ; quoted var
            ;; TODO class method calls?
            (map? edge) (lift-traversal edge metadata)
@@ -256,16 +267,15 @@
                                  (constantly {})
                                  (let [keys (map edge-name (::form metadata))
                                        pull (apply juxt fns)]
-                                   (with-% (fn edges [_lexical-env map-object] (zipmap keys (cc/concat (pull map-object) (repeat nil))))))))
+                                   (with-% (fn edges [_lexical-env map-object]
+                                             (zipmap keys (cc/concat (pull map-object) (repeat nil))))))))
            (seq? edge) (with-% (fn call [lexical-env & _args] ; optional
-                                    (let [lexical-env (merge (::lexical-env metadata) lexical-env)
+                                    (let [lexical-env (cc/merge (::lexical-env metadata) lexical-env)
                                           [f & args] (template-call-from-env lexical-env (::form metadata) edge)]
                                       (apply f args))))
            :else (with-% (fn [_lexical-env object & args] (apply get-or-apply edge object args))))
          ]
      (with-meta lifted-fn metadata))))
-
-(defn edge? [object] (= ::edge (type object)))
 
 #?(:clj
    (defmethod print-method ::edge [object writer]
@@ -373,7 +383,7 @@
     (case (count non-empties)
       0 nil
       1 (first non-empties)
-      (cons `merge non-empties))))
+      (cons `cc/merge non-empties))))
 
 (defn- filter-kv [pred map] (reduce-kv (fn [r k v] (if (pred k v) r (dissoc r k))) map map))
 (defn- remove-kv [pred map] (filter-kv (complement pred) map))
@@ -417,19 +427,50 @@
          (when-not (= form short-form)
            short-form)))))
 
+(defn- indirect-method-call? [sym]
+  (and (simple-symbol? sym)
+    (str/starts-with? (name sym) ".")))
+
+(defn- direct-method-call? [sym]
+  (and (qualified-symbol? sym)
+    (str/starts-with? (name sym) ".")))
+
+#?(:clj
+    (defn- supports-direct-method-syntax? []
+      (>= 1.12 (parse-double (re-find #"^[0-9]+\.[0-9]+" (clojure-version))))))
+
+#?(:clj (defn- escape-method-calls [form]
+          (cond
+            (indirect-method-call? form) `#(~form %)
+
+            (and (direct-method-call? form) (not (supports-direct-method-syntax?)))
+            , (escape-method-calls (symbol (name form)))
+
+            :else form)))
+
+(defmacro resolve-direct-method [sym] ; No call to resolve, respects ②
+  {:pre [(direct-method-call? sym)]}
+  `(symbol (.getName ~(symbol (namespace sym))) ~(name sym)))
+
 ;; (hfql (identity '%))
 (defmacro edge [fn-like-form & [metadata]]
   (let [raw-form      (edge-raw-form fn-like-form) ; ②
         form          (#'quote raw-form)
         short-form    (#'quote (attempt-shorten-form raw-form))
-        resolved-form (when (symbol? fn-like-form) `(symbol (var ~fn-like-form)))
+        resolved-form (cond
+                        (indirect-method-call? fn-like-form) nil
+                        (direct-method-call? fn-like-form) `(resolve-direct-method ~fn-like-form)
+                        (symbol? fn-like-form) `(symbol (var ~fn-like-form))
+                        :else nil)
         value         (as-> fn-like-form %                   ; ②
                         (edge-raw-value %)
+                        (escape-method-calls %)
                         (escape-traversals %)
                         (escape-calls %)
                         ({'* `star} % %))
         lexical-env   (lexical-bindings-map &env)
         symbolic-form (-> fn-like-form
+                        (escape-method-calls)
                         (escape-traversals)
                         (escape-calls)
                         (escape-star)
@@ -438,7 +479,7 @@
         metadata      (emit-merge
                         (#'quote (meta &form))                                     ; ⑦
                         (prune-metamap
-                          (merge metadata
+                          (cc/merge metadata
                             {::form        (if (and (litteral? form) (not (is-kw-fn? fn-like-form))) nil form) ; no need to repeat it
                              ::short-form  short-form
                              ::resolved-form resolved-form
@@ -467,19 +508,19 @@
 
 (defmacro hfql [pull-expr & [metadata]]
   (cond
-    (and (seqable? pull-expr) (empty? pull-expr)) `(with-meta (constantly {}) ~(emit-merge {::form (#'quote pull-expr)} metadata))
+    ;; (and (seqable? pull-expr) (empty? pull-expr)) `(with-meta (constantly {}) ~(emit-merge {::form (#'quote pull-expr) :type ::edge} metadata))
     (vector? pull-expr)
     `(edge ~(with-meta
               (mapv (fn [fn-like-form] `(edge ~fn-like-form)) pull-expr) ; ⑧
-              (merge {::form (list 'quote (edge-raw-form pull-expr))}
+              (cc/merge {::form (list 'quote (edge-raw-form pull-expr))}
                 metadata)))
     :else (if (not-empty metadata)
             `(edge ~pull-expr ~metadata)
             `(edge ~pull-expr))))
 
 (comment
-  (hfql {identity [:a]}) 
-  (hfql [:a]) 
+  (hfql {identity [:a]})
+  (hfql [:a])
   )
 
 (defn next [edge-fn]
@@ -555,6 +596,28 @@
 
 (defn- call [f & args] (apply f args))
 
+#?(:clj (defn is-array? [x]
+          {:post [(boolean? %)]}
+          (boolean (some-> x class .isArray))))
+
+(defn- supports-nth? [object] ; from clojure.lang.RT
+  #?(:clj (or (instance? clojure.lang.Indexed object)
+            (nil? object)
+            (instance? CharSequence object)
+            (is-array? object)
+            (instance? java.util.RandomAccess object)
+            (instance? java.util.regex.Matcher object)
+            (map-entry? object)
+            (sequential? object)
+            )
+     :cljs (or (nil? object) ; from cljs.core
+             (implements? IIndexed object)
+             (array? object)
+             (string? object)
+             (implements? ISeq object)
+             (implements? ISequential object)
+             (native-satisfies? IIndexed object))))
+
 (defn nav ; ①
   ([edge] (nav nil edge))
   ([object edge]
@@ -563,11 +626,16 @@
   ([env object edge value]
    (if (edge? edge)
      (call edge (assoc env '% object) (if (satisfies? ccp/Navigable object) (or (datafy/nav object edge value) object) object))
-     (datafy/nav object edge (if (or (nil? value) (= object value))
-                               (if (associative? object)
-                                 (get object edge value)
-                                 (nth object edge value))
-                               value)))))
+     (do #?(:clj (log/info `nav edge value object))
+         (if (nil? object)
+           value
+           (datafy/nav object edge (if (or (nil? value) (= object value))
+                                     (if (associative? object)
+                                       (get object edge value)
+                                       (if (and (supports-nth? object) (some? edge))
+                                         (nth object edge value)
+                                         value))
+                                     value)))))))
 
 (tests ; ①
   (nav {:a 1} :a) := 1
@@ -586,11 +654,10 @@
 
     (map (partial nav alice) (next (first (next pull-expression))))
     := ["Alice" "alice@example.com"]
-
     ))
 
-(defn- traversal? [pull-expr] (and (edge? pull-expr) (map? (value pull-expr))))
-(defn- pull? [pull-expr] (and (edge? pull-expr) (vector? (value pull-expr))))
+(defn traversal? [pull-expr] (and (edge? pull-expr) (map? (value pull-expr))))
+(defn pull? [pull-expr] (and (edge? pull-expr) (vector? (value pull-expr))))
 
 (declare pull)
 
@@ -600,8 +667,10 @@
 
 (defn- traverse [object edge env]
   {:pre [(traversal? edge)]}
-  (if (multiplicity-many? object)
-    (->> (map (fn [collection-element] (traverse (datafy/nav object edge collection-element) edge (assoc env '% object))) object)
+  (prn `traverse edge object)
+  (if (and (multiplicity-many? object) (pull? (next edge)))
+    (->> object
+      (map (fn [collection-element] (traverse (datafy/nav object edge collection-element) edge (assoc env '% object))))
       (reduce (fn [r traversed] (merge-with (fn [a b] (if (vector? a) (conj a b) [a b])) r traversed)) {}))
     (reduce-kv (fn [r edge pull-expr]
                  (let [[f & args] (template-call-from-env env (form edge) (value edge))
@@ -609,6 +678,11 @@
                    (assoc r (if (seq? (form edge)) (cons symbolic-f args) (form edge))
                      (pull pull-expr object (assoc env '% object))))) {} (value edge))))
 
+
+(comment
+  (let [ns-publics2 (comp vals ns-publics)]
+    (pull (hfql {(ns-publics2 '%) [symbol]}) *ns*))
+  )
 
 (defn pull "Eagerly navigates, realizing the entire pull expression." ; ①
   ([pull-expr] (pull pull-expr nil))
@@ -638,6 +712,10 @@
    (let [alice {:db/id 9, :user/name "Alice", :user/email "alice@example.com"}]
      (pull (hfql {identity [:user/email]}) alice) )
     := {'identity {:user/email "alice@example.com"}}
+
+   (let [ns-publics2 (comp vals ns-publics)]
+      (pull (hfql {(ns-publics2 '%) [symbol]}) *ns*))
+
   )
 
 (tests
@@ -735,7 +813,7 @@
 
 (tests
   "keyword aliases"
-  
+
   (form (hfql :test)) := :test
   (form (hfql ::test)) := :hyperfiddle.hfql1/test
   (form (hfql ::ccp/test)) := :clojure.core.protocols/test
@@ -773,27 +851,33 @@
     (when-let [found (first (filter (fn [traversal] (pred (form traversal))) (keys (value edge-fn))))]
       (first {found (get (value edge-fn) found)}))))
 
+(defn- normalize-traversal-lookup [symbolic-call-form]
+  (let [symbolic-call-form (unquote symbolic-call-form)]
+    (cond (seq? symbolic-call-form) symbolic-call-form
+          (ident? symbolic-call-form) (list symbolic-call-form '%)
+          :else symbolic-call-form)))
+
 (defn find-traversal
   [edge-fn symbolic-call-form]
-  {:pre [(sequential? symbolic-call-form)]}
-  (when (map? (form edge-fn))
-    (let [[f & args] (seq symbolic-call-form)
-          argc (count args)]
-      (or
-        ;; look for exact symbolic match
-        (first (filter-kv (fn [k v] (= symbolic-call-form (form k))) (value edge-fn)))
-        ;; look for same symbolic fn and arg count match
-        (first (filter-kv (fn [k v] (let [k-form (form k)]
-                                      (and (seq? k-form)
-                                        (= f (first k-form))
-                                        (= argc (count (rest k-form)))))) (value edge-fn)))
-        ;; look for point free call
-        (first (filter-kv (fn [k v]
-                            (and (= f (form k))
-                              (or (= 0 argc)
-                                (= 1 argc))))
-                 (value edge-fn)))
-        ))))
+  (when (some? symbolic-call-form)
+    (when (map? (form edge-fn))
+      (let [[f & args] (seq (normalize-traversal-lookup (unquote symbolic-call-form)))
+            argc (count args)]
+        (or
+          ;; look for exact symbolic match
+          (first (filter-kv (fn [k v] (= symbolic-call-form (form k))) (value edge-fn)))
+          ;; look for same symbolic fn and arg count match
+          (first (filter-kv (fn [k v] (let [k-form (form k)]
+                                        (and (seq? k-form)
+                                          (= f (first k-form))
+                                          (= argc (count (rest k-form)))))) (value edge-fn)))
+          ;; look for point free call
+          (first (filter-kv (fn [k v]
+                              (and (= f (form k))
+                                (or (= 0 argc)
+                                  (= 1 argc))))
+                   (value edge-fn)))
+          )))))
 
 
 (tests
@@ -805,7 +889,9 @@
   (find-traversal _lookup_sitemap '(identity))
   (find-traversal _lookup_sitemap '(identity 1))
   (find-traversal _lookup_sitemap '(str))
-  (find-traversal _lookup_sitemap '(str "a" "b")))
+  (find-traversal _lookup_sitemap '(str "a" "b"))
+  (find-traversal _lookup_sitemap ''(identity))
+  )
 
 
 (defn concat [pull-expr-A pull-expr-B]
@@ -814,15 +900,29 @@
   (assert (vector? (value pull-expr-B)) (str "Can only concat two pull expressions (i.e. vectors). Given " (form pull-expr-B)))
   (lift (into (value pull-expr-A) (value pull-expr-B))
     (-> (meta pull-expr-A)
-      (merge (meta pull-expr-B))
-      (assoc ::lexical-env (merge (::lexical-env (meta pull-expr-A)) (::lexical-env (meta pull-expr-B))))
+      (cc/merge (meta pull-expr-B))
+      (assoc ::lexical-env (cc/merge (::lexical-env (meta pull-expr-A)) (::lexical-env (meta pull-expr-B))))
       (assoc ::form (into (form pull-expr-A) (form pull-expr-B)))
       (dissoc ::value))))
+
+(defn merge
+  ([traversal] traversal)
+  ([traversalA traversalB]
+   (assert (traversal? traversalA) (str "Can only merge two traversal expressions (i.e. maps). Given " (form traversalA)))
+   (assert (traversal? traversalB) (str "Can only merge two traversal expressions (i.e. maps). Given " (form traversalB)))
+   (lift (cc/merge (value traversalA) (value traversalB))
+     (-> (meta traversalA)
+       (cc/merge (meta traversalB))
+       (assoc ::lexical-env (cc/merge (::lexical-env (meta traversalA)) (::lexical-env (meta traversalB))))
+       (assoc ::form (cc/merge (form traversalA) (form traversalB)))
+       (dissoc ::value))))
+  ([traversalA traversalB & traversals]
+   (reduce merge (merge traversalA traversalB) traversals)))
 
 (defn build-pull [edges]
   (assert (every? edge? edges) (str "Not an edge" (first (remove edge? edges))))
   (lift (vec edges)
-    {::lexical-env (reduce merge {} (map ::lexical-env (map meta edges)))
+    {::lexical-env (reduce cc/merge {} (map ::lexical-env (map meta edges)))
      ::form (vec (map form edges))}))
 
 (defn- map-pull [f pull-expr]
@@ -831,3 +931,68 @@
 
 (defn filter-pull [pred pull-expr]
   (map-pull (fn [edge] (when (pred edge) edge)) pull-expr))
+
+
+;;;;;;;;;;;;;;;
+;; Protocols ;;
+;;;;;;;;;;;;;;;
+
+
+(defprotocol Identifiable :extend-via-metadata true
+  (-identify [o])) ; local-symbolize
+
+(extend-protocol Identifiable
+  #?(:clj Object, :cljs default) (-identify [_])
+  nil (-identify [_]))
+
+(defn identifiable [identify-fn object]
+  (vary-meta object assoc `-identify (#?(:clj bound-fn*, :cljs identity) identify-fn))) ; #?(:clj bound-fn* :cljs identity)
+
+(defn identify [obj] "
+Produces a symbolic identity for `obj`, or nil if `obj` does not explicitly
+implement `Identifiable`. Serializable and uniquely resolvable symbolic
+identities should be favored.
+All values being self-identical, `(or (identify x) x)` always yields a valid
+identifier, though it might not be serializable."
+  (-identify obj))
+
+(comment
+  (identify (Object.)) := nil
+  (let [obj (Object.)] (pr-str (or (identify obj) obj))) := "#object[java.lang.Object 0x75bf525d \"java.lang.Object@75bf525d\"]"
+  (identify nil) := nil
+  (identify (identifiable (constantly `hash-map) {})) := `hash-map)
+
+(defn identifiable? [object]
+  #_(extends? Identifiable (type object))
+  #?(:clj (extends? Identifiable object)
+     :cljs (and (not (nil? object))
+             (object? object)
+             (satisfies? Identifiable object))))
+
+
+(defprotocol Suggestable :extend-via-metadata true
+             (-suggest [o]))
+
+(extend-protocol Suggestable
+  #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
+  (-suggest [m] (build-pull (map lift (keys m))))
+  #?(:clj Object, :cljs default)
+  (-suggest [_] (hfql [identity identify type]))
+  nil (-suggest [_]))
+
+#?(:clj (extend-type Class
+          Suggestable (-suggest [_] (hfql [Class/.getCanonicalName Class/.getMethods Class/.getFields]))))
+
+
+(defmulti suggest type)
+(defmethod suggest :default [object] (or (-suggest object) #?(:clj (hfql0/suggest object))))
+(defmethod suggest #?(:clj clojure.lang.IRecord, :cljs IRecord) [record]
+  (build-pull
+    (map lift
+      (map keyword
+        #?(:clj
+           (-> (type record)
+             (.getMethod "getBasis" nil)
+             (.invoke nil nil))
+           :cljs
+           (.getBasis (type record)))))))
