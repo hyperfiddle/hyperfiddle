@@ -21,6 +21,7 @@
 
         com.hyperfiddle/heroicons-electric {:mvn/version "8a08de7"} ; for hyperfiddle.ui components
         meander/epsilon {:mvn/version "0.0.650"} ; entity browser
+        instaparse/instaparse {:mvn/version "1.5.0"} ; EDNish
         }
  :aliases {:build {:extra-paths ["src-build"]
                    :ns-default  build
