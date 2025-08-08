@@ -100,8 +100,9 @@ Economically, Hyperfiddle is an ongoing, decade-long R&D investment to find and 
 > Hyperfiddle is now in technical preview! Request preview access here: https://www.hyperfiddle.net/early-access.html and then DM @dustingetz to schedule a demo.
 
 ## License
-* free for individual use on local dev machines, mandatory runtime login (we are a business)
-* using in prod requires a license, contact us.
+* source available business license
+* free for individual use on local dev machines, login to activate (we are a business)
+* using in prod requires a license, DM dustingetz on slack.
 * still working out the details
 
 ## Social media
