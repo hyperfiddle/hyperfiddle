@@ -61,11 +61,17 @@
         "$"))
     (percent-encode (name object))))
 
-(defn- encode-tagged-value [object]
-  (let [str-repr (pr-str object)
-        tag  (first (str/split str-repr #"\s+" 0))]
-    (unescape-string RFC-3986-SUB-DELIMITERS 
-      (encode `(~(symbol (subs tag 1)) ~(subs str-repr (+ 2 (count tag)) (dec (count str-repr))))))))
+(letfn [(unescape-nested-string [str]
+          (if (and (str/starts-with? str "\"") (str/ends-with? str "\""))
+            (subs str 1 (dec (count str)))
+            str))]
+  (defn- encode-tagged-value [object]
+    (let [str-repr (pr-str object)
+          tag  (first (str/split str-repr #"\s+" 0))]
+      (unescape-string RFC-3986-SUB-DELIMITERS
+        (encode
+          (list (symbol (subs tag 1))
+            (unescape-nested-string (subs str-repr (inc (count tag))))))))))
 
 (defmulti encode-dispatch type)
 (defmethod encode-dispatch :default [object]
@@ -158,7 +164,6 @@
   (serialize {:a {:b :c}}) := "(map,:a,(map,:b,:c))"
   (serialize {:hfql/search "pour l'amour"}) := "(map,:hfql$search,'pour+l%27amour')"
   (serialize '(clojure.java.io/file "."))
-  (serialize #inst "2025") := "(inst,'2025-01-01T00:00:00.000-00:00')"
   (serialize #inst "2025") := "(inst,'2025-01-01T00:00:00.000-00:00')"
 
   (serialize  #uuid "4380248c-4db9-4ec5-8cc5-31b982768290") := "(uuid,'4380248c-4db9-4ec5-8cc5-31b982768290')"
