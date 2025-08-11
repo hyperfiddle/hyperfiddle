@@ -134,10 +134,29 @@
   nil
   (-encode [_] (pr-str nil)))
 
-(defn- percent-encode [v]
-  (let [s (str v)]
-    #?(:clj (java.net.URLEncoder/encode s "UTF-8")
-       :cljs (js/encodeURIComponent s)))) ;; encodeURIComponent encodes all but RFC-3986 unreserved chars
+(defn- percent-encode* [str]
+  #?(:clj (java.net.URLEncoder/encode ^String str "UTF-8")
+     :cljs (-> (js/encodeURIComponent str)
+             (.replace #"\'" "%27")))) ;; encodeURIComponent encodes all but RFC-3986 unreserved chars
+
+(defn- percent-decode* [string]
+  #?(:clj (java.net.URLDecoder/decode string "UTF-8")
+     :cljs (-> string
+             ;; URLDecoder turns "+" into space; decodeURIComponent doesn’t, so replace "+"→" " first
+             (.replace #"\+" " ")
+             js/decodeURIComponent)))
+
+(defn- double-encode [chars encoded-string]
+  (reduce (fn [str char] (str/replace str (percent-encode* char) (percent-encode* (percent-encode* char)))) encoded-string (map str chars)))
+
+(defn- double-decode [chars decoded-string]
+  (reduce (fn [str char] (str/replace str (percent-encode* char) char)) decoded-string (map str chars)))
+
+(defn- percent-encode [string]
+  (double-encode #{\'} ; ensure browser's don't decode %27 to ' and break string delimiters (at least FF does it)
+    (percent-encode* (str string))))
+
+(defn- percent-decode [string] (double-decode #{\'} (percent-decode* (str string))))
 
 (defn- unescape-string [chars string]
   (->> chars
@@ -151,7 +170,7 @@
   (serialize "foo") := "'foo'"
   (serialize "foo bar") := "'foo+bar'"
   (serialize "foo,bar") := "'foo%2Cbar'"
-  (serialize "\"pour\" l'amour") := "'%22pour%22+l%27amour'"
+  (serialize "\"pour\" l'amour") := "'%22pour%22+l%2527amour'"
 
   (serialize :foo) := ":foo"
   (serialize 'foo) := "foo"
@@ -180,7 +199,7 @@
   (serialize {}) := "~map,()"
   (serialize {:a :b}) := "~map,(:a,:b)"
   (serialize {:a {:b :c}}) := "~map,(:a,~map,(:b,:c))"
-  (serialize {:hfql/search "pour l'amour"}) := "~map,(:hfql$search,'pour+l%27amour')"
+  (serialize {:hfql/search "pour l'amour"}) := "~map,(:hfql$search,'pour+l%2527amour')"
   (serialize '(clojure.java.io/file "."))
   (serialize #inst "2025") := "~inst,'2025-01-01T00:00:00.000-00:00'"
 
@@ -246,14 +265,6 @@
   nil
   (-decode [_] nil)
   )
-
-(defn- percent-decode [v]
-  (let [s (str v)]
-    #?(:clj (java.net.URLDecoder/decode s "UTF-8")
-       :cljs (-> s
-               ;; URLDecoder turns "+" into space; decodeURIComponent doesn’t, so replace "+"→" " first
-               (.replace #"\+" " ")
-               js/decodeURIComponent))))
 
 
 (tests
@@ -387,11 +398,11 @@
   (def home `(user/hello))
 
   "routes must pass java.net.URI"
-  #?(:clj (some? (java.net.URI. (encode-uri-path `(user/hello)))) := true)
+  #?(:clj (some? (java.net.URI. (encode-uri-path (list 'user/hello, #inst "2025", "http://user:pass@[v6-ip.example.com]:8080//path?query#fragment" {:a :b})))) := true)
 
   "non-ascii characters"
-  (encode-uri-path '(foo "!$&'[]()*+,;=|")) := "/foo/'!$&%27%5B%5D%28%29*%2B%2C;=%7C'"
-  (decode-uri-path "/foo/'!$&%27%5B%5D%28%29*%2B%2C;=%7C'") := '(foo "!$&'[]()*+,;=|")
+  (encode-uri-path '(foo "!$&'[]()*+,;=|")) := "/foo/'!$&%2527%5B%5D%28%29*%2B%2C;=%7C'"
+  (decode-uri-path "/foo/'!$&%2527%5B%5D%28%29*%2B%2C;=%7C'") := '(foo "!$&'[]()*+,;=|")
 
   "composite parameters"
   (encode-uri-path `(hyperfiddle.blog/post [:user/sub "google-oauth2|1234"] #{"events" "news"}))
@@ -406,13 +417,13 @@
 
   ;; User friendliness
   (encode-uri-path `(Toggle 1 2)) := "/hyperfiddle.ednish$Toggle/1/2"
-  (encode-uri-path '("pour l'amour")) := "/'pour+l%27amour'"
+  (encode-uri-path '("pour l'amour")) := "/'pour+l%2527amour'"
   (decode-uri-path "/'pour+l’amour'") := '("pour l’amour")
 
   ;; nested structure is readable
   (encode-uri-path [:app.datomic-browser/attribute :abstractRelease/name {:contrib.gridsheet/search "pour l'amour"}])
-   := "/:app.datomic-browser$attribute/:abstractRelease$name/~map,(:contrib.gridsheet$search,'pour+l%27amour')"
+   := "/:app.datomic-browser$attribute/:abstractRelease$name/~map,(:contrib.gridsheet$search,'pour+l%2527amour')"
 
-   (decode-uri-path "/:app.datomic-browser$attribute/:abstractRelease$name/~map,(:contrib.gridsheet$search,'pour+l%27amour')")
+   (decode-uri-path "/:app.datomic-browser$attribute/:abstractRelease$name/~map,(:contrib.gridsheet$search,'pour+l%2527amour')")
     := '(:app.datomic-browser/attribute :abstractRelease/name {:contrib.gridsheet/search "pour l'amour"})
   )
