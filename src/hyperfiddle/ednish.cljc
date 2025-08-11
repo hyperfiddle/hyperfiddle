@@ -9,6 +9,7 @@
   (:require [clojure.spec.alpha :as s]
             [clojure.string :as str]
             [clojure.edn :as edn]
+            [clojure.set :as set]
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [instaparse.core :as instaparse])
   #?(:clj (:import [clojure.lang IPersistentVector IPersistentMap IPersistentSet Symbol Keyword])
@@ -19,59 +20,77 @@
 
 (def ^:private EDNISH-GRAMMAR
   "<Ednish>    = Expr+
-   <Expr>      = (String / Atom) | Sexpr | Separator
    Sexpr       = <'('> Ednish* <')'>
-   Atom        = #'[^(),{}\\[\\]]+'
-   String      = <\"'\"> #\"[^(),']+\" <\"'\">
+   <Expr>      = ReaderLiteral / String / Atom / Sexpr / Separator
+   ReaderLiteral = Unquote Separator+ Expr
+   <Unquote>     = <'~'> Atom
+   Atom        = #'^(?!\\~)[^(),{}\\[\\]]+'
+   String      = <\"'\"> #\"[^']*\" <\"'\">
    <Separator> = <#',+'> ")
 
 (def ^:private parser (instaparse/parser EDNISH-GRAMMAR #_#_:auto-whitespace :standard))
 
 (declare decode)
 
-(defn parse [str]
+(defn parse [string]
   (instaparse/transform {:Sexpr (fn [& content]
                                   (if (empty? content) ; distinguishes (nil) from () – aka unit
                                     (decode ())
                                     (decode content)))
                          :String decode
+                         :ReaderLiteral (fn [tag value-repr] (decode (list (decode tag) value-repr)))
                          :Atom (comp decode edn/read-string)}
-    (instaparse/parse parser str)))
-
+    (instaparse/parse parser string)))
 
 ;;;;;;;;;;;;;;
 ;; Encoding ;;
 ;;;;;;;;;;;;;;
 
-(def ^:private RFC-3986-SUB-DELIMITERS #{\$ \:})
-(def ^:private SAFE-STRING-CHARS #{\( \) \$})
+(def ^:private RFC-3986-GEN-DELIMITERS #{\: \/ \? \# \[ \] \@}) ; reserved in URLs
+(def ^:private RFC-3986-SUB-DELIMITERS #{\! \$ \& \' \( \) \* \+ \, \; \=}) ; URL safe, no need to %-encode
+(def ^:private RFC-3986-UNRESERVED-CHARACTERS #{\- \. \~ \_}) ; URL safe, no meaning
+(def ^:private EDNISH-RFC-3986-RESERVED-DELIMITERS #{\' ; string delimiter
+                                                     \, ; separator
+                                                     \( \) ; sexpr separator
+                                                     })
+(def ^:private EDNISH-DELIMITERS (set/union RFC-3986-GEN-DELIMITERS RFC-3986-SUB-DELIMITERS RFC-3986-UNRESERVED-CHARACTERS EDNISH-RFC-3986-RESERVED-DELIMITERS))
+(def ^:private EDNISH-RESERVED-DELIMITERS (-> (set/union RFC-3986-GEN-DELIMITERS EDNISH-RFC-3986-RESERVED-DELIMITERS)))
+(def ^:priavte EDNISH-UNRESERVED-STRING-CHARS (-> (set/difference EDNISH-DELIMITERS EDNISH-RESERVED-DELIMITERS)
+                                                (conj \:) ; Violates RFC-3986, but safe in URL path in practice.
+                                                ))
+(def ^:priavte EDNISH-UNRESERVED-ATOM-CHARS (-> (set/difference EDNISH-DELIMITERS EDNISH-RESERVED-DELIMITERS)
+                                              (conj \:) ; Violates RFC-3986, but safe in URL path in practice.
+                                              ))
 
 (declare encode -encode percent-encode unescape-string constructor)
 
+(defn encode-tagged-value [tag value]
+  (let [encoded (encode (list (symbol (str "#" tag)) value))]
+    (subs encoded 1 (dec (count encoded)))))
+
 (defn- encode-seq [object] (str "(" (str/join "," (map encode object)) ")"))
-(defn- encode-vector [object] (encode-seq (cons 'vec object)))
-(defn- encode-set [object] (encode-seq (cons 'set object)))
-(defn- encode-map [object] (encode-seq (cons 'map (sequence cat object))))
-(defn- encode-string [object] (str "'" (unescape-string SAFE-STRING-CHARS (percent-encode object)) "'"))
+(defn- encode-vector [object] (encode-tagged-value 'vec (sequence object)))
+(defn- encode-set [object] (encode-tagged-value 'set (sequence object)))
+(defn- encode-map [object] (encode-tagged-value 'map (sequence cat object)))
+(defn- encode-string [object] (str "'" (unescape-string EDNISH-UNRESERVED-STRING-CHARS (percent-encode object)) "'"))
 (defn- encode-ident [object]
-  (str
-    (when (keyword? object) ":")
-    (when (qualified-ident? object)
-      (str (percent-encode (namespace object))
-        "$"))
-    (percent-encode (name object))))
+  (-> (str
+        (when (keyword? object) ":")
+        (when (qualified-ident? object)
+          (str (percent-encode (namespace object))
+            "$"))
+        (percent-encode (name object)))
+    (str/replace #"^%23" "~") ; #inst -> ~inst
+    ))
+
+(defn encode-uuid [uuid] (encode-tagged-value 'uuid (str uuid)))
 
 (letfn [(unescape-nested-string [str]
           (if (and (str/starts-with? str "\"") (str/ends-with? str "\""))
             (subs str 1 (dec (count str)))
             str))]
-  (defn- encode-tagged-value [object]
-    (let [str-repr (pr-str object)
-          tag  (first (str/split str-repr #"\s+" 0))]
-      (unescape-string RFC-3986-SUB-DELIMITERS
-        (encode
-          (list (symbol (subs tag 1))
-            (unescape-nested-string (subs str-repr (inc (count tag))))))))))
+  (defn encode-inst [inst]
+    (encode-tagged-value 'inst (-> inst (pr-str) (str/replace #"^#inst " "") (unescape-nested-string)))))
 
 (defmulti encode-dispatch type)
 (defmethod encode-dispatch :default [object]
@@ -81,7 +100,6 @@
 (defmulti encode encode-dispatch)
 (defmethod encode :default [object] (-encode object))
 (defmethod encode ::seq [object] (encode-seq object))
-
 
 (defprotocol Encodable
   (-encode [object]))
@@ -105,10 +123,10 @@
   (-encode [object] (encode-set object))
 
   #?(:clj java.util.Date, :cljs js/Date) ; #inst
-  (-encode [object] (encode-tagged-value object))
+  (-encode [object] (encode-inst object))
 
   #?(:clj java.util.UUID, :cljs UUID) ; #uuid
-  (-encode [object] (encode-tagged-value object))
+  (-encode [object] (encode-uuid object))
 
 
   #?(:clj Object, :cljs default)
@@ -151,22 +169,22 @@
   (serialize '((() ()) (() ()))) := "(((),()),((),()))"
   (serialize '(((a) (b)) ((c) (d)))) := "(((a),(b)),((c),(d)))"
 
-  (serialize []) := "(vec)"
-  (serialize [[]]) := "(vec,(vec))"
-  (serialize [:a :b]) := "(vec,:a,:b)"
+  (serialize []) := "~vec,()"
+  (serialize [[]]) := "~vec,(~vec,())"
+  (serialize [:a :b]) := "~vec,(:a,:b)"
 
-  (serialize #{}) := "(set)"
-  (serialize #{#{}}) := "(set,(set))"
-  (serialize #{:a :b}) := "(set,:b,:a)"
+  (serialize #{}) := "~set,()"
+  (serialize #{#{}}) := "~set,(~set,())"
+  (serialize #{:a :b}) := "~set,(:b,:a)"
 
-  (serialize {}) := "(map)"
-  (serialize {:a :b}) := "(map,:a,:b)"
-  (serialize {:a {:b :c}}) := "(map,:a,(map,:b,:c))"
-  (serialize {:hfql/search "pour l'amour"}) := "(map,:hfql$search,'pour+l%27amour')"
+  (serialize {}) := "~map,()"
+  (serialize {:a :b}) := "~map,(:a,:b)"
+  (serialize {:a {:b :c}}) := "~map,(:a,~map,(:b,:c))"
+  (serialize {:hfql/search "pour l'amour"}) := "~map,(:hfql$search,'pour+l%27amour')"
   (serialize '(clojure.java.io/file "."))
-  (serialize #inst "2025") := "(inst,'2025-01-01T00:00:00.000-00:00')"
+  (serialize #inst "2025") := "~inst,'2025-01-01T00:00:00.000-00:00'"
 
-  (serialize  #uuid "4380248c-4db9-4ec5-8cc5-31b982768290") := "(uuid,'4380248c-4db9-4ec5-8cc5-31b982768290')"
+  (serialize  #uuid "4380248c-4db9-4ec5-8cc5-31b982768290") := "~uuid,'4380248c-4db9-4ec5-8cc5-31b982768290'"
   )
 
 ;;;;;;;;;;;;;;
@@ -175,12 +193,13 @@
 
 (declare percent-decode decode-map decode -decode)
 
-(defn- decode-map [object] (apply array-map (rest object)))
+(defn- decode-map [object] (apply array-map object))
 (defn- decode-string [object] (percent-decode object))
 (defn- decode-ident [object]
-  (if (qualified-ident? object)
-    object
-    (edn/read-string (percent-decode (str/replace-first (str object) "$" "/")))))
+  (let [constructor (if (keyword? object) keyword symbol)]
+    (if (qualified-ident? object) ; TODO verify if correct. Is it for the ::case? Not sure if that's a thing.
+      (constructor (percent-decode (namespace object)) (percent-decode (name object)))
+      (edn/read-string (percent-decode (str/replace-first (str object) "$" "/"))))))
 
 (defn- qualify [sym]
   {:pre [(symbol? sym)]}
@@ -188,28 +207,27 @@
     sym
     (symbol (namespace `_) (name sym))))
 
-(defn- constructor [object]
-  (when (seq? object)
-    (let [[f & _args] object]
-      (when (symbol? f)
-        (let [resolved (qualify f)]
-          (when-some [entry (or (find (methods decode) resolved)
-                              (find (methods decode) f))]
-            (key entry)))))))
+(def ^:private INTERNAL-DATA-READERS {'vec #'vec, 'map #'decode-map, 'set #'set})
+
+(def ^:dynamic *constructors* {})
+
+(defn- resolve-tag-reader [symbol]
+  {:pre [(symbol? symbol)]}
+  (let [readers (merge default-data-readers clojure.core/*data-readers* INTERNAL-DATA-READERS *constructors*)]
+    (or (get readers symbol)
+      (get readers (qualify symbol)))))
 
 (defmulti decode-dispatch type)
 (defmethod decode-dispatch :default [object]
-  (cond (seq? object) (or (constructor object) ::seq)
+  (cond (seq? object)
+        (let [[item & items] object]
+          (cond (and (symbol? item) (resolve-tag-reader item)) `tagged-literal
+                :else seq))
         :else (type object)))
 
 (defmulti decode #'decode-dispatch)
 (defmethod decode :default [object] (-decode object))
-(defmethod decode `hyperfiddle.ednish/vec [object] (vec (rest object)))
-(defmethod decode `hyperfiddle.ednish/map [object] (decode-map object))
-(defmethod decode `hyperfiddle.ednish/set [object] (set (rest object)))
-(defmethod decode 'inst [object] (clojure.instant/read-instant-date (second object)))
-(defmethod decode 'uuid [object] #?(:clj (java.util.UUID/fromString (second object))
-                                    :cljs (uuid (second object))))
+(defmethod decode `tagged-literal [[tag value :as obj]] ((resolve-tag-reader tag) value))
 
 (defprotocol Decodable
   (-decode [object]))
@@ -239,9 +257,12 @@
 
 
 (tests
+
+  (parse (serialize "")) := '("")
   (parse (serialize "foo")) := '("foo")
   (parse (serialize "foo bar")) := '("foo bar")
   (parse (serialize "foo,bar")) := '("foo,bar")
+  (parse (serialize "(foo)")) := '("(foo)") 
   (parse (serialize "\"pour\" l'amour")) := '("\"pour\" l'amour")
 
   (parse (serialize :foo)) := '(:foo)
@@ -274,6 +295,22 @@
   (parse (serialize {:hfql/search "pour l'amour"})) := '({:hfql/search "pour l'amour"})
   (parse (serialize '(clojure.java.io/file "."))) := '((clojure.java.io/file "."))
 
-  (parse (serialize #inst "2025")) := '(#inst "2025")
+  (parse (serialize #inst "2025") ) := '(#inst "2025")
   (parse (serialize  #uuid "4380248c-4db9-4ec5-8cc5-31b982768290")) := '(#uuid "4380248c-4db9-4ec5-8cc5-31b982768290")
-)
+  )
+
+(tests
+  (defmethod encode java.io.File [file] (encode (list 'clojure.java.io/file (.getPath file))))
+  (defmethod encode clojure.lang.Namespace [ns] (encode (list `find-ns (ns-name ns))))
+  (defmethod encode clojure.lang.Var [var] (encode (list `var (symbol var))))
+
+  (let [file (clojure.java.io/file ".")]
+    (binding [*constructors* {`clojure.java.io/file clojure.java.io/file}]
+      (parse (serialize file))) := [file])
+
+  (binding [*constructors* {`find-ns find-ns}]
+    (parse (serialize *ns*))) := [*ns*]
+
+  (binding [*constructors* {`var find-var}]
+    (parse (serialize #'inc))) := [#'inc]
+  )
