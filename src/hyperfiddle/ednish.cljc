@@ -11,7 +11,8 @@
             [clojure.edn :as edn]
             [clojure.set :as set]
             [hyperfiddle.rcf :as rcf :refer [tests]]
-            [instaparse.core :as instaparse])
+            [instaparse.core :as instaparse]
+            #?(:cljs [goog.Uri]))
   #?(:clj (:import [clojure.lang IPersistentVector IPersistentMap IPersistentSet Symbol Keyword])
      :cljs (:import [cljs.lang IPersistentVector IPersistentMap IPersistentSet Symbol Keyword])))
 
@@ -51,6 +52,7 @@
 (def ^:private RFC-3986-UNRESERVED-CHARACTERS #{\- \. \~ \_}) ; URL safe, no meaning
 (def ^:private EDNISH-RFC-3986-RESERVED-DELIMITERS #{\' ; string delimiter
                                                      \, ; separator
+                                                     \+ ; URI space marker
                                                      \( \) ; sexpr separator
                                                      })
 (def ^:private EDNISH-DELIMITERS (set/union RFC-3986-GEN-DELIMITERS RFC-3986-SUB-DELIMITERS RFC-3986-UNRESERVED-CHARACTERS EDNISH-RFC-3986-RESERVED-DELIMITERS))
@@ -313,4 +315,118 @@
 
   (binding [*constructors* {`var find-var}]
     (parse (serialize #'inc))) := [#'inc]
+  )
+
+;;;;;;;;;;;;;;;;;;;;;
+;; Routing helpers ;;
+;;;;;;;;;;;;;;;;;;;;;
+
+(defn encode-uri-path [route & [home-route]]
+  (if (= route home-route)
+    "/"
+    (str "/" (str/join "/" (map serialize route))))
+  #_(str "/"
+    (cond
+      (empty? route) nil
+      ((some-fn seq? vector?) route) ; not all sequential colls have [f & args] semantics (e.g. ordered maps)
+      (let [[f & args] route]
+        (condp = route
+          home-route nil
+          (str (serialize f)
+            "/" (some->> args
+                  (map serialize)
+                  (str/join "/")))))
+      () (serialize route))))
+
+(defn- uri-ensure-no-implicit-authority [uri-path-string] 
+  (if (str/starts-with? uri-path-string "//")
+    (str "ednish://" uri-path-string)
+    uri-path-string))
+
+(defn- normalize-uri-path [uri-path-string]
+  (as-> uri-path-string %
+    (str %) ; nil support
+    (if-not (str/starts-with? % "/") (str "/" %) %)
+    (uri-ensure-no-implicit-authority %)
+    ))
+
+(defn- uri-parts
+  "Return [path query fragment] (without ?/#). Works with full or relative URIs."
+  [uri-path-string]
+  #?(:clj  (let [u (java.net.URI. uri-path-string)]
+             [(.getRawPath u) (.getRawQuery u) (.getRawFragment u)])
+     :cljs (let [u (goog.Uri/parse uri-path-string)]
+             [(.getPath u) (.getQuery u) (.getFragment u)])))
+
+(tests "uri parts"
+  (uri-parts (normalize-uri-path "/")) := ["/" nil nil]
+  (uri-parts (normalize-uri-path "/?a")) := ["/" "a" nil]
+  (uri-parts (normalize-uri-path "/#a")) := ["/" nil "a"]
+  (uri-parts (normalize-uri-path "//")) := ["//" nil nil]
+  (uri-parts (normalize-uri-path "//a")) := ["//a" nil nil])
+
+(defn- uri-path-segments [uri-path-string]
+  (-> uri-path-string (normalize-uri-path) (str/split #"/") (rest)))
+
+(defn decode-uri-path [uri-path-string & [home-route]]
+  {:pre [(string? uri-path-string)]}
+  (let [[path query fragment] (uri-parts (normalize-uri-path uri-path-string))]
+    (cond
+      (empty? path) home-route
+      (= "/" path)  home-route
+      :else (map (comp first parse) (uri-path-segments path)))))
+
+(tests
+  "sexpr uri paths"
+  (encode-uri-path `(user/hello)) := "/user$hello"
+  (decode-uri-path "/user$hello") := `(user/hello)
+
+  (encode-uri-path `(user/hello :a 1 "alice")) := "/user$hello/:a/1/'alice'"
+  (decode-uri-path "/user$hello/:a/1/'alice'") := `(user/hello :a 1 "alice")
+
+  "pass a home-route"
+  (def home `(user/hello :default))
+  (encode-uri-path `(user/hello :default) home) := "/"
+  (decode-uri-path "/" home) := `(user/hello :default)
+  (encode-uri-path `(user/hello :a 1 "alice") home) := "/user$hello/:a/1/'alice'"
+  (decode-uri-path "/user$hello/:a/1/'alice'" home) := `(user/hello :a 1 "alice")
+
+  "home-route edge cases"
+  (uri-parts (normalize-uri-path "/")) := ["/" nil nil]
+  (uri-parts (normalize-uri-path "/?a")) := ["/" "a" nil]
+  (uri-parts (normalize-uri-path "/#a")) := ["/" nil "a"]
+  (uri-parts (normalize-uri-path "//")) := ["//" nil nil]
+  (uri-parts (normalize-uri-path "//a")) := ["//a" nil nil]
+
+  (def home `(user/hello))
+
+  "routes must pass java.net.URI"
+  #?(:clj (some? (java.net.URI. (encode-uri-path `(user/hello)))) := true)
+
+  "non-ascii characters"
+  (encode-uri-path '(foo "!$&'[]()*+,;=|")) := "/foo/'!$&%27%5B%5D%28%29*%2B%2C;=%7C'"
+  (decode-uri-path "/foo/'!$&%27%5B%5D%28%29*%2B%2C;=%7C'") := '(foo "!$&'[]()*+,;=|")
+
+  "composite parameters"
+  (encode-uri-path `(hyperfiddle.blog/post [:user/sub "google-oauth2|1234"] #{"events" "news"}))
+  := "/hyperfiddle.blog$post/~vec,(:user$sub,'google-oauth2%7C1234')/~set,('news','events')"
+
+  (decode-uri-path "/hyperfiddle.blog$post/~vec,(:user$sub,'google-oauth2%7C1234')/~set,('news','events')")
+  := '(hyperfiddle.blog/post [:user/sub "google-oauth2|1234"] #{"news" "events"})
+
+  (decode-uri-path "/bar/'qwerzxcv'") := '(bar "qwerzxcv")
+  (decode-uri-path "/bar/((%3Fe,:foo,%3Fa))/'qwerzxcv'#blah") := '(bar ((?e :foo ?a)) "qwerzxcv")
+
+
+  ;; User friendliness
+  (encode-uri-path `(Toggle 1 2)) := "/hyperfiddle.ednish$Toggle/1/2"
+  (encode-uri-path '("pour l'amour")) := "/'pour+l%27amour'"
+  (decode-uri-path "/'pour+l’amour'") := '("pour l’amour")
+
+  ;; nested structure is readable
+  (encode-uri-path [:app.datomic-browser/attribute :abstractRelease/name {:contrib.gridsheet/search "pour l'amour"}])
+   := "/:app.datomic-browser$attribute/:abstractRelease$name/~map,(:contrib.gridsheet$search,'pour+l%27amour')"
+
+   (decode-uri-path "/:app.datomic-browser$attribute/:abstractRelease$name/~map,(:contrib.gridsheet$search,'pour+l%27amour')")
+    := '(:app.datomic-browser/attribute :abstractRelease/name {:contrib.gridsheet/search "pour l'amour"})
   )
