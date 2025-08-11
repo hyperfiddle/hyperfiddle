@@ -4,7 +4,7 @@
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             [hyperfiddle.hfql1 :as hfql1]
             [hyperfiddle.entrypoint2 :refer [Index]]
-            [hyperfiddle.router4 :as router]
+            [hyperfiddle.router5 :as router]
             [hyperfiddle.electric-dom3 :as dom]
 
             [hyperfiddle.ui.tooltip :as tooltip]
