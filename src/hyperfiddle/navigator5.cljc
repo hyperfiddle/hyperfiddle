@@ -1,4 +1,5 @@
 (ns hyperfiddle.navigator5
+  {:clj-kondo/config {:lint-as '{hyperfiddle.electric3/defn clojure.core/defn}}}
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
@@ -263,11 +264,14 @@
 
 (e/defn ResolveRenderer [object]
   (e/server
-    (get {:object RenderAssociative
-          :collection RenderSeqable
-          :set RenderSeqable}
-      (infer-block-type object)
-      (Constantly nil))))
+    (list
+      (get {:object RenderAssociative
+            :collection RenderSeqable
+            :set RenderSeqable}
+        (infer-block-type object)
+        (Constantly nil))
+      object) ; HACK glitch guard: Ensures object and its corresponding Renderer update at the same time
+    ))
 
 ;;;;;;;;;;;;;;;;
 ;; Navigation ;;
@@ -307,10 +311,11 @@
      (InjectDependencies
        (e/fn [effect-handlers Search]
          (e/server
-           (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge)]
+           (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge)
+                 [Renderer %] (ResolveRenderer %)]
              (prn+ `Navigate symbolic-edge traversal-edge pull-edge #_%)
              (e/client
-               (e/call (ResolveRenderer %) traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth)))))))))
+               (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth)))))))))
   ([symbolic-edge %]
    (e/server (prn+ "RenderNext/2" symbolic-edge %))
    (e/client
@@ -319,10 +324,11 @@
          (e/server
            (prn+ "before nav" %)
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge %)
-                 traversal-edge (#(or traversal-edge (hfql1/build-pull (map selection->edge symbolic-edge))))]
+                 traversal-edge (#(or traversal-edge (hfql1/build-pull (map selection->edge symbolic-edge))))
+                 [Renderer %] (ResolveRenderer %)]
              (prn+ "after nav" % )
              (e/client
-               (e/call (ResolveRenderer %) traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth))))))))))
+               (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth))))))))))
 
 ;; #?(:clj (defn not-entity-like? [x]
 ;;           (debug-exceptions `not-entity-like?
@@ -352,6 +358,20 @@
           {:pre [(sequential? pullspec) (every? map-entry? kvs)]
            :post [(every? map-entry? %) (= (count %) (count kvs))]}
           (let [static-keys (map hfql/unwrap pullspec)
+                static-keyset (set static-keys)
+                [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
+                static-map (into {} static-kvs)]
+            (concat (keep (fn [pullspec-key] (find static-map (hfql/unwrap pullspec-key))) static-keys)
+              (?sort-by key (remove (comp some? static-keyset key) dynamic-kvs))))))
+
+#?(:clj (defn- kvs-sort-by-ordered-keyset2 ; WIP
+          "Sort a map structure by keys. Static selected keys (from pullspec) have
+  priority and are laid out in order, as in an ordered map. Extra keys comes later and are sorted by
+  `comparator`. Return a seq of map entries."
+          [edges kvs]
+          {:pre [(hfql1/pull? edges) (every? map-entry? kvs)]
+           :post [(every? map-entry? %) (= (count %) (count kvs))]}
+          (let [static-keys (map hfql1/form edges)
                 static-keyset (set static-keys)
                 [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
                 static-map (into {} static-kvs)]
@@ -444,14 +464,16 @@
                   (->> (forms/TablePicker! ::selection (e/server (e/watch !index)) row-count
                          (e/fn [index] (e/server
                                          (let [[k v] (nth data index nil)]
+                                           (prn+ "render row" index k)
                                            (e/Reconcile
                                              (when k
-                                               (RenderAssociativeEntry % (nth (hfql1/value edge+suggestions) index k)))))))
+                                               (RenderAssociativeEntry % (nth (hfql1/value edge+suggestions) index k)) ; FIXME invalid index
+                                               )))))
                          :row-height row-height
                          :column-count 2)
                     (forms/Parse (e/fn ToSaved [{index ::selection}]
                                    (e/server
-                                     (prn "selected index" index)
+                                     (prn "selected index" index (nth data index nil) (map key data))
                                      (let [x          (nth data index nil)
                                            edge       (nth (hfql1/value edge+suggestions) index)
                                            select     (::hfql/select (meta edge) (::hfql/select (meta pull-edge)))
@@ -464,8 +486,8 @@
                     #_(forms/Parse (e/fn ToCommand [saved] [`Select! saved]))))))))
         (e/server
           (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) navigated)] ; when-some because glitch
-                                   (rebooting nx
-                                     (Nav o (key nx) (val nx)))))]
+                                   #_(rebooting nx)
+                                   (Nav o (key nx) (val nx))))]
             (AutoNavigate pull-edge next-x)))
         #_(when saved-selection
             (let [next-x     (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
@@ -652,52 +674,57 @@
            collection)))))
 
 (e/defn RenderSeqable [traversal-edge pull-edge % effect-handlers Search route-state]
-  (e/client
-    (let [{saved-selection ::selection} route-state
-          !selected-object              (e/server (atom nil))
-          selected-object               (e/server (e/watch !selected-object))
-          !row-count                    (atom 0), row-count (e/watch !row-count)]
-      (dom/fieldset
-        (dom/props {:class "entity-children hyperfiddle-navigator5__block"})
-        (let [free-args        (e/server
-                                 (RenderSeqableTitle traversal-edge pull-edge row-count Search (dissoc (meta %) `clojure.core.protocols/nav)
-                                   (e/fn []
-                                     (let [first-item (e/Snapshot (first %))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
-                                       (Timing 'infer-columns #(hfql1/suggest first-item))))))
-              search-cmd       (e/call (e/server (first free-args))) ; fighting against sited destructuring
-              edge+suggestions (e/server (second free-args))
-              !sort-spec       (atom [[(e/server (hfql1/form (first (hfql1/value edge+suggestions)))) true]]),
-              sort-spec        (filterv first (e/watch !sort-spec))
-              row-height       24
-              cols             (e/server (e/diff-by {} (hfql1/value edge+suggestions)))
-              column-count     (e/server (hfql1/count edge+suggestions))
-              data-count       (e/server (bounded-count COLLECTION-LIMIT %)) ; O(n)
-              data             (e/server (e/Reconcile (if (< data-count COLLECTION-LIMIT)
-                                                        (eager-pull-search-sort-BIG-O-N-SQUARE % edge+suggestions e/*bindings* *search sort-spec)
-                                                        (with-meta (into [] (take COLLECTION-LIMIT) %) (meta %))))) ; O(n)
-              selected-object  (e/server (#(or selected-object (reset! !selected-object (resolve-selected-object-BIG-O-N saved-selection e/*bindings* data)))))
-              data-count       (e/server (bounded-count COLLECTION-LIMIT data)) ; O(n)
-              ]
-          (reset! !row-count data-count)
-          search-cmd                    ; force order
-          (dom/table
-            (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-            (RenderSeqableHeader edge+suggestions !sort-spec)
-            (forms/Interpreter effect-handlers
-              (e/amb
-                (e/When search-cmd search-cmd)
-                (binding [*block-opts (e/server (meta pull-edge) #_(hfql/opts spec))] ; TODO remove
-                  (->> (RenderSeqableBody row-count row-height cols data edge+suggestions selected-object)
-                    (forms/Parse (e/fn [[command & args]]
-                                   (e/Reconcile
-                                     (case command
-                                       `Select! (e/server
-                                                  (let [[symbolic-selected-object Get-actual-selected-object] args
-                                                        selected-object                                       (Get-actual-selected-object)]
-                                                    (reset! !selected-object selected-object)
-                                                    [`Select! symbolic-selected-object]))
-                                       command)))))))))))
-      (e/server (AutoNavigate pull-edge selected-object)))))
+  (e/server
+    (let [% (#(if (seqable? %) % ()) %)] ; when guard on switch from sequable to associative
+      (e/client
+        (let [{saved-selection ::selection} route-state
+              !selected-object              (e/server (atom nil))
+              selected-object               (e/server (e/watch !selected-object))
+              !row-count                    (atom 0), row-count (e/watch !row-count)]
+          (dom/fieldset
+            (dom/props {:class "entity-children hyperfiddle-navigator5__block"})
+            (let [free-args        (e/server
+                                     (RenderSeqableTitle traversal-edge pull-edge row-count Search (dissoc (meta %) `clojure.core.protocols/nav)
+                                       (e/fn []
+                                         (let [first-item (e/Snapshot (first %))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
+                                           (Timing 'infer-columns #(hfql1/suggest first-item))))))
+                  search-cmd       (let [Search (e/server (first free-args))]
+                                     (e/Reconcile (when Search
+                                                    (e/call Search)))) ; fighting against sited destructuring
+                  edge+suggestions (e/server (second free-args))
+                  !sort-spec       (atom [[(e/server (hfql1/form (first (hfql1/value edge+suggestions)))) true]]),
+                  sort-spec        (filterv first (e/watch !sort-spec))
+                  row-height       24
+                  cols             (e/server (e/diff-by {} (hfql1/value edge+suggestions)))
+                  column-count     (e/server (hfql1/count edge+suggestions))
+                  data-count       (e/server (bounded-count COLLECTION-LIMIT %)) ; O(n)
+                  data             (e/server (e/Reconcile (if (< data-count COLLECTION-LIMIT)
+                                                            (eager-pull-search-sort-BIG-O-N-SQUARE % edge+suggestions e/*bindings* *search sort-spec)
+                                                            (with-meta (into [] (take COLLECTION-LIMIT) %) (meta %))))) ; O(n)
+                  selected-object  (e/server (#(or selected-object (reset! !selected-object (resolve-selected-object-BIG-O-N saved-selection e/*bindings* data)))))
+                  data-count       (e/server (bounded-count COLLECTION-LIMIT data)) ; O(n)
+                  ]
+              (e/server (prn+ 'free-args free-args))
+              (reset! !row-count data-count)
+              search-cmd                    ; force order
+              (dom/table
+                (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
+                (RenderSeqableHeader edge+suggestions !sort-spec)
+                (forms/Interpreter effect-handlers
+                  (e/amb
+                    (e/When search-cmd search-cmd)
+                    (binding [*block-opts (e/server (meta pull-edge) #_(hfql/opts spec))] ; TODO remove
+                      (->> (RenderSeqableBody row-count row-height cols data edge+suggestions selected-object)
+                        (forms/Parse (e/fn [[command & args]]
+                                       (e/Reconcile
+                                         (case command
+                                           `Select! (e/server
+                                                      (let [[symbolic-selected-object Get-actual-selected-object] args
+                                                            selected-object                                       (Get-actual-selected-object)]
+                                                        (reset! !selected-object selected-object)
+                                                        [`Select! symbolic-selected-object]))
+                                           command)))))))))))
+          (e/server (AutoNavigate pull-edge selected-object)))))))
 
 (e/defn RoundTrip [v] (identity (e/server (identity v)))) ; Awesome debug tool! Forces a roundtrip to diagnose how many roundtrips it takes to ack a value!
 ;; (RoundTrip (RoundTrip :foo)) ; two roundtrips
@@ -725,15 +752,15 @@
               (binding [*depth 0]
                 (let [[query] router/route
                       query (normalize-router-query query)]
-                  (rebooting query
-                    (dom/div
-                      (dom/props {:class "Browser"})
-                      #_(QueryMonitor)
-                      (if-not query
-                        (router/ReplaceState! ['. [(first entrypoints)]])
-                        (let [nom (hfql1/edge-name query)]
-                          (set! (.-title js/document) (str (some-> nom name (str " – ")) "Hyperfiddle"))
-                          (dom/props {:class (cssx/css-slugify nom)})
+                  (dom/div
+                    (dom/props {:class "Browser"})
+                    #_(QueryMonitor)
+                    (if-not query
+                      (router/ReplaceState! ['. [(first entrypoints)]])
+                      (let [nom (hfql1/edge-name query)]
+                        (set! (.-title js/document) (str (some-> nom name (str " – ")) "Hyperfiddle"))
+                        (dom/props {:class (cssx/css-slugify nom)})
+                        (rebooting query
                           (Navigate query))))))))))))))
 
 ;;;;;;;;;;;;
