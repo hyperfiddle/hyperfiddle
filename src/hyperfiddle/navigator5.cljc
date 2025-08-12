@@ -568,7 +568,7 @@
                      (e/server
                        (reset! !selected-index selected-index)
                        (let [selected-object (Nav % nil (nth % selected-index nil))] ; FIXME
-                         (if-let [symbolic-representation (hfql/identify selected-object)]
+                         (if-let [symbolic-representation (hfql1/identify selected-object)]
                            [`Select! symbolic-representation (e/server (e/fn [] selected-object))]
                            [`Noop])))))
       (forms/Interpreter {`Noop (e/fn [] [::forms/ok])}))))
