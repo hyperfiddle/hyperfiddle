@@ -695,17 +695,20 @@
   ([pull-expr object] (pull pull-expr object {'% object}))
   ([pull-expr object env]
    (assert (edge? pull-expr) "The given pull expression must be prepossessed by `(hfql <pull-expr>)`.")
-   (let [env (assoc env '% object)
-         do-nav #(nav env object pull-expr nil)]
-     (cond
-       (traversal? pull-expr) (traverse (do-nav) pull-expr env)
-       (pull? pull-expr) (reduce (fn [r pull-expr]
-                                   (let [pulled (pull pull-expr object env)]
-                                     (cond
-                                       (traversal? pull-expr) (into r pulled)
-                                       (star? (form pull-expr)) (into r pulled)
-                                       :else (assoc r (edge-name (form pull-expr)) pulled)))) {} (value pull-expr))
-       :else (do-nav)))))
+   (try
+     (let [env (assoc env '% object)
+           do-nav #(nav env object pull-expr nil)]
+       (cond
+         (traversal? pull-expr) (traverse (do-nav) pull-expr env)
+         (pull? pull-expr) (reduce (fn [r pull-expr]
+                                     (let [pulled (pull pull-expr object env)]
+                                       (cond
+                                         (traversal? pull-expr) (into r pulled)
+                                         (star? (form pull-expr)) (into r pulled)
+                                         :else (assoc r (edge-name (form pull-expr)) pulled)))) {} (value pull-expr))
+         :else (do-nav)))
+     (catch #?(:clj Throwable, :cljs :default) ex
+       (ex-info (ex-message ex) {})))))
 
 (tests
   (nav {:a 1} (hfql :a))
