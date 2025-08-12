@@ -960,6 +960,7 @@
 (defn filter-pull [pred pull-expr]
   (map-pull (fn [edge] (when (pred edge) edge)) pull-expr))
 
+(defn pull-has-star? [pull-edge] (some? (seq (value (filter-pull star? pull-edge)))))
 
 ;;;;;;;;;;;;;;;
 ;; Protocols ;;

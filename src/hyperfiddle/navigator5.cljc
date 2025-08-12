@@ -620,14 +620,12 @@
           (dom/span ; dirty trick to circumvent sited destructuring out of RenderSeqableTitle
             (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search false #_(>= row-count COLLECTION-LIMIT)))))))
           (dom/text (format-collection-count row-count COLLECTION-LIMIT))
-          (let [has-star? (some? (seq (hfql1/value (hfql1/filter-pull hfql1/star? pull-edge))))
-                keys (e/server (hfql1/value (hfql1/filter-pull (complement hfql1/star?) pull-edge)))
+          (let [keys (e/server (hfql1/value (hfql1/filter-pull (complement hfql1/star?) pull-edge)))
                 resolved-keys (e/server (into #{} (map hfql1/resolved-form keys)))
-                pre-checked has-star?
-                new-suggest* (hfql1/filter-pull (fn [edge]
-                                                  (and (not (hfql1/star? edge))
-                                                    (not (resolved-keys (hfql1/resolved-form edge)))))
+                pre-checked (#(or (hfql1/pull-has-star? pull-edge) (nil? pull-edge)))
+                new-suggest* (hfql1/filter-pull (fn [edge] (not (resolved-keys (hfql1/resolved-form edge))))
                                (Suggest*))]
+            ;; (e/server (prn+ {'keys keys, 'pull-edge pull-edge 'new-suggests new-suggest*}))
             (dom/span
               (e/server
                 (let [from-spec (e/as-vec (e/for [edge (e/diff-by {} keys)]
