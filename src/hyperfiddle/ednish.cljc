@@ -230,6 +230,9 @@
 
 (def ^:dynamic *constructors* {})
 
+(defmulti constructor identity)
+(defmethod constructor :default [f] (fn [& args] (cons f args)))
+
 (defn- resolve-tag-reader [symbol]
   {:pre [(symbol? symbol)]}
   (let [readers (merge default-data-readers clojure.core/*data-readers* INTERNAL-DATA-READERS *constructors*)]
@@ -241,12 +244,13 @@
   (cond (seq? object)
         (let [[item & items] object]
           (cond (and (symbol? item) (resolve-tag-reader item)) `tagged-literal
-                :else seq))
+                :else ::seq))
         :else (type object)))
 
 (defmulti decode #'decode-dispatch)
 (defmethod decode :default [object] (-decode object))
 (defmethod decode `tagged-literal [[tag value :as obj]] ((resolve-tag-reader tag) value))
+(defmethod decode ::seq [[f & args]] (apply (constructor f) args))
 
 (defprotocol Decodable
   (-decode [object]))
