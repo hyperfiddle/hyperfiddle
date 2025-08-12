@@ -308,7 +308,7 @@
        (e/fn [effect-handlers Search]
          (e/server
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge)]
-             (prn+ `Navigate symbolic-edge traversal-edge pull-edge %)
+             (prn+ `Navigate symbolic-edge traversal-edge pull-edge #_%)
              (e/client
                (e/call (ResolveRenderer %) traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth)))))))))
   ([symbolic-edge %]
