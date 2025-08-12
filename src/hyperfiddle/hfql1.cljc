@@ -244,13 +244,14 @@
 (defn lift
   ([edge] (lift edge (meta edge)))
   ([edge metadata]
-   (let [metadata (-> metadata
+   (let [metadata (-> (meta edge)
+                    (cc/merge metadata)
                     (update ::value #(or % edge))
                     (update ::form #(or % (if (litteral? edge) edge nil)))
                     (assoc :type ::edge))
          lifted-fn
          (cond
-           (star? edge)  *
+           (star? edge)   *
            (ident? edge)  (getter edge)
            (string? edge) (getter edge)
            (var? edge) (caller edge) ; must wrap, putting meta on a var is a side effect
@@ -520,7 +521,9 @@
     (vector? pull-expr)
     `(edge ~(with-meta
               (mapv (fn [fn-like-form] `(edge ~fn-like-form)) pull-expr) ; ⑧
-              (cc/merge {::form (list 'quote (edge-raw-form pull-expr))}
+              (cc/merge
+                (meta pull-expr)
+                {::form (list 'quote (edge-raw-form pull-expr))}
                 metadata)))
     :else (if (not-empty metadata)
             `(edge ~pull-expr ~metadata)
