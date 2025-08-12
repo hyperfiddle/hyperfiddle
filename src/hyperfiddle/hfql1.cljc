@@ -111,7 +111,7 @@
 
 
 (ns hyperfiddle.hfql1
-  (:refer-clojure :exclude [meta unquote replace next find concat count merge])
+  (:refer-clojure :exclude [meta unquote replace next find concat count merge *])
   (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [clojure.core :as cc]
@@ -228,10 +228,10 @@
                   args (replace (cc/merge (::lexical-env metadata) lexical-env {'% object}) args)]
               (apply f args)))))
 
-(def ^:private star? #{'*})
+(defn star? [edge-or-sym] (if (edge? edge-or-sym) (star? (form edge-or-sym)) (= '* edge-or-sym)))
 
 (defn- touch [object] (if (seqable? object) (doall object) object))
-(def ^:private star (with-% (fn star [_lexical-env object] (touch object))))
+(def ^:public * (with-% (fn star [_lexical-env object] (touch object))))
 (defn- getter [fn-like] (with-% (fn [_lexical-env object] (get object fn-like))))
 (defn- caller [fn-like] (with-% (fn [_lexical-env & args] (apply fn-like args))))
 
@@ -250,7 +250,7 @@
                     (assoc :type ::edge))
          lifted-fn
          (cond
-           (star? edge)  star
+           (star? edge)  *
            (ident? edge)  (getter edge)
            (string? edge) (getter edge)
            (var? edge) (caller edge) ; must wrap, putting meta on a var is a side effect
@@ -460,11 +460,13 @@
         resolved-form (cond
                         (indirect-method-call? fn-like-form) nil
                         (direct-method-call? fn-like-form) `(resolve-direct-method ~fn-like-form)
+                        (star? fn-like-form)   `(symbol (var *))
                         (symbol? fn-like-form) `(symbol (var ~fn-like-form))
                         :else nil)
         resolved-var (cond
                        (indirect-method-call? fn-like-form) nil
                        (direct-method-call? fn-like-form) nil
+                       (star? fn-like-form)   `(symbol (var *))
                        (symbol? fn-like-form) `(var ~fn-like-form)
                        :else nil)
         value         (as-> fn-like-form %                   ; ②
@@ -472,7 +474,7 @@
                         (escape-method-calls %)
                         (escape-traversals %)
                         (escape-calls %)
-                        ({'* `star} % %))
+                        ({'* *} % %))
         lexical-env   (lexical-bindings-map &env)
         symbolic-form (-> fn-like-form
                         (escape-method-calls)
@@ -898,7 +900,8 @@
                                           (= argc (count (rest k-form)))))) (value edge-fn)))
           ;; look for point free call
           (first (filter-kv (fn [k v]
-                              (and (= f (form k))
+                              (and (or (= f (form k))
+                                     (= f (resolved-form k)))
                                 (or (= 0 argc)
                                   (= 1 argc))))
                    (value edge-fn)))

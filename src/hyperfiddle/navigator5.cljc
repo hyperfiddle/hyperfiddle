@@ -351,31 +351,17 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;
 
 #?(:clj (defn- kvs-sort-by-ordered-keyset
-          "Sort a map structure by keys. Static selected keys (from pullspec) have
+          "Sort a map structure by keys. Static selected keys (from pull-edge) have
   priority and are laid out in order, as in an ordered map. Extra keys comes later and are sorted by
   `comparator`. Return a seq of map entries."
-          [pullspec kvs]
-          {:pre [(sequential? pullspec) (every? map-entry? kvs)]
+          [pull-edge kvs]
+          {:pre [(hfql1/pull? pull-edge) (every? map-entry? kvs)]
            :post [(every? map-entry? %) (= (count %) (count kvs))]}
-          (let [static-keys (map hfql/unwrap pullspec)
+          (let [static-keys (map (comp hfql1/edge-name hfql1/form) (hfql1/value pull-edge))
                 static-keyset (set static-keys)
                 [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
                 static-map (into {} static-kvs)]
-            (concat (keep (fn [pullspec-key] (find static-map (hfql/unwrap pullspec-key))) static-keys)
-              (?sort-by key (remove (comp some? static-keyset key) dynamic-kvs))))))
-
-#?(:clj (defn- kvs-sort-by-ordered-keyset2 ; WIP
-          "Sort a map structure by keys. Static selected keys (from pullspec) have
-  priority and are laid out in order, as in an ordered map. Extra keys comes later and are sorted by
-  `comparator`. Return a seq of map entries."
-          [edges kvs]
-          {:pre [(hfql1/pull? edges) (every? map-entry? kvs)]
-           :post [(every? map-entry? %) (= (count %) (count kvs))]}
-          (let [static-keys (map hfql1/form edges)
-                static-keyset (set static-keys)
-                [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
-                static-map (into {} static-kvs)]
-            (concat (keep (fn [pullspec-key] (find static-map (hfql/unwrap pullspec-key))) static-keys)
+            (concat (keep (fn [pullspec-key] (find static-map pullspec-key)) static-keys)
               (?sort-by key (remove (comp some? static-keyset key) dynamic-kvs))))))
 
 #?(:clj (defn- realize ; TODO useful enough and hard-to-get-right enough to promote to HFQL
@@ -408,6 +394,12 @@
   (Render object edge (run-with-bindings e/*bindings* hfql1/nav object edge)))
 (e/declare AutoNavigate)
 
+(defn- find-edge
+  ([form pull-edge] (find-edge form nil pull-edge))
+  ([form not-found pull-edge]
+   (or (first (filter (comp #{form} hfql1/edge-name hfql1/form) (hfql1/value pull-edge)))
+     not-found)))
+
 (e/defn RenderAssociative [traversal-edge pull-edge % effect-handlers Search route-state]
   (e/server (prn+ 'RenderAssociative traversal-edge pull-edge % route-state))
   #_(e/client
@@ -434,7 +426,7 @@
           ;; default-select                (e/server (::hfql1/select (meta pull-edge)))
           navigated        (e/server (run-with-bindings e/*bindings* hfql1/nav % edge+suggestions)) #_#_#_hfql1/nav (doto % (->> (prn+ "%"))) pull-edge
           filtered         (e/server (kvs-filter-by-needle navigated #_pulled *search))
-          data             (e/server (kvs-sort-by-ordered-keyset (hfql1/form edge+suggestions) #_(hfql/unwrap spec) filtered))
+          data             (e/server (kvs-sort-by-ordered-keyset edge+suggestions #_(hfql/unwrap spec) filtered))
           row-count        (e/server (count data))
           row-height       24
           ]
@@ -467,15 +459,14 @@
                                            (prn+ "render row" index k)
                                            (e/Reconcile
                                              (when k
-                                               (RenderAssociativeEntry % (nth (hfql1/value edge+suggestions) index k)) ; FIXME invalid index
-                                               )))))
+                                               (RenderAssociativeEntry % (find-edge k k edge+suggestions)))))))
                          :row-height row-height
                          :column-count 2)
                     (forms/Parse (e/fn ToSaved [{index ::selection}]
                                    (e/server
                                      (prn "selected index" index (nth data index nil) (map key data))
-                                     (let [x          (nth data index nil)
-                                           edge       (nth (hfql1/value edge+suggestions) index)
+                                     (let [[k _v :as x]          (nth data index nil)
+                                           edge       (find-edge k edge+suggestions)
                                            select     (::hfql/select (meta edge) (::hfql/select (meta pull-edge)))
                                            ;; row-select (-> (nth raw-spec index nil) hfql/opts ::hfql/select)
                                            ;; select     (or row-select default-select)
@@ -629,18 +620,22 @@
           (dom/span ; dirty trick to circumvent sited destructuring out of RenderSeqableTitle
             (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search false #_(>= row-count COLLECTION-LIMIT)))))))
           (dom/text (format-collection-count row-count COLLECTION-LIMIT))
-          (let [keys (e/server (hfql1/value pull-edge))
+          (let [has-star? (some? (seq (hfql1/value (hfql1/filter-pull hfql1/star? pull-edge))))
+                keys (e/server (hfql1/value (hfql1/filter-pull (complement hfql1/star?) pull-edge)))
                 resolved-keys (e/server (into #{} (map hfql1/resolved-form keys)))
-                pre-checked (empty? keys)
-                new-suggest* (hfql1/filter-pull (fn [edge] (not (resolved-keys (hfql1/resolved-form edge)))) (Suggest*))]
+                pre-checked has-star?
+                new-suggest* (hfql1/filter-pull (fn [edge]
+                                                  (and (not (hfql1/star? edge))
+                                                    (not (resolved-keys (hfql1/resolved-form edge)))))
+                               (Suggest*))]
             (dom/span
               (e/server
-                (let [selected (e/as-vec (e/for [edge (e/diff-by {} (hfql1/value new-suggest*))]
-                                           (e/When (forms/Checkbox* pre-checked :label (e/server (labelize edge)) :title (e/server (hfql1/resolved-form edge)))
-                                             edge)))
-                      from-spec (e/as-vec (e/for [edge (e/diff-by {} (hfql1/value pull-edge))]
+                (let [from-spec (e/as-vec (e/for [edge (e/diff-by {} keys)]
                                             (e/When (forms/Checkbox* true :label (e/server (labelize edge)) :title (e/server (hfql1/resolved-form edge)))
-                                              edge)))]
+                                              edge)))
+                      selected (e/as-vec (e/for [edge (e/diff-by {} (hfql1/value new-suggest*))]
+                                           (e/When (forms/Checkbox* pre-checked :label (e/server (labelize edge)) :title (e/server (hfql1/resolved-form edge)))
+                                             edge)))]
                   (hfql1/build-pull (into from-spec selected)))))))))))
 
 #?(:clj (defn- eager-pull-search-sort-BIG-O-N-SQUARE [collection edge hfql-bindings search sort-spec]
