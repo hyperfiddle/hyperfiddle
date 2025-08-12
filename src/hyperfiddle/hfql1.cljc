@@ -462,6 +462,11 @@
                         (direct-method-call? fn-like-form) `(resolve-direct-method ~fn-like-form)
                         (symbol? fn-like-form) `(symbol (var ~fn-like-form))
                         :else nil)
+        resolved-var (cond
+                       (indirect-method-call? fn-like-form) nil
+                       (direct-method-call? fn-like-form) nil
+                       (symbol? fn-like-form) `(var ~fn-like-form)
+                       :else nil)
         value         (as-> fn-like-form %                   ; ②
                         (edge-raw-value %)
                         (escape-method-calls %)
@@ -483,6 +488,7 @@
                             {::form        (if (and (litteral? form) (not (is-kw-fn? fn-like-form))) nil form) ; no need to repeat it
                              ::short-form  short-form
                              ::resolved-form resolved-form
+                             ::resolved-var resolved-var
                              ::value       value
                              ::lexical-env lexical-env}))
                         (#'quote (dissoc (meta fn-like-form) ::form)) ; ⑦
@@ -828,9 +834,26 @@
   (edge {identity (hfql [] {:hyperfiddle.hfql1/select (identity '%)})})
   )
 
+(defn- arglists [edge]
+  (some-> edge meta ::resolved-var meta :arglists))
+
 (defn context-free-edge? [edge]
   (let [form (form edge)]
     (cond
+      (seq? form)
+      (let [[f & args] form]
+        (if (and (some? f) (empty? args))
+          true
+          (let [lexical-env (::lexical-env (meta edge))]
+            (every? #(or (litteral? %) (contains? lexical-env (unquote %))) args))))
+
+      (ident? form)
+      (if-let [symbolic-arities (arglists edge)]
+        (= 0 (apply min (map cc/count symbolic-arities)))
+        false)
+
+      :else false)
+    #_(cond
       (ident? form) true
       (seq? form) (let [[f & args] form]
                     (if (and (some? f) (empty? args))
@@ -840,10 +863,9 @@
       :else false)))
 
 (defn context-free-edges [edge]
-  (let [form (form edge)]
-    (if-not (map? form)
-      ()
-      (filter context-free-edge? (keys (value edge))))))
+  (if (traversal? edge)
+    (filter context-free-edge? (keys (value edge)))
+    ()))
 
 
 (defn find-by [pred edge-fn]

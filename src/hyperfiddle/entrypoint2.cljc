@@ -9,7 +9,6 @@
 #?(:clj (defn build-nav-links [sitemap defaults]
           (->> (hfql/context-free-edges sitemap)
             (map hfql/form)
-            ;; (map hfql/edge-name)
             (sort-by hfql/edge-name)
             (concat defaults)
             (distinct)
@@ -20,7 +19,9 @@
     (dom/props {:class "Index hyperfiddle-entrypoint-Index"})
     (dom/text "Nav:")
     (e/for [symbolic-edge  (e/diff-by {} (e/server (build-nav-links sitemap defaults)))]
-      (dom/text " ") (r/link ['. [symbolic-edge]] (dom/text symbolic-edge)))))
+      (dom/text " ") (r/link ['. [symbolic-edge]]
+                       (dom/props {:title (pr-str symbolic-edge)})
+                       (dom/text (name (hfql/edge-name symbolic-edge)))))))
 
 (e/defn IndexPage []
   (dom/h1 (dom/text "Hyperfiddle"))
