@@ -1044,7 +1044,7 @@ identifier, though it might not be serializable."
 
 
 (defmulti suggest type)
-(defmethod suggest :default [object] (or (-suggest object) #?(:clj (hfql0/suggest object))))
+(defmethod suggest :default [object] (-suggest object))
 (defmethod suggest #?(:clj clojure.lang.IRecord, :cljs IRecord) [record]
   (build-pull
     (map lift
@@ -1056,14 +1056,13 @@ identifier, though it might not be serializable."
            :cljs
            (.getBasis (type record)))))))
 
-
 (def ^:dynamic *hierarchy* #?(:clj @#'clojure.core/global-hierarchy :cljs (cljs.core/get-global-hierarchy)))
 ;; (def ^:dynamic *hierarchy* @#'clojure.core/global-hierarchy)
 
 (defmulti -resolve (fn ([object] (type object)) ([object opts] (type object))) :hierarchy #'*hierarchy*)
 (defmethod -resolve :default [_object & _opts] nil)
 
-(defn resolve ; todo resolve_, i.e. don't shadow core. Is this private?
+(defn resolve
   ([object] (-resolve object))
   ([object {::keys [hierarchy] :as opts}]
    (binding [*hierarchy* (or hierarchy *hierarchy*)]

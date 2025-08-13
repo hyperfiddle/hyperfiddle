@@ -2,7 +2,6 @@
   {:clj-kondo/config {:lint-as '{hyperfiddle.electric3/defn clojure.core/defn}}}
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
-            [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             [hyperfiddle.hfql1 :as hfql1]
             [hyperfiddle.entrypoint2 :refer [Index]]
             [hyperfiddle.router5 :as router]
@@ -322,11 +321,9 @@
      (InjectDependencies
        (e/fn [effect-handlers Search]
          (e/server
-           (prn+ "before nav" %)
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge %)
                  traversal-edge (#(or traversal-edge (hfql1/build-pull (map selection->edge symbolic-edge))))
                  [Renderer %] (ResolveRenderer %)]
-             (prn+ "after nav" % )
              (e/client
                (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth))))))))))
 
@@ -408,11 +405,11 @@
          (some
            #(if (map-entry? %)
               (let [navd (clojure.datafy/nav collection (key %) (val %))] ; FIXME
-                (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
+                ;; (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
                 (when (= saved-selection (or (hfql1/identify navd) (key %)))
                   navd))
               (let [navd (clojure.datafy/nav collection nil %)] ; FIXME
-                (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
+                ;; (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
                 (when (= saved-selection (or (hfql1/identify navd) navd))
                   navd)))
            collection)))))
@@ -440,24 +437,21 @@
                                                       (hfql1/concat pull-edge new-edges)
                                                       new-edges))
                                        #_(hfql1/build-pull (into keys new-edges))))
-          ;; ;; TODO remove Reconcile eventually? Guards mount-point bug in forms4/Picker! - is the bug present in forms5?
-          ;; spec2                         (e/server (e/Reconcile (cond-> spec (add-suggestions (Timing 'add-suggestions #(hfql/suggest o))))))
-          ;; raw-spec                      (e/server (hfql/unwrap spec2))
           ;; default-select                (e/server (::hfql1/select (meta pull-edge)))
           navigated        (e/server (run-with-bindings e/*bindings* hfql1/nav % edge+suggestions)) #_#_#_hfql1/nav (doto % (->> (prn+ "%"))) pull-edge
           filtered         (e/server (kvs-filter-by-needle navigated #_pulled *search))
-          data             (e/server (kvs-sort-by-ordered-keyset edge+suggestions #_(hfql/unwrap spec) filtered))
+          data             (e/server (kvs-sort-by-ordered-keyset edge+suggestions filtered))
           row-count        (e/server (count data))
           row-height       24
 
           selected-object  (e/server (#(or selected-object (reset! !selected-object (resolve-selected-object-BIG-O-N saved-selection e/*bindings* data)))))
           ]
       (e/server (def _edge+suggestions edge+suggestions) nil)
-      (e/server (prn 'edge+suggestions edge+suggestions))
-      (e/server (prn 'data data))
-      (e/server (prn 'navigated navigated))
-      (e/server (prn 'filtered filtered))
-      (e/server (prn '% %))
+      ;; (e/server (prn 'edge+suggestions edge+suggestions))
+      ;; (e/server (prn 'data data))
+      ;; (e/server (prn 'navigated navigated))
+      ;; (e/server (prn 'filtered filtered))
+      ;; (e/server (prn '% %))
       (comment
         (hfql1/nav {:foo 1} (hfql1/concat (hfql1/hfql []) (hfql1/hfql []))))
       ;; (e/server (prn+ 'symbolic-selecte-edge symbolic-select-edge))
@@ -479,7 +473,7 @@
                     (->> (forms/TablePicker! ::selection (e/server (e/watch !selected-index)) row-count
                            (e/fn [index] (e/server
                                            (let [[k v] (nth data index nil)]
-                                             (prn+ "render row" index k)
+                                             ;; (prn+ "render row" index k)
                                              (e/Reconcile
                                                (when k
                                                  (RenderAssociativeEntry % (find-edge k k edge+suggestions)))))))
@@ -489,12 +483,14 @@
                                      (e/server
                                        (reset! !selected-index selected-index)
                                        (let [[key object] (nth data selected-index nil)
+                                             edge (find-edge key key edge+suggestions)
                                              selected-object (Nav % nil object)] ; FIXME
-                                         (prn+ 'selected-object selected-index key object selected-object)
-                                         (prn+ 'selected-object-data data #_#_#_#_selected-index key object selected-object)
+                                         ;; (prn+ 'selected-object selected-index key object selected-object)
+                                         ;; (prn+ 'selected-object-data data #_#_#_#_selected-index key object selected-object)
+                                         (def _state (list 'or (hfql1/identify selected-object) (::hfql1/select (meta edge)) key) )
                                          (e/Reconcile
                                            (if (should-navigation-happen? object)
-                                             [`Select! (#(or (hfql1/identify selected-object) key)) (e/server (e/fn [] selected-object))]
+                                             [`Select! (#(or (hfql1/identify selected-object) (::hfql1/select (meta edge)) key)) (e/server (e/fn [] selected-object))]
                                              [`Noop]))))
                                      #_(e/server
                                          (prn "selected index" index (nth data index nil) (map key data))
@@ -502,7 +498,6 @@
                                          #_(let [[k object :as x]          (nth data index nil)
                                                  edge       (find-edge k edge+suggestions)
                                                  select     (::hfql1/select (meta edge) (::hfql1/select (meta pull-edge)))
-                                                 ;; row-select (-> (nth raw-spec index nil) hfql/opts ::hfql/select)
                                                  ;; select     (or row-select default-select)
                                                  ]
                                              #_(e/When (e/Reconcile (and x select))
@@ -529,13 +524,13 @@
             (let [next-x     (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
                                          (rebooting nx
                                            (Nav o (key nx) (val nx)))))
-                  row-select (e/server (-> (find-spec-prop raw-spec saved-selection) hfql/opts ::hfql/select))
+                  row-select (e/server (-> (find-spec-prop raw-spec saved-selection) ::hfql1/select))
                   select     (or row-select default-select)]
               (rebooting select
                 (if select
                   (Navigate select next-x o)
                   (e/server
-                    (let [query-template (hfql/resolve next-x)]
+                    (let [query-template (hfql1/resolve next-x)]
                       (rebooting query-template
                         (e/client
                           (if query-template
@@ -734,7 +729,7 @@
                   selected-object  (e/server (#(or selected-object (reset! !selected-object (resolve-selected-object-BIG-O-N saved-selection e/*bindings* data)))))
                   data-count       (e/server (bounded-count COLLECTION-LIMIT data)) ; O(n)
                   ]
-              (e/server (prn+ 'free-args free-args))
+              ;; (e/server (prn+ 'free-args free-args))
               (reset! !row-count data-count)
               search-cmd                    ; force order
               (dom/table
@@ -743,7 +738,7 @@
                 (forms/Interpreter effect-handlers
                   (e/amb
                     (e/When search-cmd search-cmd)
-                    (binding [*block-opts (e/server (meta pull-edge) #_(hfql/opts spec))] ; TODO remove
+                    (binding [*block-opts (e/server (meta pull-edge) )] ; TODO remove
                       (->> (RenderSeqableBody row-count row-height cols data edge+suggestions selected-object)
                         (forms/Parse (e/fn [[command & args]]
                                        (e/Reconcile
