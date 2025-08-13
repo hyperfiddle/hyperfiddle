@@ -255,8 +255,8 @@
        (cond
          (set? x)                                             :set
          (or (sequential? x) (is-array? x))                   :collection
-         (or (number? x) (string? x) (boolean? x) (ident? x)) :scalar
-         (fn? x)                                              :query
+         (or (number? x) (string? x) (boolean? x) (ident? x) (nil? x)) :scalar
+         (fn? x)                                              :query ; TODO remove
          :else                                                :object))))
 
 
@@ -300,7 +300,7 @@
   (or (sequential? object)
     (set? object)
     #?(:clj (is-array? object))
-    #?(:clj (some? (hfql/suggest object)))))
+    #?(:clj (some? (hfql1/suggest object)))))
 
 (defn- selection->edge [selection]
   (hfql1/lift selection {::hfql1/form selection}))
@@ -350,19 +350,20 @@
 ;; Internal Components ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;
 
-#?(:clj (defn- kvs-sort-by-ordered-keyset
-          "Sort a map structure by keys. Static selected keys (from pull-edge) have
+#?(:clj
+   (defn- kvs-sort-by-ordered-keyset
+     "Sort a map structure by keys. Static selected keys (from pull-edge) have
   priority and are laid out in order, as in an ordered map. Extra keys comes later and are sorted by
   `comparator`. Return a seq of map entries."
-          [pull-edge kvs]
-          {:pre [(hfql1/pull? pull-edge) (every? map-entry? kvs)]
-           :post [(every? map-entry? %) (= (count %) (count kvs))]}
-          (let [static-keys (map (comp hfql1/edge-name hfql1/form) (hfql1/value pull-edge))
-                static-keyset (set static-keys)
-                [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
-                static-map (into {} static-kvs)]
-            (concat (keep (fn [pullspec-key] (find static-map pullspec-key)) static-keys)
-              (?sort-by key (remove (comp some? static-keyset key) dynamic-kvs))))))
+     [pull-edge kvs]
+     {:pre [(hfql1/pull? pull-edge) (every? map-entry? kvs)]
+      :post [(every? map-entry? %) (= (count %) (count kvs))]}
+     (let [static-keys (distinct (map (comp hfql1/edge-name hfql1/form) (hfql1/value pull-edge)))
+           static-keyset (set static-keys)
+           [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
+           static-map (into {} static-kvs)]
+       (concat (keep (fn [pullspec-key] (find static-map pullspec-key)) static-keys)
+         (?sort-by key (remove (comp some? static-keyset key) dynamic-kvs))))))
 
 #?(:clj (defn- realize ; TODO useful enough and hard-to-get-right enough to promote to HFQL
           "Realize a lazy-seq to a plain list. Values that are not a lazy-seq just passes
@@ -400,6 +401,22 @@
    (or (first (filter (comp #{form} hfql1/edge-name hfql1/form) (hfql1/value pull-edge)))
      not-found)))
 
+(defn- resolve-selected-object-BIG-O-N [saved-selection bindings collection]
+  #?(:clj
+     (debug-exceptions `resolve-selected-object
+       (with-bindings bindings
+         (some
+           #(if (map-entry? %)
+              (let [navd (clojure.datafy/nav collection (key %) (val %))] ; FIXME
+                (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
+                (when (= saved-selection (or (hfql1/identify navd) (key %)))
+                  navd))
+              (let [navd (clojure.datafy/nav collection nil %)] ; FIXME
+                (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
+                (when (= saved-selection (or (hfql1/identify navd) navd))
+                  navd)))
+           collection)))))
+
 (e/defn RenderAssociative [traversal-edge pull-edge % effect-handlers Search route-state]
   (e/server (prn+ 'RenderAssociative traversal-edge pull-edge % route-state))
   #_(e/client
@@ -411,10 +428,13 @@
           selected-object               (e/server (e/watch !selected-object))
           symbolic-select-edge          (e/server (::hfql1/select (meta pull-edge)))
 
-          edge+suggestions (e/server (let [keys            (hfql1/value pull-edge)
+          edge+suggestions (e/server (let [pull-edge       (e/server (hfql1/value (hfql1/filter-pull (complement hfql1/star?) pull-edge)))
+                                           keys            (hfql1/value pull-edge)
                                            resolved-keys   (into #{} (map hfql1/resolved-form keys))
                                            suggested-edges (e/Offload (fn [] (hfql1/suggest %)))
                                            new-edges       (hfql1/filter-pull (fn [edge] (not (resolved-keys (hfql1/resolved-form edge)))) suggested-edges)]
+                                       (e/server (def _suggested-edges suggested-edges) nil)
+                                       (e/server (def _new-edges new-edges) nil)
                                        (prn "suggested edges" suggested-edges)
                                        (e/Reconcile (if keys
                                                       (hfql1/concat pull-edge new-edges)
@@ -429,14 +449,16 @@
           data             (e/server (kvs-sort-by-ordered-keyset edge+suggestions #_(hfql/unwrap spec) filtered))
           row-count        (e/server (count data))
           row-height       24
+
+          selected-object  (e/server (#(or selected-object (reset! !selected-object (resolve-selected-object-BIG-O-N saved-selection e/*bindings* data)))))
           ]
+      (e/server (def _edge+suggestions edge+suggestions) nil)
       (e/server (prn 'edge+suggestions edge+suggestions))
       (e/server (prn 'data data))
       (e/server (prn 'navigated navigated))
       (e/server (prn 'filtered filtered))
       (e/server (prn '% %))
       (comment
-        (hfql/suggest {:foo 1})
         (hfql1/nav {:foo 1} (hfql1/concat (hfql1/hfql []) (hfql1/hfql []))))
       ;; (e/server (prn+ 'symbolic-selecte-edge symbolic-select-edge))
       (binding [*block-opts (e/server (meta pull-edge))]
@@ -451,31 +473,54 @@
             (forms/Interpreter effect-handlers
               (e/amb
                 (e/When search-cmd search-cmd)
-                (let [!index (e/server (atom nil))]
-                  (e/server (reset! !index (find-index (fn [[k]] (= k saved-selection)) data)))
-                  (->> (forms/TablePicker! ::selection (e/server (e/watch !index)) row-count
-                         (e/fn [index] (e/server
-                                         (let [[k v] (nth data index nil)]
-                                           (prn+ "render row" index k)
-                                           (e/Reconcile
-                                             (when k
-                                               (RenderAssociativeEntry % (find-edge k k edge+suggestions)))))))
-                         :row-height row-height
-                         :column-count 2)
-                    (forms/Parse (e/fn ToSaved [{index ::selection}]
-                                   (e/server
-                                     (prn "selected index" index (nth data index nil) (map key data))
-                                     (let [[k _v :as x]          (nth data index nil)
-                                           edge       (find-edge k edge+suggestions)
-                                           select     (::hfql/select (meta edge) (::hfql/select (meta pull-edge)))
-                                           ;; row-select (-> (nth raw-spec index nil) hfql/opts ::hfql/select)
-                                           ;; select     (or row-select default-select)
-                                           ]
-                                       (e/When x
-                                         (reset! !index index)
-                                         [`Select! (first x)])))))
-                    #_(forms/Parse (e/fn ToCommand [saved] [`Select! saved]))))))))
-        (e/server
+                (let [!selected-index (e/server (atom nil))]
+                  (e/server (reset! !selected-index (find-index (fn [[k]] (= k saved-selection)) data)))
+                  (->>
+                    (->> (forms/TablePicker! ::selection (e/server (e/watch !selected-index)) row-count
+                           (e/fn [index] (e/server
+                                           (let [[k v] (nth data index nil)]
+                                             (prn+ "render row" index k)
+                                             (e/Reconcile
+                                               (when k
+                                                 (RenderAssociativeEntry % (find-edge k k edge+suggestions)))))))
+                           :row-height row-height
+                           :column-count 2)
+                      (forms/Parse (e/fn ToCommand [{selected-index ::selection}]
+                                     (e/server
+                                       (reset! !selected-index selected-index)
+                                       (let [[key object] (nth data selected-index nil)
+                                             selected-object (Nav % nil object)] ; FIXME
+                                         (prn+ 'selected-object selected-index key object selected-object)
+                                         (prn+ 'selected-object-data data #_#_#_#_selected-index key object selected-object)
+                                         (e/Reconcile
+                                           (if (should-navigation-happen? object)
+                                             [`Select! (#(or (hfql1/identify selected-object) key)) (e/server (e/fn [] selected-object))]
+                                             [`Noop]))))
+                                     #_(e/server
+                                         (prn "selected index" index (nth data index nil) (map key data))
+
+                                         #_(let [[k object :as x]          (nth data index nil)
+                                                 edge       (find-edge k edge+suggestions)
+                                                 select     (::hfql1/select (meta edge) (::hfql1/select (meta pull-edge)))
+                                                 ;; row-select (-> (nth raw-spec index nil) hfql/opts ::hfql/select)
+                                                 ;; select     (or row-select default-select)
+                                                 ]
+                                             #_(e/When (e/Reconcile (and x select))
+                                                 (reset! !selected-index index)
+                                                 [`Select! (first x)])))))
+                      (forms/Interpreter {`Noop (e/fn [] [::forms/ok])})
+                      #_(forms/Parse (e/fn ToCommand [saved] [`Select! saved])))
+                    (forms/Parse (e/fn [[command & args]]
+                                   (e/Reconcile
+                                     (case command
+                                       `Select! (e/server
+                                                  (let [[symbolic-selected-object Get-actual-selected-object] args
+                                                        selected-object                                       (Get-actual-selected-object)]
+                                                    (reset! !selected-object selected-object)
+                                                    [`Select! symbolic-selected-object]))
+                                       command))))))))))
+        (e/server (AutoNavigate pull-edge selected-object))
+        #_(e/server
           (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) navigated)] ; when-some because glitch
                                    #_(rebooting nx)
                                    (Nav o (key nx) (val nx))))]
@@ -501,6 +546,7 @@
   (e/server
     (let [{saved-selection ::selection} (state-stored-in-route router/route *depth)
           symbolic-select-edge (e/server (::hfql1/select (meta edge)))]
+      (prn+ 'AutoNavigate symbolic-select-edge saved-selection)
       (e/Reconcile
         (when (#(boolean (and saved-selection %)) %)
           ;; (rebooting saved-selection)
@@ -510,7 +556,7 @@
               ;; Here the root object is a query fn, or the filtered collection.
               ;; Do we want/need to pass it? Should we bind it to `%`?
               (Navigate symbolic-select-edge %)
-              (let [symbolic-edge (hfql/resolve %)]
+              (let [symbolic-edge (hfql1/resolve %)]
                 #_(rebooting symbolic-edge)
                 (e/Reconcile
                   (if symbolic-edge
@@ -656,15 +702,6 @@
                 (with-meta (into [] (comp (map first) (map #(nth collection %))) sorted)
                   metadata)))
             (catch Throwable t (prn (ex-message t)) []))))
-
-(defn- resolve-selected-object-BIG-O-N [saved-selection bindings collection]
-  #?(:clj
-     (debug-exceptions `resolve-selected-object
-       (with-bindings bindings
-         (some #(let [navd (clojure.datafy/nav collection nil %)] ; FIXME
-                  (when (= saved-selection (or (hfql/identify %) %))
-                    navd))
-           collection)))))
 
 (e/defn RenderSeqable [traversal-edge pull-edge % effect-handlers Search route-state]
   (e/server

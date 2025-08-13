@@ -111,7 +111,8 @@
 
 
 (ns hyperfiddle.hfql1
-  (:refer-clojure :exclude [meta unquote replace next find concat count merge *])
+  (:refer-clojure :exclude [resolve eval ; ② ③
+                            meta unquote replace next find concat count merge *])
   (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [clojure.core :as cc]
@@ -924,6 +925,31 @@
   (find-traversal _lookup_sitemap ''(identity))
   )
 
+#_
+(defn- distinct-by
+  "Returns a lazy sequence of the elements of coll with duplicates removed by key function kf.
+  Returns a stateful transducer when no collection is provided.
+  (distinct-by identity) ≣ (clojure.core/distinct)."
+  ([kf]
+   (fn [rf]
+     (let [seen (volatile! #{})]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [key (kf input)]
+            (if (contains? @seen key)
+              result
+              (do (vswap! seen conj key)
+                  (rf result input)))))))))
+  ([kf coll]
+   (sequence (distinct-by kf) coll)))
+
+#_
+(tests
+  (distinct-by identity [1 2 1 2 3]) := '(1 2 3)
+  (distinct-by :key [{:key 1}, {:key 2}, {:key 1} {:key 3}]) := '({:key 1} {:key 2} {:key 3})
+  )
 
 (defn concat [pull-expr-A pull-expr-B]
   (assert (and (edge? pull-expr-A) (edge? pull-expr-B)))
@@ -950,15 +976,16 @@
   ([traversalA traversalB & traversals]
    (reduce merge (merge traversalA traversalB) traversals)))
 
-(defn build-pull [edges]
+(defn build-pull [edges & [metadata]]
   (assert (every? edge? edges) (str "Not an edge" (first (remove edge? edges))))
   (lift (vec edges)
-    {::lexical-env (reduce cc/merge {} (map ::lexical-env (map meta edges)))
-     ::form (vec (map form edges))}))
+    (cc/merge metadata
+      {::lexical-env (reduce cc/merge {} (map ::lexical-env (map meta edges)))
+       ::form (vec (map form edges))})))
 
 (defn- map-pull [f pull-expr]
   (let [mapped (filter some? (map f (value pull-expr)))]
-    (vary-meta (build-pull mapped) assoc ::form (mapv form mapped))))
+    (vary-meta (build-pull mapped (meta pull-expr)) assoc ::form (mapv form mapped), ::value (vec mapped))))
 
 (defn filter-pull [pred pull-expr]
   (map-pull (fn [edge] (when (pred edge) edge)) pull-expr))
@@ -1028,3 +1055,17 @@ identifier, though it might not be serializable."
              (.invoke nil nil))
            :cljs
            (.getBasis (type record)))))))
+
+
+(def ^:dynamic *hierarchy* #?(:clj @#'clojure.core/global-hierarchy :cljs (cljs.core/get-global-hierarchy)))
+;; (def ^:dynamic *hierarchy* @#'clojure.core/global-hierarchy)
+
+(defmulti -resolve (fn ([object] (type object)) ([object opts] (type object))) :hierarchy #'*hierarchy*)
+(defmethod -resolve :default [_object & _opts] nil)
+
+(defn resolve ; todo resolve_, i.e. don't shadow core. Is this private?
+  ([object] (-resolve object))
+  ([object {::keys [hierarchy] :as opts}]
+   (binding [*hierarchy* (or hierarchy *hierarchy*)]
+     (-resolve object (dissoc opts ::hierarchy)))))
+
