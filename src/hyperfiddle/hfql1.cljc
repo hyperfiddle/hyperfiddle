@@ -281,7 +281,7 @@
 
 #?(:clj
    (defmethod print-method ::edge [object writer]
-     (.write writer (str "#" `hfql "[" (form object) "]"))))
+     (.write writer (str "#" `hfql "[" (short-form object) "]"))))
 
 
 ;; (pr-str (hfql {identity [:hello]}))
@@ -416,9 +416,13 @@
                ns-str->alias-str (-> ns->alias
                                    (update-keys (comp str ns-name))
                                    (update-vals str))
-               alias (or (get ns-str->alias-str (namespace ident)) (namespace ident))]
+               alias-str (get ns-str->alias-str (namespace ident))
+               aliased? (some? alias-str)
+               alias (or alias-str (namespace ident))]
            (if (keyword? ident)
-             (str "::" alias "/" (name ident))
+             (if aliased?
+               (str "::" alias "/" (name ident))
+               ident)
              (symbol alias (name ident))))))))
 
 #?(:clj
@@ -643,7 +647,9 @@
            value
            (datafy/nav object edge (if (or (nil? value) (= object value))
                                      (if (associative? object)
-                                       (get object edge value)
+                                       (if (some? edge)
+                                         (get object edge value)
+                                         value)
                                        (if (and (supports-nth? object) (some? edge))
                                          (nth object edge value)
                                          value))
@@ -714,6 +720,7 @@
                                          :else (assoc r (edge-name (form pull-expr)) pulled)))) {} (value pull-expr))
          :else (do-nav)))
      (catch #?(:clj Throwable, :cljs :default) ex
+       (prn ex)
        (ex-info (ex-message ex) {})))))
 
 (tests

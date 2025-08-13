@@ -284,7 +284,7 @@
 (e/defn NavigateSitemapEntry
   ([symbolic-edge]
    (e/server
-     (prn+ `NavigateSitemapEntry symbolic-edge)
+     (prn+ "NavigateSitemapEntry/1" symbolic-edge)
      (let [[traversal-edge pull-edge] (hfql1/find-traversal *sitemap symbolic-edge)
            %  (get-%-from-symbolic-edge symbolic-edge)
            %  (run-with-bindings e/*bindings* hfql1/nav % traversal-edge)]
@@ -293,6 +293,7 @@
    (e/server
      (let [[traversal-edge pull-edge] (hfql1/find-traversal *sitemap symbolic-edge)
            % (run-with-bindings e/*bindings* hfql1/nav % traversal-edge)]
+       (prn+ "NavigateSitemapEntry/2" symbolic-edge traversal-edge pull-edge %)
        [traversal-edge pull-edge %]))))
 
 (defn- should-navigation-happen? [object]
@@ -312,11 +313,10 @@
          (e/server
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge)
                  [Renderer %] (ResolveRenderer %)]
-             (prn+ `Navigate symbolic-edge traversal-edge pull-edge #_%)
+             (prn+ "Navigate/1" symbolic-edge traversal-edge pull-edge (meta %))
              (e/client
                (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth)))))))))
   ([symbolic-edge %]
-   (e/server (prn+ "RenderNext/2" symbolic-edge %))
    (e/client
      (InjectDependencies
        (e/fn [effect-handlers Search]
@@ -324,6 +324,7 @@
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge %)
                  traversal-edge (#(or traversal-edge (hfql1/build-pull (map selection->edge symbolic-edge))))
                  [Renderer %] (ResolveRenderer %)]
+             (prn+ "Navigate/2" symbolic-edge traversal-edge pull-edge %)
              (e/client
                (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth))))))))))
 
@@ -338,8 +339,9 @@
 
 #?(:clj
    (defn ^:deprecated nav* [bindings coll k v]
+     ;; (prn "nav*" (meta coll) k v)
      (try (debug-exceptions `nav* (with-bindings bindings (clojure.datafy/nav coll k v)))
-          (catch Throwable e nil))))
+          (catch Throwable e (prn+ e) nil))))
 
 (e/defn ^:deprecated Nav [coll k v] (e/server (Timing 'Nav #(nav* e/*bindings* coll k v))))
 
@@ -390,6 +392,7 @@
   (dom/td (dom/props {:title (e/server (str (hfql1/resolved-form edge)))})
           (dom/text (e/server (labelize edge))))
   (Render object edge (run-with-bindings e/*bindings* hfql1/nav object edge)))
+
 (e/declare AutoNavigate)
 
 (defn- find-edge
@@ -590,7 +593,7 @@
 #?(:clj
    (defn- nav-row [bindings data row-index]
      (when-some [row-object (nth data row-index nil)]
-       [row-index row-object (nav* bindings data nil row-object)]))) ; FIXME
+       [row-index row-object (run-with-bindings bindings clojure.datafy/nav data nil row-object)])))
 
 #?(:clj
    (defn- select-row-if-match-url! [!index row-index row-object selected-object]
@@ -609,12 +612,13 @@
            row-count
            (e/fn [row-index]
              (e/server
+               ;; (prn+ 'will-navd row-index (meta %))
                (let [navd (nav-row e/*bindings* % row-index)] ; FIXME glitch guard, ensures index travels with row
                  (e/Reconcile
                    (when (some? navd)
                      (let [[row-index row-object row-hydrated-object] navd]
                        (select-row-if-match-url! !selected-index row-index row-hydrated-object selected-object)
-                       (RenderSeqableRow row-object edges)))))))
+                       (RenderSeqableRow row-hydrated-object edges)))))))
            :row-height row-height
            :column-count (e/server (count (hfql1/form pull-expr)))
            :as :tbody)
@@ -622,6 +626,7 @@
                      (e/server
                        (reset! !selected-index selected-index)
                        (let [selected-object (Nav % nil (nth % selected-index nil))] ; FIXME
+                         (prn+ 'selection selected-index selected-object (hfql1/identify selected-object))
                          (if-let [symbolic-representation (hfql1/identify selected-object)]
                            [`Select! symbolic-representation (e/server (e/fn [] selected-object))]
                            [`Noop])))))
@@ -699,6 +704,7 @@
             (catch Throwable t (prn (ex-message t)) []))))
 
 (e/defn RenderSeqable [traversal-edge pull-edge % effect-handlers Search route-state]
+  (e/server (prn+ 'RenderSeqable pull-edge (meta %)))
   (e/server
     (let [% (#(if (seqable? %) % ()) %)] ; when guard on switch from sequable to associative
       (e/client
@@ -712,7 +718,7 @@
                                      (RenderSeqableTitle traversal-edge pull-edge row-count Search (dissoc (meta %) `clojure.core.protocols/nav)
                                        (e/fn []
                                          (let [first-item (e/Snapshot (first %))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
-                                           (Timing 'infer-columns #(hfql1/suggest first-item))))))
+                                           (Timing 'infer-columns (partial #(hfql1/suggest (hfql1/nav % nil first-item)) %))))))
                   search-cmd       (let [Search (e/server (first free-args))]
                                      (e/Reconcile (when Search
                                                     (e/call Search)))) ; fighting against sited destructuring
