@@ -168,7 +168,6 @@
   (let [tooltip-ident (get (meta edge) tooltip-ident (get *block-opts tooltip-ident))
         tooltip-qualified-ident (hfql1/unquote tooltip-ident) ; FIXME syntax wart
         Tooltip (Resolve tooltip-qualified-ident nil)]
-    (prn+ 'Resolved Tooltip)
     (e/Reconcile
       (when (some? Tooltip)
         (let [show? (dom/Mouse-over?)]
@@ -642,7 +641,7 @@
                 label (e/server (labelize edge))]
             (dom/th
               (dom/props {:title (str (e/server (::hfql1/resolved-form (meta edge))))})
-              #_(e/server (RenderTooltip ::hfql1/ColumnHeaderTooltip edge))
+              (e/server (RenderTooltip ::hfql1/ColumnHeaderTooltip nil edge nil))
               (dom/On "click" #(swap! !sort-spec toggle-column-sort form) nil)
               (dom/text label))))))))
 
@@ -739,13 +738,13 @@
               ;; (e/server (prn+ 'free-args free-args))
               (reset! !row-count data-count)
               search-cmd                    ; force order
-              (dom/table
-                (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-                (RenderSeqableHeader edge+suggestions !sort-spec)
-                (forms/Interpreter effect-handlers
-                  (e/amb
-                    (e/When search-cmd search-cmd)
-                    (binding [*block-opts (e/server (meta pull-edge) )] ; TODO remove
+              (binding [*block-opts (e/server (meta pull-edge) )] ; TODO remove
+                (dom/table
+                  (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
+                  (RenderSeqableHeader edge+suggestions !sort-spec)
+                  (forms/Interpreter effect-handlers
+                    (e/amb
+                      (e/When search-cmd search-cmd)
                       (->> (RenderSeqableBody row-count row-height cols data edge+suggestions selected-object)
                         (forms/Parse (e/fn [[command & args]]
                                        (e/Reconcile
