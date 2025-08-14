@@ -165,15 +165,16 @@
 (e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
 
 (e/defn RenderTooltip [tooltip-ident object edge value]
-  (let [Tooltip (Resolve (get (meta edge) tooltip-ident)
-                  (Resolve (get *block-opts tooltip-ident)
-                    nil))]
+  (let [tooltip-ident (get (meta edge) tooltip-ident (get *block-opts tooltip-ident))
+        tooltip-qualified-ident (hfql1/unquote tooltip-ident) ; FIXME syntax wart
+        Tooltip (Resolve tooltip-qualified-ident nil)]
+    (prn+ 'Resolved Tooltip)
     (e/Reconcile
       (when (some? Tooltip)
         (let [show? (dom/Mouse-over?)]
           (dom/props
             {:data-tooltip
-             (e/Reconcile (when show? (Tooltip value object edge)))}))))) )
+             (e/Reconcile (when show? (Tooltip object edge value)))}))))) )
 
 (e/defn DefaultCellRenderer [object edge value]
   (RenderTooltip ::hfql1/Tooltip object edge value)

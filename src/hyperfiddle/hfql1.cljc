@@ -159,7 +159,7 @@
     (= 'var (first form))
     (= 2 (count form))))
 
-(defn- unquote [form] (if (quoted? form) (second form) form))
+(defn unquote [form] (if (quoted? form) (second form) form))
 
 (defn- quoted-var-form? [form] (and (quoted? form) (var-form? (unquote form))))
 
