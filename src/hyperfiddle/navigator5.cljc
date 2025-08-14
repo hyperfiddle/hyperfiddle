@@ -690,7 +690,7 @@
               (let [metadata (meta collection)
                     collection (with-meta (vec collection) metadata)         ; fix if collection is e.g. a set
                     ;; navd (with-bindings hfql-bindings (into [] (map #(clojure.datafy/nav collection nil %)) collection))
-                    pulled (run-with-bindings hfql-bindings (fn [] (mapv #(hfql1/nav % edge) collection)))
+                    pulled (run-with-bindings hfql-bindings (fn [] (mapv #(hfql1/nav (hfql1/nav collection nil %) edge) collection))) ; TODO turn into a transducer
                     filtered (eduction (map-indexed vector)
                                (if (not-empty search)
                                  (filter #(strx/any-matches? (vals (second %)) search))
