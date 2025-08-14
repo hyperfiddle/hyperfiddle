@@ -646,7 +646,7 @@
   ([env object edge value]
    (if (edge? edge)
      (call edge (assoc env '% object) (if (satisfies? ccp/Navigable object) (or (datafy/nav object edge value) object) object))
-     (do #?(:clj (log/info `nav edge value object))
+     (do ;; #?(:clj (log/info `nav edge value object))
          (if (nil? object)
            value
            (datafy/nav object edge (if (or (nil? value) (= object value))
