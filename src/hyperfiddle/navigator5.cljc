@@ -194,7 +194,8 @@
 (e/defn RenderCell [object edge value]
   (dom/td                            ; custom renderer runs in context of a cell
     (binding [Render DefaultCellRenderer]
-      (e/Reconcile (e/call (Resolve (::hfql1/Render (meta edge)) Render) object (vary-meta edge dissoc ::hfql1/Render) value)))))
+      (e/Reconcile (e/call (Resolve (hfql1/unquote (::hfql1/Render (meta edge))) ; FIXME syntax wart
+                             Render) object (vary-meta edge dissoc ::hfql1/Render) value)))))
 
 (e/defn Render [object edge value] (RenderCell object edge value))
 
@@ -428,11 +429,13 @@
           selected-object               (e/server (e/watch !selected-object))
           symbolic-select-edge          (e/server (::hfql1/select (meta pull-edge)))
 
-          edge+suggestions (e/server (let [pull-edge       (e/server (hfql1/value (hfql1/filter-pull (complement hfql1/star?) pull-edge)))
+          edge+suggestions (e/server (let [pull-edge       (e/server (hfql1/filter-pull (complement hfql1/star?) pull-edge))
                                            keys            (hfql1/value pull-edge)
                                            resolved-keys   (into #{} (map hfql1/resolved-form keys))
                                            suggested-edges (e/Offload (fn [] (hfql1/suggest %)))
                                            new-edges       (hfql1/filter-pull (fn [edge] (not (resolved-keys (hfql1/resolved-form edge)))) suggested-edges)]
+                                       (e/server (def _pull-edge pull-edge) nil)
+                                       (e/server (def _keys keys) nil)
                                        (e/server (def _suggested-edges suggested-edges) nil)
                                        (e/server (def _new-edges new-edges) nil)
                                        (prn "suggested edges" suggested-edges)
