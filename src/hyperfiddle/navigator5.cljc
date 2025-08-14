@@ -183,7 +183,7 @@
       (if (= ::not-found value)
         (dom/props {:data-empty true})
         (let [pretty-v (pretty-value value *server-pretty)
-              denv {'% (hfql1/identify object), (hfql1/form edge) value, '%v (hfql1/identify value)}
+              denv {'% (hfql1/identify object), (hfql1/form edge) value, '%v (#(or (hfql1/identify value) value))}
               symbolic-link-href (hfql1/unquote (::hfql1/link (meta edge)))]
           (e/Reconcile
             (if (some? symbolic-link-href)
