@@ -277,7 +277,7 @@
                                       (apply f args))))
            :else (with-% (fn [_lexical-env object & args] (apply get-or-apply edge object args))))
          ]
-     (with-meta lifted-fn metadata))))
+     (vary-meta lifted-fn cc/merge metadata))))
 
 #?(:clj
    (defmethod print-method ::edge [object writer]
@@ -348,12 +348,14 @@
   (cond (quoted-var-form? edge) (unquote edge)  ; this trick/special case prevents a later call to `resolve`
         :else edge))
 
-(defn- escape-calls [form]
-  (if (seq? form)
+(defn symbolic-call? [form]
+  (and (seq? form)
     (let [[f & _args] form]
-      (if (and (symbol? f) (not (#{'fn `fn 'fn* 'quote 'var 'hfql `hfql} f)))
-        `(list ~@form)
-        form))
+      (and (symbol? f) (not (#{'fn `fn 'fn* 'quote 'var 'hfql `hfql} f))))))
+
+(defn- escape-calls [form]
+  (if (symbolic-call? form)
+    `(list ~@form)
     form))
 
 (defn- wrap-hfql [form]
@@ -468,12 +470,14 @@
                         (direct-method-call? fn-like-form) `(resolve-direct-method ~fn-like-form)
                         (star? fn-like-form)   `(symbol (var *))
                         (symbol? fn-like-form) `(symbol (var ~fn-like-form))
+                        (symbolic-call? fn-like-form) `(list* (symbol (var ~(first fn-like-form))) '~(rest fn-like-form))
                         :else nil)
         resolved-var (cond
                        (indirect-method-call? fn-like-form) nil
                        (direct-method-call? fn-like-form) nil
                        (star? fn-like-form)   `(symbol (var *))
                        (symbol? fn-like-form) `(var ~fn-like-form)
+                       (symbolic-call? fn-like-form) `(list* (var ~(first fn-like-form)) '~(rest fn-like-form))
                        :else nil)
         value         (as-> fn-like-form %                   ; ②
                         (edge-raw-value %)
@@ -904,10 +908,11 @@
         (or
           ;; look for exact symbolic match
           (first (filter-kv (fn [k v] (= symbolic-call-form (form k))) (value edge-fn)))
+
           ;; look for same symbolic fn and arg count match
           (first (filter-kv (fn [k v] (let [k-form (form k)]
                                         (and (seq? k-form)
-                                          (= f (first k-form))
+                                          (or (= f (first k-form)) (= f (edge-name (resolved-form k))))
                                           (= argc (count (rest k-form)))))) (value edge-fn)))
           ;; look for point free call
           (first (filter-kv (fn [k v]

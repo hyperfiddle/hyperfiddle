@@ -6,13 +6,14 @@
 
 (e/declare apps)
 
-#?(:clj (defn build-nav-links [sitemap defaults]
-          (->> (hfql/context-free-edges sitemap)
-            (map hfql/form)
-            (sort-by hfql/edge-name)
-            (concat defaults)
-            (distinct)
-            )))
+#?(:clj
+   (defn build-nav-links [sitemap defaults]
+     (->> (hfql/context-free-edges sitemap)
+       (map hfql/resolved-form)
+       (sort-by hfql/edge-name)
+       (concat defaults)
+       (distinct)
+       )))
 
 (e/defn Index [sitemap defaults]
   (dom/nav
