@@ -236,7 +236,7 @@
 (defn- getter [fn-like] (with-% (fn [_lexical-env object] (get object fn-like))))
 (defn- caller [fn-like] (with-% (fn [_lexical-env & args] (apply fn-like args))))
 
-(defn litteral? [obj]
+(defn literal? [obj]
   (or (nil? obj)
     (number? obj)
     (string? obj)
@@ -248,7 +248,7 @@
    (let [metadata (-> (meta edge)
                     (cc/merge metadata)
                     (update ::value #(or % edge))
-                    (update ::form #(or % (if (litteral? edge) edge nil)))
+                    (update ::form #(or % (if (literal? edge) edge nil)))
                     (assoc :type ::edge))
          lifted-fn
          (cond
@@ -378,7 +378,7 @@
 
 (defn- quote "Quote a form. Invoke it as `(#'quote x)` to avoid conflict with the 'quote special form."
   [form]
-  (if (or (litteral? form) (quoted? form))
+  (if (or (literal? form) (quoted? form))
     form
     (list 'quote form)))
 
@@ -465,27 +465,36 @@
   (let [raw-form      (edge-raw-form fn-like-form) ; ②
         form          (#'quote raw-form)
         short-form    (#'quote (attempt-shorten-form raw-form))
+        lexical-env   (lexical-bindings-map &env)
+        ;; _ (prn 'lexical {'&env &env, 'map lexical-env})
+        lexical?      #(do #_(prn 'lexical? % (contains? &env %)) (contains? &env %)) ;; (contains? lexical-env %)
         resolved-form (cond
+                        (lexical? fn-like-form) form
                         (indirect-method-call? fn-like-form) nil
                         (direct-method-call? fn-like-form) `(resolve-direct-method ~fn-like-form)
                         (star? fn-like-form)   `(symbol (var *))
                         (symbol? fn-like-form) `(symbol (var ~fn-like-form))
-                        (symbolic-call? fn-like-form) `(list* (symbol (var ~(first fn-like-form))) '~(rest fn-like-form))
+                        (symbolic-call? fn-like-form) `(list* ~(if (lexical? (first fn-like-form))
+                                                                form
+                                                                `(symbol (var ~(first fn-like-form)))) 
+                                                         '~(rest fn-like-form))
                         :else nil)
         resolved-var (cond
+                       (lexical? fn-like-form) nil
                        (indirect-method-call? fn-like-form) nil
                        (direct-method-call? fn-like-form) nil
-                       (star? fn-like-form)   `(symbol (var *))
+                       (star? fn-like-form)   `(var *)
                        (symbol? fn-like-form) `(var ~fn-like-form)
-                       (symbolic-call? fn-like-form) `(list* (var ~(first fn-like-form)) '~(rest fn-like-form))
+                       (symbolic-call? fn-like-form) (if (lexical? (first fn-like-form))
+                                                       nil
+                                                       `(list* (var ~(first fn-like-form)) '~(rest fn-like-form)))
                        :else nil)
         value         (as-> fn-like-form %                   ; ②
                         (edge-raw-value %)
                         (escape-method-calls %)
                         (escape-traversals %)
                         (escape-calls %)
-                        ({'* *} % %))
-        lexical-env   (lexical-bindings-map &env)
+                        ({'* `*} % %))
         symbolic-form (-> fn-like-form
                         (escape-method-calls)
                         (escape-traversals)
@@ -497,7 +506,7 @@
                         (#'quote (meta &form))                                     ; ⑦
                         (prune-metamap
                           (cc/merge metadata
-                            {::form        (if (and (litteral? form) (not (is-kw-fn? fn-like-form))) nil form) ; no need to repeat it
+                            {::form        (if (and (literal? form) (not (is-kw-fn? fn-like-form))) nil form) ; no need to repeat it
                              ::short-form  short-form
                              ::resolved-form resolved-form
                              ::resolved-var resolved-var
@@ -638,26 +647,32 @@
              (implements? ISequential object)
              (native-satisfies? IIndexed object))))
 
+(declare traversal? pull?)
+
 (defn nav ; ①
   ([edge] (nav nil edge))
   ([object edge]
    (nav nil object edge object))
   ([object edge value] (nav nil object edge value))
   ([env object edge value]
-   (if (edge? edge)
-     (call edge (assoc env '% object) (if (satisfies? ccp/Navigable object) (or (datafy/nav object edge value) object) object))
-     (do ;; #?(:clj (log/info `nav edge value object))
-         (if (nil? object)
-           value
-           (datafy/nav object edge (if (or (nil? value) (= object value))
-                                     (if (associative? object)
-                                       (if (some? edge)
-                                         (get object edge value)
-                                         value)
-                                       (if (and (supports-nth? object) (some? edge))
-                                         (nth object edge value)
-                                         value))
-                                     value)))))))
+   (let [symbolic-edge (if (edge? edge) (edge-name (resolved-form edge)) edge)
+         infered-value (if (and (some? symbolic-edge) (some? object) (or (nil? value) (= object value)))
+                         (try
+                           (cond
+                             (associative? object)  (get object symbolic-edge value)
+                             (supports-nth? object) (nth object symbolic-edge value)
+                             :else value)
+                           (catch #?(:clj Throwable, :cljs :default) _ value))
+                         value)
+         navigable? (satisfies? ccp/Navigable object)
+         navigated  (when navigable? (try (datafy/nav object symbolic-edge infered-value) (catch #?(:clj Throwable, :cljs :default) _ infered-value)))
+         navigated? (and navigable? (not (identical? navigated infered-value)))
+         object     (if (and navigated? (some? navigated)) navigated object)]
+     (if (and navigated? (traversal? edge))
+       navigated
+       (if (edge? edge)
+         (or (call edge (assoc env '% object) object) object)
+         navigated)))))
 
 (tests ; ①
   (nav {:a 1} :a) := 1
@@ -689,10 +704,10 @@
 
 (defn- traverse [object edge env]
   {:pre [(traversal? edge)]}
-  (prn `traverse edge object)
-  (if (and (multiplicity-many? object) (pull? (next edge)))
+  ;; (prn `traverse edge object)
+  (if (and (multiplicity-many? object) (pull? (first (next edge))))
     (->> object
-      (map (fn [collection-element] (traverse (datafy/nav object edge collection-element) edge (assoc env '% object))))
+      (map (fn [collection-element] (traverse (datafy/nav object edge collection-element) edge env #_(assoc env '% object))))
       (reduce (fn [r traversed] (merge-with (fn [a b] (if (vector? a) (conj a b) [a b])) r traversed)) {}))
     (reduce-kv (fn [r edge pull-expr]
                  (let [[f & args] (template-call-from-env env (form edge) (value edge))
@@ -710,7 +725,7 @@
   ([pull-expr] (pull pull-expr nil))
   ([pull-expr object] (pull pull-expr object {'% object}))
   ([pull-expr object env]
-   (assert (edge? pull-expr) "The given pull expression must be prepossessed by `(hfql <pull-expr>)`.")
+   (assert (edge? pull-expr) "The given pull expression must be pre-processed with `(hfql <pull-expr>)`.")
    (try
      (let [env (assoc env '% object)
            do-nav #(nav env object pull-expr nil)]
@@ -770,12 +785,8 @@
    := [1 2 3 4 5]
   )
 
-
-(defn navigable-indexed [nav-fn collection]
-  (vary-meta collection assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value)))) ; #?(:clj bound-fn :cljs fn)
-
-(defn navigable [nav-fn collection] (navigable-indexed (fn [_index value] (nav-fn value)) collection))
-
+(defn navigable [nav-fn object]
+  (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
 
 (def ^:private _alice_    {:db/id 9, :user/email "alice@example.com", :user/name "Alice" :user/address {:address/number 42}})
 (def ^:private _bob_      {:db/id 10, :user/email "bob@example.com", :user/name "Bob"})
@@ -784,7 +795,7 @@
 (def ^:private _d-entity_ (fn [db eid] (get db eid)))
 (defn- _people_ []
   (->> (list 9 10 11)
-    (navigable (partial _d-entity_ _db_) )))
+    (navigable (fn [_index value] (_d-entity_ _db_ value)) )))
 
 (tests
   (let [user-summary #(str (:user/name %) " – " (:user/email %))
@@ -865,7 +876,7 @@
         (if (and (some? f) (empty? args))
           true
           (let [lexical-env (::lexical-env (meta edge))]
-            (every? #(or (litteral? %) (contains? lexical-env (unquote %))) args))))
+            (every? #(or (literal? %) (contains? lexical-env (unquote %))) args))))
 
       (ident? form)
       (if-let [symbolic-arities (arglists edge)]
@@ -879,7 +890,7 @@
                     (if (and (some? f) (empty? args))
                       true
                       (let [lexical-env (::lexical-env (meta edge))]
-                        (every? #(or (litteral? %) (contains? lexical-env (unquote %))) args))))
+                        (every? #(or (literal? %) (contains? lexical-env (unquote %))) args))))
       :else false)))
 
 (defn context-free-edges [edge]

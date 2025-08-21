@@ -177,18 +177,17 @@
 
 (e/defn DefaultCellRenderer [object edge value]
   (RenderTooltip ::hfql1/Tooltip object edge value)
-  (if (or (set? value) (sequential? value))
-    (RenderInlineColl object edge value)
-    (e/Reconcile
-      (if (= ::not-found value)
-        (dom/props {:data-empty true})
-        (let [pretty-v (pretty-value value *server-pretty)
-              denv {'% (hfql1/identify object), (hfql1/form edge) value, '%v (#(or (hfql1/identify value) value))}
-              symbolic-link-href (hfql1/unquote (::hfql1/link (meta edge)))]
-          (e/Reconcile
-            (if (some? symbolic-link-href)
-              (router/link ['. [(replace denv symbolic-link-href)]] (dom/text pretty-v))
-              (dom/text pretty-v))) )))))
+  (e/Reconcile
+    (if (#(or (set? value) (sequential? value)))
+      (RenderInlineColl object edge value)
+      (do (e/client (.setAttribute dom/node "data-empty" (e/server (= ::not-found value))))
+          (let [pretty-v (pretty-value value *server-pretty)
+                denv {'% (hfql1/identify object), (hfql1/form edge) value, '%v (#(or (hfql1/identify value) value))}
+                symbolic-link-href (hfql1/unquote (::hfql1/link (meta edge)))]
+            (e/Reconcile
+              (if (some? symbolic-link-href)
+                (router/link ['. [(replace denv symbolic-link-href)]] (dom/text pretty-v))
+                (dom/text pretty-v))) )))))
 
 (e/declare Render)
 (e/defn RenderCell [object edge value]
@@ -197,7 +196,24 @@
       (e/Reconcile (e/call (Resolve (hfql1/unquote (::hfql1/Render (meta edge))) ; FIXME syntax wart
                              Render) object (vary-meta edge dissoc ::hfql1/Render) value)))))
 
+
+(defn- pull-leaf [bindings object edge]
+  (cond
+    (hfql1/traversal? edge) (as-> (run-with-bindings bindings hfql1/nav object edge) %
+                              (pull-leaf bindings % (first (hfql1/next edge))))
+    (hfql1/pull? edge)      (run-with-bindings bindings hfql1/pull edge   object)
+    :else                   (run-with-bindings bindings hfql1/nav  object edge)))
+
 (e/defn Render [object edge value] (RenderCell object edge value))
+(e/defn Render* [object edge] (Render object edge #_(doto)   (pull-leaf e/*bindings* object edge)   #_  (->> (prn "pulled leaf" (hfql1/form edge)))))
+
+(comment
+  (hyperfiddle.rcf/enable! false)
+  (hfql1/nav _object _edge)
+  ;; (run-with-bindings _bindings hfql1/nav _object (hfql1/hfql dustingetz.datomic-browser/attribute-count))
+  ;; (ancestors (type _object))
+  ;; (find-protocol-impl clojure.core.protocols/Navigable _object)
+  )
 
 ;;;;;;;;;;;;;;;;;;;
 ;; Edit Handlers ;;
@@ -392,7 +408,7 @@
 (e/defn RenderAssociativeEntry [object edge]
   (dom/td (dom/props {:title (e/server (str (hfql1/resolved-form edge)))})
           (dom/text (e/server (labelize edge))))
-  (Render object edge (run-with-bindings e/*bindings* hfql1/nav object edge)))
+  (Render* object edge))
 
 (e/declare AutoNavigate)
 
@@ -590,8 +606,7 @@
 
 (e/defn RenderSeqableRow [object edges]
   (e/for [edge edges] ; shouldn't this go into Render2? not sure due to `get` below
-    (Render object edge (run-with-bindings e/*bindings* hfql1/pull edge object))
-    ))
+    (Render* object edge)))
 
 #?(:clj
    (defn- nav-row [bindings data row-index]
@@ -693,7 +708,9 @@
               (let [metadata (meta collection)
                     collection (with-meta (vec collection) metadata)         ; fix if collection is e.g. a set
                     ;; navd (with-bindings hfql-bindings (into [] (map #(clojure.datafy/nav collection nil %)) collection))
-                    pulled (run-with-bindings hfql-bindings (fn [] (mapv #(hfql1/nav (hfql1/nav collection nil %) edge) collection))) ; TODO turn into a transducer
+                    pulled (eduction (map (fn [object] (run-with-bindings hfql-bindings hfql1/pull edge object)))
+                             (map (fn [symbolic-ref-or-object] (run-with-bindings hfql-bindings hfql1/nav collection nil symbolic-ref-or-object)))
+                             collection)
                     filtered (eduction (map-indexed vector)
                                (if (not-empty search)
                                  (filter #(strx/any-matches? (vals (second %)) search))

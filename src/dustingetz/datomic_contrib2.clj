@@ -139,7 +139,7 @@
         ; TODO cache schema?
         (and (keyword? v) (ref? (index-by :db/ident (query-schema (.-db entity))) k)) (d/entity (.-db entity) v) ; traverse ident refs
         (= :identity unique?) (if (instance? datomic.query.EntityMap v) v (d/entity (.-db entity) [k v])) ; resolve lookup ref, todo cleanup
-        ;; () (k entity v) ; traverse refs or return value
+        (keyword? k) (k entity v) ; traverse refs or return value
         )))
   Datafiable
   (datafy [^datomic.query.EntityMap entity]
