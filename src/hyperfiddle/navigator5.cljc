@@ -10,7 +10,7 @@
             [hyperfiddle.ui.tooltip :as tooltip]
             [contrib.css :as cssx]
             [dustingetz.str :as strx]
-            [clojure.datafy]
+            [clojure.datafy :as datafy]
             [clojure.string :as str]
             [clojure.pprint]
             [dustingetz.loader :as loader]
@@ -205,11 +205,15 @@
     :else                   (run-with-bindings bindings hfql1/nav  object edge)))
 
 (e/defn Render [object edge value] (RenderCell object edge value))
-(e/defn Render* [object edge] (Render object edge #_(doto)   (pull-leaf e/*bindings* object edge)   #_  (->> (prn "pulled leaf" (hfql1/form edge)))))
+(e/defn Render* [object edge] (Render object edge (doto (pull-leaf e/*bindings* object edge) (->> (prn "pulled leaf" (hfql1/form edge))))))
 
 (comment
   (hyperfiddle.rcf/enable! false)
-  (hfql1/nav _object _edge)
+  (hfql1/nav _object _edge  )
+  (run-with-bindings _bindings hfql1/nav _object (hfql1/hfql dustingetz.datomic-browser/summarize-attr*))
+  (pull-leaf {} _object _edge)  
+  (pull-leaf _bindings 81 _edge)
+
   ;; (run-with-bindings _bindings hfql1/nav _object (hfql1/hfql dustingetz.datomic-browser/attribute-count))
   ;; (ancestors (type _object))
   ;; (find-protocol-impl clojure.core.protocols/Navigable _object)
@@ -707,21 +711,20 @@
               #_(Thread/sleep 3000)
               (let [metadata (meta collection)
                     collection (with-meta (vec collection) metadata)         ; fix if collection is e.g. a set
-                    ;; navd (with-bindings hfql-bindings (into [] (map #(clojure.datafy/nav collection nil %)) collection))
-                    pulled (eduction (map (fn [object] (run-with-bindings hfql-bindings hfql1/pull edge object)))
-                             (map (fn [symbolic-ref-or-object] (run-with-bindings hfql-bindings hfql1/nav collection nil symbolic-ref-or-object)))
+                    pulled (eduction (map (fn [symbolic-ref-or-object] (run-with-bindings hfql-bindings datafy/nav collection nil symbolic-ref-or-object)))
+                             (map (fn [object] (run-with-bindings hfql-bindings hfql1/pull edge object)))
                              collection)
                     filtered (eduction (map-indexed vector)
                                (if (not-empty search)
                                  (filter #(strx/any-matches? (vals (second %)) search))
                                  (map identity))
                                pulled)
-                    sorted (vec (if-some [sorter (and (not-empty sort-spec) (->sort-comparator sort-spec))]
-                                  (try (sort-by second sorter filtered) (catch Throwable _ filtered))
-                                  filtered))]
-                (with-meta (into [] (comp (map first) (map #(nth collection %))) sorted)
+                    sorted (if-some [sorter (and (not-empty sort-spec) (->sort-comparator sort-spec))]
+                             (try (sort-by second sorter filtered) (catch Throwable _ filtered))
+                             filtered)]
+                (with-meta (sequence (comp (map first) (map #(nth collection %))) sorted)
                   metadata)))
-            (catch Throwable t (prn (ex-message t)) []))))
+            (catch Throwable t (prn 'eager-pull-search-sort (ex-message t)) []))))
 
 (e/defn RenderSeqable [traversal-edge pull-edge % effect-handlers Search route-state]
   (e/server (prn+ 'RenderSeqable pull-edge (meta %)))
@@ -738,7 +741,7 @@
                                      (RenderSeqableTitle traversal-edge pull-edge row-count Search (dissoc (meta %) `clojure.core.protocols/nav)
                                        (e/fn []
                                          (let [first-item (e/Snapshot (first %))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
-                                           (Timing 'infer-columns (partial #(hfql1/suggest (hfql1/nav % nil first-item)) %))))))
+                                           (Timing 'infer-columns (partial #(hfql1/suggest (datafy/nav % nil first-item)) %))))))
                   search-cmd       (let [Search (e/server (first free-args))]
                                      (e/Reconcile (when Search
                                                     (e/call Search)))) ; fighting against sited destructuring

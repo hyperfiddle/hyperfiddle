@@ -135,21 +135,21 @@
 (defn short-form [edge] (or (::short-form (meta edge)) (form edge)))
 (defn resolved-form [edge] (::resolved-form (meta edge) (form edge)))
 (defn value [edge] (::value (meta edge)))
-(defn edge? [object] (= ::edge (type object)))
+
+(def ^:private edge-types (-> (make-hierarchy) ; Experiment, I probably won't keep this
+                            (derive ::getter ::edge)
+                            (derive ::pull ::edge)
+                            (derive ::traversal ::edge)))
+
+(defn edge? [object] (isa? edge-types (type object) ::edge))
+(defn- getter? [object] (isa? edge-types (type object) ::getter))
+(defn traversal? [pull-expr] (isa? edge-types (type pull-expr) ::traversal))
+(defn pull? [pull-expr] (isa? edge-types (type pull-expr) ::pull))
 
 (defn count [edge-or-coll]
   (if (edge? edge-or-coll)
     (cc/count (value edge-or-coll))
     (cc/count edge-or-coll)))
-
-(defn- get-or-apply [f object & args]
-  {:pre [(ifn? f)]}
-  (if (try (contains? object f)
-           (catch #?(:clj Throwable, :cljs :default) _
-             (#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
-             false))
-    (get object f)
-    (apply f object args)))
 
 (defn- quoted? [form]
   (and (seq? form) (= 'quote (first form))))
@@ -184,7 +184,7 @@
     ([] (f nil nil))
     ([object] (f {'% object} object))
     ([env object] (f (assoc env '% object) object))
-    ([env object & args] (apply f env object args))))
+    ([env object & args] (apply f (assoc env '% object) object args))))
 
 (defn- zip-by
   ([coll-a coll-b] (zip-by (constantly true) coll-a coll-b))
@@ -224,17 +224,47 @@
 (defn- lift-traversal [fn-like metadata]
   {:pre [(map? fn-like)]}
   #_(assert (= 1 (count fn-like)) (str "A traversal can only contain one edge. Received: " (keys fn-like) "."))
-  (with-% (fn traverse [lexical-env object] ; optional
-            (let [[f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
-                  args (replace (cc/merge (::lexical-env metadata) lexical-env {'% object}) args)]
-              (apply f args)))))
+  (-> (fn traverse [lexical-env object] ; optional
+        ((ffirst fn-like) lexical-env object)
+        #_(let [[f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
+              args (replace (cc/merge (::lexical-env metadata) lexical-env {'% object}) args)]
+          (apply f args)))
+    (with-%)
+    (with-meta {:type ::traversal})))
+
+(tests
+  (let [attribute {:db/id 42, :db/ident :attribute/name}
+        object (with-meta {:a 42} {`ccp/nav (fn [o k v] (if (= :a k) attribute (get o k v)))})]
+    ((hfql :a) object))
+  := attribute
+
+  #_( (hfql {:a :db/ident}))
+  ;; := :attribute/name
+  )
 
 (defn star? [edge-or-sym] (if (edge? edge-or-sym) (star? (form edge-or-sym)) (= '* edge-or-sym)))
 
 (defn- touch [object] (if (seqable? object) (doall object) object))
 (def ^:public * (with-% (fn star [_lexical-env object] (touch object))))
-(defn- getter [fn-like] (with-% (fn [_lexical-env object] (get object fn-like))))
+
+(defn- safe-ccp-nav [object key value]
+  (if (satisfies? ccp/Navigable object)
+    (datafy/nav object key value)
+    value))
+
+(defn- getter [fn-like] (-> (fn [_lexical-env object] (safe-ccp-nav object fn-like (get object fn-like)))
+                          (with-%)
+                          (with-meta {:type ::getter})))
 (defn- caller [fn-like] (with-% (fn [_lexical-env & args] (apply fn-like args))))
+
+(defn- get-or-apply [f object & args]
+  ;; {:pre [(ifn? f)]}
+  (if (try (contains? object f) ; FIXME find a better check
+           (catch #?(:clj Throwable, :cljs :default) _
+             (#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+             false))
+    (safe-ccp-nav object f (get object f))
+    (apply f object args)))
 
 (defn literal? [obj]
   (or (nil? obj)
@@ -261,23 +291,24 @@
                                      (catch #?(:clj Throwable, :cljs :default) err
                                        (#?(:clj log/warn, :cljs js/console.warn) "Failed to apply" (::form metadata) "onto" (cons object args))
                                        err))))
-           (var-form? edge) (with-% (fn [_lexical-env object] (get object (::value metadata)))) ; quoted var
-           ;; TODO class method calls?
+           (var-form? edge) (with-% (fn [_lexical-env object] (safe-ccp-nav object (::value metadata) (get object (::value metadata))))) ; quoted var
            (map? edge) (lift-traversal edge metadata)
            (vector? edge) (let [fns edge]
                               (if (empty? fns)
                                  (constantly {})
                                  (let [keys (map edge-name (::form metadata))
                                        pull (apply juxt fns)]
-                                   (with-% (fn edges [_lexical-env map-object]
-                                             (zipmap keys (cc/concat (pull map-object) (repeat nil))))))))
+                                   (-> (fn edges [_lexical-env map-object]
+                                         (zipmap keys (cc/concat (pull map-object) (repeat nil))))
+                                     (with-%)
+                                     (with-meta {:type ::pull})))))
            (seq? edge) (with-% (fn call [lexical-env & _args] ; optional
                                     (let [lexical-env (cc/merge (::lexical-env metadata) lexical-env)
                                           [f & args] (template-call-from-env lexical-env (::form metadata) edge)]
                                       (apply f args))))
            :else (with-% (fn [_lexical-env object & args] (apply get-or-apply edge object args))))
          ]
-     (vary-meta lifted-fn cc/merge metadata))))
+     (vary-meta lifted-fn #(cc/merge metadata %)))))
 
 #?(:clj
    (defmethod print-method ::edge [object writer]
@@ -649,36 +680,36 @@
 
 (declare traversal? pull?)
 
+(defn- infer-nav-value [object key value] ; convenience
+  (if (and (some? key) (some? object) (or (nil? value) (= object value)))
+    (try
+      (cond
+        (associative? object)  (get object key value)
+        (supports-nth? object) (nth object key value)
+        :else value)
+      (catch #?(:clj Throwable, :cljs :default) _ value))
+    value))
+
 (defn nav ; ①
   ([edge] (nav nil edge))
   ([object edge]
-   (nav nil object edge object))
+   (nav nil object edge (infer-nav-value object edge nil)))
   ([object edge value] (nav nil object edge value))
   ([env object edge value]
-   (let [symbolic-edge (if (edge? edge) (edge-name (resolved-form edge)) edge)
-         infered-value (if (and (some? symbolic-edge) (some? object) (or (nil? value) (= object value)))
-                         (try
-                           (cond
-                             (associative? object)  (get object symbolic-edge value)
-                             (supports-nth? object) (nth object symbolic-edge value)
-                             :else value)
-                           (catch #?(:clj Throwable, :cljs :default) _ value))
-                         value)
-         navigable? (satisfies? ccp/Navigable object)
-         navigated  (when navigable? (try (datafy/nav object symbolic-edge infered-value) (catch #?(:clj Throwable, :cljs :default) _ infered-value)))
-         navigated? (and navigable? (not (identical? navigated infered-value)))
-         object     (if (and navigated? (some? navigated)) navigated object)]
-     (if (and navigated? (traversal? edge))
-       navigated
-       (if (edge? edge)
-         (or (call edge (assoc env '% object) object) object)
-         navigated)))))
+   (if (edge? edge)
+     (call edge (assoc env '% object) object)
+     (datafy/nav object edge value) ; REPL convenience
+     )))
+
+(comment
+  (hyperfiddle.rcf/enable! false)
+  (nav _object _edge))
 
 (tests ; ①
   (nav {:a 1} :a) := 1
-  (nav {:a 1} :b ::not-found) := ::not-found
+  (nav {:a 1} :b) := nil
   (nav [:a :b :c] 1) := :b
-  (nav [:a :b :c] 3 ::not-found) := ::not-found
+  (nav [:a :b :c] 3) := nil
 
   (let [alice {:db/id 9, :user/name "Alice" :user/email "alice@example.com"}
         pull-expression (hfql {identity [:user/name :user/email]})]
@@ -692,9 +723,6 @@
     (map (partial nav alice) (next (first (next pull-expression))))
     := ["Alice" "alice@example.com"]
     ))
-
-(defn traversal? [pull-expr] (and (edge? pull-expr) (map? (value pull-expr))))
-(defn pull? [pull-expr] (and (edge? pull-expr) (vector? (value pull-expr))))
 
 (declare pull)
 
@@ -836,7 +864,8 @@
     people := (list 9 10 11)
     (for [person-id people
           next-pull-expr (next pull-expr)]
-      (nav people next-pull-expr person-id)))
+      (let [person (nav people nil person-id)] ; hydrate
+        (nav person next-pull-expr))))
   := [{:user/name "Alice"}
       {:user/name "Bob"}
       {:user/name "Charlie"}]
