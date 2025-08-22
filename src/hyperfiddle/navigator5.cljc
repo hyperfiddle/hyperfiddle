@@ -696,6 +696,13 @@
                                              edge)))]
                   (hfql1/build-pull (into from-spec selected)))))))))))
 
+(defmulti search-matches (fn [object _needle] (type object)))
+(defmethod search-matches :default [object needle] (strx/any-matches? object needle))
+(defmethod search-matches ::hfql1/alist [object needle]
+  (let [search-on (or (seq (map val (::hfql1/alist (meta object))))
+                    (vals object))]
+    (strx/any-matches? search-on needle)))
+
 #?(:clj (defn- eager-pull-search-sort-BIG-O-N-SQUARE [collection edge hfql-bindings search sort-spec]
           #_(prn `eager-pull-search-sort-BIG-O-N-SQUARE edge hfql-bindings search sort-spec)
           (try
@@ -708,7 +715,7 @@
                              collection)
                     filtered (eduction (map-indexed vector)
                                (if (not-empty search)
-                                 (filter #(strx/any-matches? (vals (second %)) search))
+                                 (filter #(search-matches (second %) search))
                                  (map identity))
                                pulled)
                     sorted (if-some [sorter (and (not-empty sort-spec) (->sort-comparator sort-spec))]

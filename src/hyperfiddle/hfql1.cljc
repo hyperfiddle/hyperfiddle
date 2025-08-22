@@ -119,6 +119,7 @@
             [clojure.string :as str]
             [clojure.datafy :as datafy]
             [clojure.core.protocols :as ccp]
+            [contrib.data :as data]
             #?(:clj [clojure.tools.logging :as log])
             #_[clojure.spec.alpha :as s])
   #?(:cljs (:require-macros [hyperfiddle.hfql1 :refer [hfql edge]])))
@@ -770,6 +771,17 @@
     (pull (hfql {(ns-publics2 '%) [symbol]}) *ns*))
   )
 
+(defn- alist [& keyvals]
+  (assert (even? (count keyvals)))
+  (with-meta
+    (mapv data/map-entry (take-nth 2 keyvals) (take-nth 2 (rest keyvals)))
+    {:type ::alist}))
+
+(defn- alist->map [object]
+  (if (= ::alist (type object))
+    (with-meta (into {} object) (assoc (meta object) ::alist object))
+    object))
+
 (defn pull "Eagerly navigates, realizing the entire pull expression." ; ①
   ([edge] (pull edge nil))
   ([edge object] (pull edge object {'% object}))
@@ -780,12 +792,13 @@
            do-nav #(nav env object edge nil)]
        (cond
          (traversal? edge) (traverse (do-nav) edge env)
-         (pull? edge) (reduce (fn [r edge]
-                                     (let [pulled (pull edge object env)]
-                                       (cond
-                                         (traversal? edge) (into r pulled)
-                                         (star? (form edge)) (into r pulled)
-                                         :else (assoc r (edge-name (form edge)) pulled)))) {} (value edge))
+         (pull? edge) (alist->map (reduce (fn [r edge]
+                                            (let [pulled (pull edge object env)]
+                                              (cond
+                                                (traversal? edge) (into r pulled)
+                                                (star? (form edge)) (into r pulled)
+                                                :else (conj r (data/map-entry (edge-name (form edge)) pulled)))))
+                                    (alist) (value edge)))
          :else (do-nav)))
      (catch #?(:clj Throwable, :cljs :default) ex
        (prn ex)
@@ -806,6 +819,11 @@
    (let [ns-publics2 (comp vals ns-publics)]
       (pull (hfql {(ns-publics2 '%) [symbol]}) *ns*))
 
+  )
+
+(tests
+  (pull (hfql [:a {:a :db/ident}]) {:a {:db/id 1 :db/ident :foo}})
+  := {:a :foo}
   )
 
 (defn pull-leaf
