@@ -758,11 +758,11 @@
     (->> object
       (map (fn [collection-element] (traverse (datafy/nav object edge collection-element) edge env #_(assoc env '% object))))
       (reduce (fn [r traversed] (merge-with (fn [a b] (if (vector? a) (conj a b) [a b])) r traversed)) {}))
-    (reduce-kv (fn [r edge pull-expr]
+    (reduce-kv (fn [r edge next-edge]
                  (let [[f & args] (template-call-from-env env (form edge) (value edge))
                        [symbolic-f & _symbolic-args] (add-point-to-call-form (form edge))]
                    (assoc r (if (seq? (form edge)) (cons symbolic-f args) (form edge))
-                     (pull pull-expr object (assoc env '% object))))) {} (value edge))))
+                     (pull next-edge object (assoc env '% object))))) {} (value edge))))
 
 
 (comment
@@ -771,21 +771,21 @@
   )
 
 (defn pull "Eagerly navigates, realizing the entire pull expression." ; ①
-  ([pull-expr] (pull pull-expr nil))
-  ([pull-expr object] (pull pull-expr object {'% object}))
-  ([pull-expr object env]
-   (assert (edge? pull-expr) "The given pull expression must be pre-processed with `(hfql <pull-expr>)`.")
+  ([edge] (pull edge nil))
+  ([edge object] (pull edge object {'% object}))
+  ([edge object env]
+   (assert (edge? edge) "The given pull expression must be pre-processed with `(hfql <pull-expr>)`.")
    (try
      (let [env (assoc env '% object)
-           do-nav #(nav env object pull-expr nil)]
+           do-nav #(nav env object edge nil)]
        (cond
-         (traversal? pull-expr) (traverse (do-nav) pull-expr env)
-         (pull? pull-expr) (reduce (fn [r pull-expr]
-                                     (let [pulled (pull pull-expr object env)]
+         (traversal? edge) (traverse (do-nav) edge env)
+         (pull? edge) (reduce (fn [r edge]
+                                     (let [pulled (pull edge object env)]
                                        (cond
-                                         (traversal? pull-expr) (into r pulled)
-                                         (star? (form pull-expr)) (into r pulled)
-                                         :else (assoc r (edge-name (form pull-expr)) pulled)))) {} (value pull-expr))
+                                         (traversal? edge) (into r pulled)
+                                         (star? (form edge)) (into r pulled)
+                                         :else (assoc r (edge-name (form edge)) pulled)))) {} (value edge))
          :else (do-nav)))
      (catch #?(:clj Throwable, :cljs :default) ex
        (prn ex)
