@@ -143,8 +143,11 @@
 
 (defn edge? [object] (isa? edge-types (type object) ::edge))
 (defn- getter? [object] (isa? edge-types (type object) ::getter))
-(defn traversal? [pull-expr] (isa? edge-types (type pull-expr) ::traversal))
-(defn pull? [pull-expr] (isa? edge-types (type pull-expr) ::pull))
+(defn traversal? [edge] (isa? edge-types (type edge) ::traversal))
+(defn pull? [edge] (isa? edge-types (type edge) ::pull))
+(defn- leaf? [edge] (and (edge? edge)
+                      (not (traversal? edge))
+                      (not (pull? edge))))
 
 (defn count [edge-or-coll]
   (if (edge? edge-or-coll)
@@ -223,20 +226,15 @@
 
 (defn- lift-traversal [fn-like metadata]
   {:pre [(map? fn-like)]}
-  #_(assert (= 1 (count fn-like)) (str "A traversal can only contain one edge. Received: " (keys fn-like) "."))
-  (-> (fn traverse [lexical-env object] ; optional
-        ((ffirst fn-like) lexical-env object)
-        #_(let [[f & args] (add-point-to-call-form (value (ffirst (::value metadata))))
-              args (replace (cc/merge (::lexical-env metadata) lexical-env {'% object}) args)]
-          (apply f args)))
+  (-> (fn traverse [lexical-env object] ((ffirst fn-like) lexical-env object))
     (with-%)
     (with-meta {:type ::traversal})))
 
 (tests
   (let [attribute {:db/id 42, :db/ident :attribute/name}
         object (with-meta {:a 42} {`ccp/nav (fn [o k v] (if (= :a k) attribute (get o k v)))})]
-    ((hfql :a) object))
-  := attribute
+    ((hfql :a) object)
+    := attribute)
 
   #_( (hfql {:a :db/ident}))
   ;; := :attribute/name
@@ -252,7 +250,9 @@
     (datafy/nav object key value)
     value))
 
-(defn- getter [fn-like] (-> (fn [_lexical-env object] (safe-ccp-nav object fn-like (get object fn-like)))
+(def ^:dynamic *navigate* safe-ccp-nav)
+
+(defn- getter [fn-like] (-> (fn [_lexical-env object] (*navigate* object fn-like (get object fn-like)))
                           (with-%)
                           (with-meta {:type ::getter})))
 (defn- caller [fn-like] (with-% (fn [_lexical-env & args] (apply fn-like args))))
@@ -263,7 +263,7 @@
            (catch #?(:clj Throwable, :cljs :default) _
              (#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
              false))
-    (safe-ccp-nav object f (get object f))
+    (*navigate* object f (get object f))
     (apply f object args)))
 
 (defn literal? [obj]
@@ -291,7 +291,7 @@
                                      (catch #?(:clj Throwable, :cljs :default) err
                                        (#?(:clj log/warn, :cljs js/console.warn) "Failed to apply" (::form metadata) "onto" (cons object args))
                                        err))))
-           (var-form? edge) (with-% (fn [_lexical-env object] (safe-ccp-nav object (::value metadata) (get object (::value metadata))))) ; quoted var
+           (var-form? edge) (with-% (fn [_lexical-env object] (*navigate* object (::value metadata) (get object (::value metadata))))) ; quoted var
            (map? edge) (lift-traversal edge metadata)
            (vector? edge) (let [fns edge]
                               (if (empty? fns)
@@ -303,9 +303,9 @@
                                      (with-%)
                                      (with-meta {:type ::pull})))))
            (seq? edge) (with-% (fn call [lexical-env & _args] ; optional
-                                    (let [lexical-env (cc/merge (::lexical-env metadata) lexical-env)
-                                          [f & args] (template-call-from-env lexical-env (::form metadata) edge)]
-                                      (apply f args))))
+                                 (let [[f & args] (add-point-to-call-form (::value metadata))
+                                       args (replace (cc/merge (::lexical-env metadata) lexical-env) args)]
+                                   (apply f args))))
            :else (with-% (fn [_lexical-env object & args] (apply get-or-apply edge object args))))
          ]
      (vary-meta lifted-fn #(cc/merge metadata %)))))
@@ -678,8 +678,6 @@
              (implements? ISequential object)
              (native-satisfies? IIndexed object))))
 
-(declare traversal? pull?)
-
 (defn- infer-nav-value [object key value] ; convenience
   (if (and (some? key) (some? object) (or (nil? value) (= object value)))
     (try
@@ -690,18 +688,24 @@
       (catch #?(:clj Throwable, :cljs :default) _ value))
     value))
 
+(defn- left "Variadic opposite of `{}`." [a & _] a) ; almost the K combinator
+(defn- right "Variadic `{}`." [& args] (last args)) ; almost (K I)
+
 (defn nav ; ①
   ([edge] (nav nil edge))
   ([object edge]
    (nav nil object edge (infer-nav-value object edge nil)))
   ([object edge value] (nav nil object edge value))
   ([env object edge value]
-   (if (edge? edge)
-     (call edge (assoc env '% object) object)
-     (datafy/nav object edge value) ; REPL convenience
-     )))
+   (if-not (edge? edge)
+     (safe-ccp-nav object edge value) ; REPL convenience
+     (if (leaf? edge)
+       (binding [*navigate* right]
+         (call edge (assoc env '% object) object))
+       (call edge (assoc env '% object) object)))))
 
 (comment
+  (hyperfiddle.rcf/enable! true)
   (hyperfiddle.rcf/enable! false)
   (nav _object _edge))
 
@@ -727,8 +731,25 @@
 (declare pull)
 
 (defn- multiplicity-many? [object]
-  (and (seqable? object)
-    (not (map? object))))
+  (or (sequential? object)              ; lists, vectors, lazy seqs, ranges
+    (set? object)                       ; typical Datomic :many materialization
+    #?(:clj (instance? java.util.Iterator object)) ; raw Java iterators
+    (and (seqable? object)              ; arrays, Iterable, eduction, etc.
+      (not (associative? object))       ; reject maps, records, EntityMap
+      (not (map-entry? object))         ; don't tread map-entries as collections of size 2
+      (not (string? object))            ; treat strings as scalars
+      ;; NOTE nth supports java.util.regex.Matcher but Matches is not seqable?. So no need to account for it here.
+      )))
+
+(comment
+  (ancestors (type (re-matcher #".*" "foo")))
+  (type (.iterator (seq "foo")))
+  (multiplicity-many? hyperfiddle.navigator5/_object)
+  (def _entity hyperfiddle.navigator5/_object)
+  (coll? _entity)
+  (map? _entity)
+  )
+
 
 (defn- traverse [object edge env]
   {:pre [(traversal? edge)]}
