@@ -113,15 +113,13 @@
 (ns hyperfiddle.hfql1
   (:refer-clojure :exclude [resolve eval ; ② ③
                             meta unquote replace next find concat count merge *])
-  (:require #?(:clj [hyperfiddle.hfql0 :as hfql0])
-            [hyperfiddle.rcf :as rcf :refer [tests]]
+  (:require [hyperfiddle.rcf :as rcf :refer [tests]]
             [clojure.core :as cc]
             [clojure.string :as str]
             [clojure.datafy :as datafy]
             [clojure.core.protocols :as ccp]
             [contrib.data :as data]
-            #?(:clj [clojure.tools.logging :as log])
-            #_[clojure.spec.alpha :as s])
+            #?(:clj [clojure.tools.logging :as log]))
   #?(:cljs (:require-macros [hyperfiddle.hfql1 :refer [hfql edge]])))
 
 (defn- has-meta? [object]
@@ -143,7 +141,7 @@
                             (derive ::traversal ::edge)))
 
 (defn edge? [object] (isa? edge-types (type object) ::edge))
-(defn- getter? [object] (isa? edge-types (type object) ::getter))
+;; (defn- getter? [object] (isa? edge-types (type object) ::getter))
 (defn traversal? [edge] (isa? edge-types (type edge) ::traversal))
 (defn pull? [edge] (isa? edge-types (type edge) ::pull))
 (defn- leaf? [edge] (and (edge? edge)
@@ -208,8 +206,8 @@
   )
 
 (defmulti symbolic-form (fn [form value] (if (or (::symbolic (meta form)) (::symbolic (meta value))) ::symbolic (type value))))
-(defmethod symbolic-form ::symbolic [form value] form)
-(defmethod symbolic-form :default [form value] value)
+(defmethod symbolic-form ::symbolic [form _value] form)
+(defmethod symbolic-form :default [_form value] value)
 
 (defn- add-point-to-call-form [symbolic-call-form]
   (if (seq? symbolic-call-form)
@@ -225,13 +223,14 @@
         args (map symbolic-form symbolic-args args)]
     (cons f args)))
 
-(defn- lift-traversal [fn-like metadata]
+(defn- lift-traversal [fn-like _metadata]
   {:pre [(map? fn-like)]}
   (-> (fn traverse [lexical-env object] ((ffirst fn-like) lexical-env object))
     (with-%)
     (with-meta {:type ::traversal})))
 
 (tests
+  (declare hfql)
   (let [attribute {:db/id 42, :db/ident :attribute/name}
         object (with-meta {:a 42} {`ccp/nav (fn [o k v] (if (= :a k) attribute (get o k v)))})]
     ((hfql :a) object)
@@ -362,12 +361,6 @@
   (when (is-kw-fn? kw-fn-form)
     (let [[_fn* _args & body] kw-fn-form]
       (first (last-form body)))))
-
-(comment
-  (is-kw-fn? '#(do (:foo % :default)))
-  (get-kw-fn-form-kw '#(do (prn 1) (:foo % :default)))
-  ^:foo #(:bar %)
-  )
 
 ;; ----------------------
 
@@ -579,11 +572,6 @@
             `(edge ~pull-expr ~metadata)
             `(edge ~pull-expr))))
 
-(comment
-  (hfql {identity [:a]})
-  (hfql [:a])
-  )
-
 (defn next [edge-fn]
   (if-let [edge-fns (value edge-fn)]
     (cond
@@ -705,11 +693,6 @@
          (call edge (assoc env '% object) object))
        (call edge (assoc env '% object) object)))))
 
-(comment
-  (hyperfiddle.rcf/enable! true)
-  (hyperfiddle.rcf/enable! false)
-  (nav _object _edge))
-
 (tests ; ①
   (nav {:a 1} :a) := 1
   (nav {:a 1} :b) := nil
@@ -742,15 +725,6 @@
       ;; NOTE nth supports java.util.regex.Matcher but Matches is not seqable?. So no need to account for it here.
       )))
 
-(comment
-  (ancestors (type (re-matcher #".*" "foo")))
-  (type (.iterator (seq "foo")))
-  (multiplicity-many? hyperfiddle.navigator5/_object)
-  (def _entity hyperfiddle.navigator5/_object)
-  (coll? _entity)
-  (map? _entity)
-  )
-
 
 (defn- traverse [object edge env]
   {:pre [(traversal? edge)]}
@@ -764,12 +738,6 @@
                        [symbolic-f & _symbolic-args] (add-point-to-call-form (form edge))]
                    (assoc r (if (seq? (form edge)) (cons symbolic-f args) (form edge))
                      (pull next-edge object (assoc env '% object))))) {} (value edge))))
-
-
-(comment
-  (let [ns-publics2 (comp vals ns-publics)]
-    (pull (hfql {(ns-publics2 '%) [symbol]}) *ns*))
-  )
 
 (defn- alist [& keyvals]
   (assert (even? (count keyvals)))
@@ -796,7 +764,7 @@
                                             (let [pulled (pull edge object env)]
                                               (cond
                                                 (traversal? edge) (into r pulled)
-                                                (star? (form edge)) (into r pulled)
+                                                (star? edge) (into r pulled)
                                                 :else (conj r (data/map-entry (edge-name (form edge)) pulled)))))
                                     (alist) (value edge)))
          :else (do-nav)))

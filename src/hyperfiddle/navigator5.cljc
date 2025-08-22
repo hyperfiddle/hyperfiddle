@@ -10,7 +10,6 @@
             [hyperfiddle.ui.tooltip :as tooltip]
             [contrib.css :as cssx]
             [dustingetz.str :as strx]
-            [clojure.datafy :as datafy]
             [clojure.string :as str]
             [clojure.pprint]
             [dustingetz.loader :as loader]
@@ -18,11 +17,6 @@
             #?(:clj [clojure.tools.logging :as log])
             [geoffreygaillard.debug-tools :refer [debug-exceptions]])
   #?(:cljs (:require-macros hyperfiddle.navigator5)))
-
-(defmacro prn+ [& args]
-  nil
-  #_(let [{:keys [line column]} (meta &form)]
-    `(println ~(str "[" line ":" column "]") (pr-str ~@args))))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
 
@@ -151,7 +145,7 @@
             (str/triml
               (str (documentation
                      (cond (qualified-symbol? identifier) (resolve identifier) ; FIXME violates HFQL's rule ② – don't resolve
-                           ;; TODO extend ; FIXME don't extend, instead have HFQL provide all info ahead of time (e.g. doc, javadoc)
+                           ;; TODO extend ; FIXME no don't extend, instead have HFQL provide all info ahead of time (e.g. doc, javadoc)
                            ;; (pred/java-method-symbol? identifier) ...
                            :else nil))
                 "\n\n")))))
@@ -201,26 +195,7 @@
                              Render) object (vary-meta edge dissoc ::hfql1/Render) value)))))
 
 (e/defn Render [object edge value] (RenderCell object edge value))
-(e/defn Render* [object edge] (Render object edge
-                                #_(doto)
-                                (run-with-bindings e/*bindings* hfql1/pull-leaf object edge)
-                                #_(->> (prn "pulled leaf" (hfql1/form edge)))))
-
-(comment
-  (hyperfiddle.rcf/enable! false)
-  (hfql1/nav _object _edge  )
-  (hfql1/nav _object (hfql1/hfql {:db/valueType [datomic.api/touch]}))
-  (hfql1/pull (hfql1/hfql {:db/valueType [:db/id :db/ident :db/doc]}) _object)
-  (hfql1/pull (hfql1/hfql {:db/valueType [*]}) _object)
-  (hfql1/pull (hfql1/hfql {:db/valueType datomic.api/touch}) _object)
-  (run-with-bindings _bindings hfql1/nav _object (hfql1/hfql dustingetz.datomic-browser/summarize-attr*))
-  (pull-leaf {} _object _edge)  
-  (pull-leaf _bindings 81 _edge)
-
-  ;; (run-with-bindings _bindings hfql1/nav _object (hfql1/hfql dustingetz.datomic-browser/attribute-count))
-  ;; (ancestors (type _object))
-  ;; (find-protocol-impl clojure.core.protocols/Navigable _object)
-  )
+(e/defn Render* [object edge] (Render object edge (run-with-bindings e/*bindings* hfql1/pull-leaf object edge)))
 
 ;;;;;;;;;;;;;;;;;;;
 ;; Edit Handlers ;;
@@ -232,7 +207,6 @@
                                     (assoc (nth router/route *depth {}) ::search s))
                               (drop (inc *depth) router/route))])
   [::forms/ok])
-
 
 (e/defn HandleSelect! [symbolic-x]
   (router/Navigate! ['. (conj (into [] (take *depth) router/route)
@@ -268,8 +242,6 @@
                   e/*bindings* (e/server (assoc e/*bindings* (find-var `*search) search))]
           (Continuation effect-handlers Search))))))
 
-(e/defn Constantly [x] (e/fn [& _] x))
-
 #?(:clj (defn is-array? [object] (hfql1/is-array? object)))
 
 #?(:clj
@@ -283,6 +255,7 @@
          :else                                                :object))))
 
 
+(e/defn Constantly [x] (e/fn [& _] x))
 (e/declare RenderSeqable RenderAssociative)
 
 (e/defn ResolveRenderer [object]
@@ -308,7 +281,7 @@
 (e/defn NavigateSitemapEntry
   ([symbolic-edge]
    (e/server
-     (prn+ "NavigateSitemapEntry/1" symbolic-edge)
+     #_(prn "NavigateSitemapEntry/1" symbolic-edge)
      (let [[traversal-edge pull-edge] (hfql1/find-traversal *sitemap symbolic-edge)
            %  (get-%-from-symbolic-edge symbolic-edge)
            %  (run-with-bindings e/*bindings* hfql1/nav % traversal-edge)]
@@ -317,7 +290,7 @@
    (e/server
      (let [[traversal-edge pull-edge] (hfql1/find-traversal *sitemap symbolic-edge)
            %2 (run-with-bindings e/*bindings* hfql1/nav % traversal-edge %)]
-       (prn+ "NavigateSitemapEntry/2" symbolic-edge traversal-edge pull-edge % %2)
+       #_(prn "NavigateSitemapEntry/2" symbolic-edge traversal-edge pull-edge % %2)
        [traversal-edge pull-edge (#(or %1 #_%2) %2 %)]))))
 
 (defn- should-navigation-happen? [object]
@@ -337,7 +310,7 @@
          (e/server
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge)
                  [Renderer %] (ResolveRenderer %)]
-             (prn+ "Navigate/1" symbolic-edge traversal-edge pull-edge (meta %))
+             #_(prn "Navigate/1" symbolic-edge traversal-edge pull-edge (meta %))
              (e/client
                (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth)))))))))
   ([symbolic-edge %]
@@ -348,26 +321,9 @@
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge %)
                  traversal-edge (#(or traversal-edge (hfql1/build-pull (map selection->edge symbolic-edge))))
                  [Renderer %] (ResolveRenderer %)]
-             (prn+ "Navigate/2" symbolic-edge traversal-edge pull-edge %)
+             #_(prn "Navigate/2" symbolic-edge traversal-edge pull-edge %)
              (e/client
                (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth))))))))))
-
-;; #?(:clj (defn not-entity-like? [x]
-;;           (debug-exceptions `not-entity-like?
-;;             (or (nil? x) (boolean? x) (string? x) (number? x) (ident? x) (vector? x) (is-array? x)))))
-
-#_(binding [e/Timing (e/fn [label f] (dustingetz.loader/Offload f {:label label}))])
-(e/defn Timing [label f]
-  #_(dustingetz.loader/Offload f {:label label}) ; query monitoring, currently unstable
-  (e/Offload f)) ; can override from userland
-
-#?(:clj
-   (defn ^:deprecated nav* [bindings coll k v]
-     ;; (prn "nav*" (meta coll) k v)
-     (try (debug-exceptions `nav* (with-bindings bindings (hfql1/safe-ccp-nav coll k v)))
-          (catch Throwable e (prn+ e) nil))))
-
-(e/defn ^:deprecated Nav [coll k v] (e/server (Timing 'Nav #(nav* e/*bindings* coll k v))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Internal Components ;;
@@ -408,10 +364,6 @@
   (debug-exceptions `find-index
     (transduce (keep-indexed (fn [idx x] (when (pred x) idx))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*)))
 
-(defn- find-if [pred x*]
-  (debug-exceptions `find-if
-    (transduce (keep (fn [x] (when (pred x) x))) (fn ([v] v) ([_ac nx] (reduced nx))) nil x*)))
-
 (e/defn RenderAssociativeEntry [object edge]
   (dom/td (dom/props {:title (e/server (str (hfql1/resolved-form edge)))})
           (dom/text (e/server (labelize edge))))
@@ -432,58 +384,35 @@
          (some
            #(if (map-entry? %)
               (let [navd (hfql1/safe-ccp-nav collection (key %) (val %))] ; FIXME
-                ;; (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
+                #_(prn 'resolve-selected-object-BIG-O-N saved-selection navd)
                 (when (= saved-selection (or (hfql1/identify navd) (key %)))
                   navd))
               (let [navd (hfql1/safe-ccp-nav collection nil %)] ; FIXME
-                ;; (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
+                #_(prn 'resolve-selected-object-BIG-O-N saved-selection navd)
                 (when (= saved-selection (or (hfql1/identify navd) navd))
                   navd)))
            collection)))))
 
 (e/defn RenderAssociative [traversal-edge pull-edge % effect-handlers Search route-state]
-  (e/server (prn+ 'RenderAssociative traversal-edge pull-edge % route-state))
-  #_(e/client
-      (dom/pre (dom/text (e/server (dustingetz.str/pprint-str o)))))
   (e/client
-    (let [o                             (e/server (identity %)) ; TODO remove
-          {saved-selection ::selection} route-state
+    (let [{saved-selection ::selection} route-state
           !selected-object              (e/server (atom nil))
           selected-object               (e/server (e/watch !selected-object))
-          symbolic-select-edge          (e/server (::hfql1/select (meta pull-edge)))
 
           edge+suggestions (e/server (let [pull-edge       (e/server (hfql1/filter-pull (complement hfql1/star?) pull-edge))
                                            keys            (hfql1/value pull-edge)
                                            resolved-keys   (into #{} (map hfql1/resolved-form keys))
                                            suggested-edges (e/Offload (fn [] (hfql1/suggest %)))
                                            new-edges       (hfql1/filter-pull (fn [edge] (not (resolved-keys (hfql1/resolved-form edge)))) suggested-edges)]
-                                       (e/server (def _pull-edge pull-edge) nil)
-                                       (e/server (def _keys keys) nil)
-                                       (e/server (def _suggested-edges suggested-edges) nil)
-                                       (e/server (def _new-edges new-edges) nil)
-                                       (prn+ "suggested edges" suggested-edges)
-                                       (e/Reconcile (if keys
-                                                      (hfql1/concat pull-edge new-edges)
-                                                      new-edges))
-                                       #_(hfql1/build-pull (into keys new-edges))))
-          ;; default-select                (e/server (::hfql1/select (meta pull-edge)))
-          navigated        (e/server (run-with-bindings e/*bindings* hfql1/nav % edge+suggestions)) #_#_#_hfql1/nav (doto % (->> (prn+ "%"))) pull-edge
-          filtered         (e/server (kvs-filter-by-needle navigated #_pulled *search))
+                                       (e/Reconcile (if keys (hfql1/concat pull-edge new-edges) new-edges))))
+          navigated        (e/server (run-with-bindings e/*bindings* hfql1/nav % edge+suggestions))
+          filtered         (e/server (kvs-filter-by-needle navigated *search))
           data             (e/server (kvs-sort-by-ordered-keyset edge+suggestions filtered))
           row-count        (e/server (count data))
           row-height       24
 
           selected-object  (e/server (#(or selected-object (reset! !selected-object (resolve-selected-object-BIG-O-N saved-selection e/*bindings* data)))))
           ]
-      (e/server (def _edge+suggestions edge+suggestions) nil)
-      ;; (e/server (prn 'edge+suggestions edge+suggestions))
-      ;; (e/server (prn 'data data))
-      ;; (e/server (prn 'navigated navigated))
-      ;; (e/server (prn 'filtered filtered))
-      ;; (e/server (prn '% %))
-      (comment
-        (hfql1/nav {:foo 1} (hfql1/concat (hfql1/hfql []) (hfql1/hfql []))))
-      ;; (e/server (prn+ 'symbolic-selecte-edge symbolic-select-edge))
       (binding [*block-opts (e/server (meta pull-edge))]
         (dom/fieldset
           (dom/props {:class "entity hyperfiddle-navigator5__block"})
@@ -492,7 +421,6 @@
                                        (dom/text (e/server (hfql1/form traversal-edge)) " "))
                              (Search false))]
             (dom/props {:style {:--column-count 2 :--row-height row-height}})
-            #_(dom/pre (dom/text (e/server (dustingetz.str/pprint-str data))))
             (forms/Interpreter effect-handlers
               (e/amb
                 (e/When search-cmd search-cmd)
@@ -502,7 +430,6 @@
                     (->> (forms/TablePicker! ::selection (e/server (e/watch !selected-index)) row-count
                            (e/fn [index] (e/server
                                            (let [[k v] (nth data index nil)]
-                                             ;; (prn+ "render row" index k)
                                              (e/Reconcile
                                                (when k
                                                  (RenderAssociativeEntry % (find-edge k k edge+suggestions)))))))
@@ -513,25 +440,11 @@
                                        (reset! !selected-index selected-index)
                                        (let [[key object] (nth data selected-index nil)
                                              edge (find-edge key key edge+suggestions)]
-                                         #_(prn+ 'selected-object {:index selected-index, :key key, :object object, :type (type object), :selected-object object, :identified (hfql1/identify object)})
-                                         ;; (def _state (list 'or (hfql1/identify object) (::hfql1/select (meta edge)) key) )
                                          (e/Reconcile
                                            (if (should-navigation-happen? object)
                                              [`Select! (#(or (hfql1/identify object) (::hfql1/select (meta edge)) key)) (e/server (e/fn [] object))]
-                                             [`Noop]))))
-                                     #_(e/server
-                                         (prn "selected index" index (nth data index nil) (map key data))
-
-                                         #_(let [[k object :as x]          (nth data index nil)
-                                                 edge       (find-edge k edge+suggestions)
-                                                 select     (::hfql1/select (meta edge) (::hfql1/select (meta pull-edge)))
-                                                 ;; select     (or row-select default-select)
-                                                 ]
-                                             #_(e/When (e/Reconcile (and x select))
-                                                 (reset! !selected-index index)
-                                                 [`Select! (first x)])))))
-                      (forms/Interpreter {`Noop (e/fn [] [::forms/ok])})
-                      #_(forms/Parse (e/fn ToCommand [saved] [`Select! saved])))
+                                             [`Noop]))))))
+                      (forms/Interpreter {`Noop (e/fn [] [::forms/ok])}))
                     (forms/Parse (e/fn [[command & args]]
                                    (e/Reconcile
                                      (case command
@@ -541,37 +454,16 @@
                                                     (reset! !selected-object selected-object)
                                                     [`Select! symbolic-selected-object]))
                                        command))))))))))
-        (e/server (AutoNavigate pull-edge selected-object))
-        #_(e/server
-          (let [next-x (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) navigated)] ; when-some because glitch
-                                   #_(rebooting nx)
-                                   (Nav o (key nx) (val nx))))]
-            (AutoNavigate pull-edge next-x)))
-        #_(when saved-selection
-            (let [next-x     (e/server (when-some [nx (find-if (fn [[k _v]] (= k saved-selection)) pulled)] ; when-some because glitch
-                                         (rebooting nx
-                                           (Nav o (key nx) (val nx)))))
-                  row-select (e/server (-> (find-spec-prop raw-spec saved-selection) ::hfql1/select))
-                  select     (or row-select default-select)]
-              (rebooting select
-                (if select
-                  (Navigate select next-x o)
-                  (e/server
-                    (let [query-template (hfql1/resolve next-x)]
-                      (rebooting query-template
-                        (e/client
-                          (if query-template
-                            (Navigate query-template next-x o)
-                            (AnonymousBlock saved-selection next-x))))))))))))))
+        (e/server (AutoNavigate pull-edge selected-object))))))
 
 (e/defn AutoNavigate [edge %]
   (e/server
     (let [{saved-selection ::selection} (state-stored-in-route router/route *depth)
           symbolic-select-edge (e/server (::hfql1/select (meta edge)))]
-      (prn+ 'AutoNavigate symbolic-select-edge saved-selection)
+      #_(prn 'AutoNavigate symbolic-select-edge saved-selection)
       (e/Reconcile
         (when (#(boolean (and saved-selection %)) %)
-          ;; (rebooting saved-selection)
+          #_(rebooting saved-selection)
           (e/Reconcile
             (if symbolic-select-edge
               ;; In ObjectBlock we pass the selected object and the root object.
@@ -609,15 +501,6 @@
           " · truncated")
         ")"))))
 
-(e/defn RenderSeqableRow [object edges]
-  (e/for [edge edges] ; shouldn't this go into Render2? not sure due to `get` below
-    (Render* object edge)))
-
-#?(:clj
-   (defn- nav-row [bindings data row-index]
-     (when-some [row-object (nth data row-index nil)]
-       [row-index row-object (run-with-bindings bindings hfql1/safe-ccp-nav data nil row-object)])))
-
 #?(:clj
    (defn- select-row-if-match-url! [!index row-index row-object selected-object]
      {:pre [(pred/atom-like? !index) (number? row-index)]
@@ -627,6 +510,11 @@
        (compare-and-set! !index row-index nil)) ; current row used to match and now doesn't. Clear selection.
      nil))
 
+#?(:clj
+   (defn- -nav-row-glitch-guard [bindings data row-index] ; FIXME ensures index travels with row
+     (when-some [row-object (nth data row-index nil)]
+       [row-index row-object (run-with-bindings bindings hfql1/safe-ccp-nav data nil row-object)])))
+
 (e/defn RenderSeqableBody [row-count row-height edges % pull-expr selected-object]
   (let [!selected-index (e/server (atom nil))
         selected-index (e/server (e/watch !selected-index))]
@@ -635,13 +523,12 @@
            row-count
            (e/fn [row-index]
              (e/server
-               ;; (prn+ 'will-navd row-index (meta %))
-               (let [navd (nav-row e/*bindings* % row-index)] ; FIXME glitch guard, ensures index travels with row
+               (let [navd (-nav-row-glitch-guard e/*bindings* % row-index)]
                  (e/Reconcile
                    (when (some? navd)
                      (let [[row-index row-object row-hydrated-object] navd]
                        (select-row-if-match-url! !selected-index row-index row-hydrated-object selected-object)
-                       (RenderSeqableRow row-hydrated-object edges)))))))
+                       (e/for [edge edges] (Render* row-hydrated-object edge))))))))
            :row-height row-height
            :column-count (e/server (count (hfql1/form pull-expr)))
            :as :tbody)
@@ -649,7 +536,6 @@
                      (e/server
                        (reset! !selected-index selected-index)
                        (let [selected-object (hfql1/safe-ccp-nav % nil (nth % selected-index nil))]
-                         (prn+ 'selection selected-index selected-object (hfql1/identify selected-object))
                          (if-let [symbolic-representation (hfql1/identify selected-object)]
                            [`Select! symbolic-representation (e/server (e/fn [] selected-object))]
                            [`Noop])))))
@@ -668,8 +554,7 @@
               (dom/On "click" #(swap! !sort-spec toggle-column-sort form) nil)
               (dom/text label))))))))
 
-(defn- format-query-meta [query-meta]
-  (some-> query-meta not-empty dustingetz.str/pprint-str))
+(defn- format-query-meta [query-meta] (some-> query-meta not-empty dustingetz.str/pprint-str))
 
 #?(:clj (defn- table-title-tooltip-content [query query-meta]
           {:post [(or (string? %) (nil? %))]}
@@ -694,7 +579,7 @@
                 pre-checked (#(or (hfql1/pull-has-star? pull-edge) (nil? pull-edge)))
                 new-suggest* (hfql1/filter-pull (fn [edge] (not (resolved-keys (hfql1/resolved-form edge))))
                                (Suggest*))]
-            ;; (e/server (prn+ {'keys keys, 'pull-edge pull-edge 'new-suggests new-suggest*}))
+            #_(e/server (prn {'keys keys, 'pull-edge pull-edge 'new-suggests new-suggest*}))
             (dom/span
               (e/server
                 (let [from-spec (e/as-vec (e/for [edge (e/diff-by {} keys)]
@@ -735,7 +620,7 @@
             (catch Throwable t (prn 'eager-pull-search-sort (ex-message t)) []))))
 
 (e/defn RenderSeqable [traversal-edge pull-edge % effect-handlers Search route-state]
-  (e/server (prn+ 'RenderSeqable pull-edge (meta %)))
+  #_(e/server (prn 'RenderSeqable pull-edge (meta %)))
   (e/server
     (let [% (#(if (seqable? %) % ()) %)] ; when guard on switch from sequable to associative
       (e/client
@@ -749,7 +634,7 @@
                                      (RenderSeqableTitle traversal-edge pull-edge row-count Search (dissoc (meta %) `clojure.core.protocols/nav)
                                        (e/fn []
                                          (let [first-item (e/Snapshot (first %))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
-                                           (Timing 'infer-columns (partial #(hfql1/suggest (hfql1/safe-ccp-nav % nil first-item)) %))))))
+                                           (hfql1/suggest (hfql1/safe-ccp-nav % nil first-item)) %))))
                   search-cmd       (let [Search (e/server (first free-args))]
                                      (e/Reconcile (when Search
                                                     (e/call Search)))) ; fighting against sited destructuring
@@ -766,7 +651,7 @@
                   selected-object  (e/server (#(or selected-object (reset! !selected-object (resolve-selected-object-BIG-O-N saved-selection e/*bindings* data)))))
                   data-count       (e/server (bounded-count COLLECTION-LIMIT data)) ; O(n)
                   ]
-              ;; (e/server (prn+ 'free-args free-args))
+              #_(e/server (prn 'free-args free-args))
               (reset! !row-count data-count)
               search-cmd                    ; force order
               (binding [*block-opts (e/server (meta pull-edge) )] ; TODO remove
@@ -788,7 +673,7 @@
                                            command)))))))))))
           (e/server (AutoNavigate pull-edge selected-object)))))))
 
-(e/defn RoundTrip [v] (identity (e/server (identity v)))) ; Awesome debug tool! Forces a roundtrip to diagnose how many roundtrips it takes to ack a value!
+#_(e/defn RoundTrip [v] (identity (e/server (identity v)))) ; Awesome debug tool! Forces a roundtrip to diagnose how many roundtrips it takes to ack a value!
 ;; (RoundTrip (RoundTrip :foo)) ; two roundtrips
 
 ;;;;;;;;;;;;;;;;
@@ -801,29 +686,26 @@
     :else router-query))
 
 (e/defn HfqlRoot [sitemap entrypoints]
-  (e/server
-    (binding [e/Offload (e/fn Offload ([f!] (f!)) ([f! _executor] (f!)))]
-      (e/client
-        (dom/style (dom/text css tooltip/css))
-        (Index sitemap entrypoints) ; FIXME this index generation is generic and may conflict with user-custom index (e.g. ObjectBrowser3 fiddle demo renders two navs)
-        (tooltip/TooltipArea
-          (e/fn []
-            (tooltip/Tooltip)
-            (binding [*server-pretty (e/server (#(or *server-pretty {})))
-                      *sitemap sitemap]
-              (binding [*depth 0]
-                (let [[query] router/route
-                      query (normalize-router-query query)]
-                  (dom/div
-                    (dom/props {:class "Browser"})
-                    #_(QueryMonitor)
-                    (if-not query
-                      (router/ReplaceState! ['. [(first entrypoints)]])
-                      (let [nom (hfql1/edge-name query)]
-                        (set! (.-title js/document) (str (some-> nom name (str " – ")) "Hyperfiddle"))
-                        (dom/props {:class (cssx/css-slugify nom)})
-                        (rebooting query
-                          (Navigate query))))))))))))))
+  (e/client
+    (dom/style (dom/text css tooltip/css))
+    (Index sitemap entrypoints)
+    (tooltip/TooltipArea
+      (e/fn []
+        (tooltip/Tooltip)
+        (binding [*server-pretty (e/server (#(or *server-pretty {})))
+                  *sitemap sitemap]
+          (binding [*depth 0]
+            (let [[query] router/route
+                  query (normalize-router-query query)]
+              (dom/div
+                (dom/props {:class "Browser"})
+                (if-not query
+                  (router/ReplaceState! ['. [(first entrypoints)]])
+                  (let [nom (hfql1/edge-name query)]
+                    (set! (.-title js/document) (str (some-> nom name (str " – ")) "Hyperfiddle"))
+                    (dom/props {:class (cssx/css-slugify nom)})
+                    (rebooting query
+                      (Navigate query))))))))))))
 
 ;;;;;;;;;;;;
 ;; Extras ;;
