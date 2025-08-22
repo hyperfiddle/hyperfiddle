@@ -20,7 +20,8 @@
   #?(:cljs (:require-macros hyperfiddle.navigator5)))
 
 (defmacro prn+ [& args]
-  (let [{:keys [line column]} (meta &form)]
+  nil
+  #_(let [{:keys [line column]} (meta &form)]
     `(println ~(str "[" line ":" column "]") (pr-str ~@args))))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
@@ -197,11 +198,18 @@
                              Render) object (vary-meta edge dissoc ::hfql1/Render) value)))))
 
 (e/defn Render [object edge value] (RenderCell object edge value))
-(e/defn Render* [object edge] (Render object edge (doto (run-with-bindings e/*bindings* hfql1/pull-leaf object edge) (->> (prn "pulled leaf" (hfql1/form edge))))))
+(e/defn Render* [object edge] (Render object edge
+                                #_(doto)
+                                (run-with-bindings e/*bindings* hfql1/pull-leaf object edge)
+                                #_(->> (prn "pulled leaf" (hfql1/form edge)))))
 
 (comment
   (hyperfiddle.rcf/enable! false)
   (hfql1/nav _object _edge  )
+  (hfql1/nav _object (hfql1/hfql {:db/valueType [datomic.api/touch]}))
+  (hfql1/pull (hfql1/hfql {:db/valueType [:db/id :db/ident :db/doc]}) _object)
+  (hfql1/pull (hfql1/hfql {:db/valueType [*]}) _object)
+  (hfql1/pull (hfql1/hfql {:db/valueType datomic.api/touch}) _object)
   (run-with-bindings _bindings hfql1/nav _object (hfql1/hfql dustingetz.datomic-browser/summarize-attr*))
   (pull-leaf {} _object _edge)  
   (pull-leaf _bindings 81 _edge)
@@ -305,9 +313,9 @@
   ([symbolic-edge %]
    (e/server
      (let [[traversal-edge pull-edge] (hfql1/find-traversal *sitemap symbolic-edge)
-           % (run-with-bindings e/*bindings* hfql1/nav % traversal-edge)]
-       (prn+ "NavigateSitemapEntry/2" symbolic-edge traversal-edge pull-edge %)
-       [traversal-edge pull-edge %]))))
+           %2 (run-with-bindings e/*bindings* hfql1/nav % traversal-edge)]
+       (prn+ "NavigateSitemapEntry/2" symbolic-edge traversal-edge pull-edge % %2)
+       [traversal-edge pull-edge (#(or %1 %2) % %2)]))))
 
 (defn- should-navigation-happen? [object]
   (or (sequential? object)
@@ -353,7 +361,7 @@
 #?(:clj
    (defn ^:deprecated nav* [bindings coll k v]
      ;; (prn "nav*" (meta coll) k v)
-     (try (debug-exceptions `nav* (with-bindings bindings (clojure.datafy/nav coll k v)))
+     (try (debug-exceptions `nav* (with-bindings bindings (hfql1/safe-ccp-nav coll k v)))
           (catch Throwable e (prn+ e) nil))))
 
 (e/defn ^:deprecated Nav [coll k v] (e/server (Timing 'Nav #(nav* e/*bindings* coll k v))))
@@ -420,11 +428,11 @@
        (with-bindings bindings
          (some
            #(if (map-entry? %)
-              (let [navd (clojure.datafy/nav collection (key %) (val %))] ; FIXME
+              (let [navd (hfql1/safe-ccp-nav collection (key %) (val %))] ; FIXME
                 ;; (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
                 (when (= saved-selection (or (hfql1/identify navd) (key %)))
                   navd))
-              (let [navd (clojure.datafy/nav collection nil %)] ; FIXME
+              (let [navd (hfql1/safe-ccp-nav collection nil %)] ; FIXME
                 ;; (prn+ 'resolve-selected-object-BIG-O-N saved-selection navd)
                 (when (= saved-selection (or (hfql1/identify navd) navd))
                   navd)))
@@ -450,7 +458,7 @@
                                        (e/server (def _keys keys) nil)
                                        (e/server (def _suggested-edges suggested-edges) nil)
                                        (e/server (def _new-edges new-edges) nil)
-                                       (prn "suggested edges" suggested-edges)
+                                       (prn+ "suggested edges" suggested-edges)
                                        (e/Reconcile (if keys
                                                       (hfql1/concat pull-edge new-edges)
                                                       new-edges))
@@ -501,14 +509,12 @@
                                      (e/server
                                        (reset! !selected-index selected-index)
                                        (let [[key object] (nth data selected-index nil)
-                                             edge (find-edge key key edge+suggestions)
-                                             selected-object (Nav % nil object)] ; FIXME
-                                         ;; (prn+ 'selected-object selected-index key object selected-object)
-                                         ;; (prn+ 'selected-object-data data #_#_#_#_selected-index key object selected-object)
-                                         (def _state (list 'or (hfql1/identify selected-object) (::hfql1/select (meta edge)) key) )
+                                             edge (find-edge key key edge+suggestions)]
+                                         #_(prn+ 'selected-object {:index selected-index, :key key, :object object, :type (type object), :selected-object object, :identified (hfql1/identify object)})
+                                         ;; (def _state (list 'or (hfql1/identify object) (::hfql1/select (meta edge)) key) )
                                          (e/Reconcile
                                            (if (should-navigation-happen? object)
-                                             [`Select! (#(or (hfql1/identify selected-object) (::hfql1/select (meta edge)) key)) (e/server (e/fn [] selected-object))]
+                                             [`Select! (#(or (hfql1/identify object) (::hfql1/select (meta edge)) key)) (e/server (e/fn [] object))]
                                              [`Noop]))))
                                      #_(e/server
                                          (prn "selected index" index (nth data index nil) (map key data))
@@ -607,7 +613,7 @@
 #?(:clj
    (defn- nav-row [bindings data row-index]
      (when-some [row-object (nth data row-index nil)]
-       [row-index row-object (run-with-bindings bindings clojure.datafy/nav data nil row-object)])))
+       [row-index row-object (run-with-bindings bindings hfql1/safe-ccp-nav data nil row-object)])))
 
 #?(:clj
    (defn- select-row-if-match-url! [!index row-index row-object selected-object]
@@ -639,7 +645,7 @@
       (forms/Parse (e/fn ToCommand [{selected-index ::selection}]
                      (e/server
                        (reset! !selected-index selected-index)
-                       (let [selected-object (Nav % nil (nth % selected-index nil))] ; FIXME
+                       (let [selected-object (hfql1/safe-ccp-nav % nil (nth % selected-index nil))]
                          (prn+ 'selection selected-index selected-object (hfql1/identify selected-object))
                          (if-let [symbolic-representation (hfql1/identify selected-object)]
                            [`Select! symbolic-representation (e/server (e/fn [] selected-object))]
@@ -710,7 +716,7 @@
               #_(Thread/sleep 3000)
               (let [metadata (meta collection)
                     collection (with-meta (vec collection) metadata)         ; fix if collection is e.g. a set
-                    pulled (eduction (map (fn [symbolic-ref-or-object] (run-with-bindings hfql-bindings datafy/nav collection nil symbolic-ref-or-object)))
+                    pulled (eduction (map (fn [symbolic-ref-or-object] (run-with-bindings hfql-bindings hfql1/safe-ccp-nav collection nil symbolic-ref-or-object)))
                              (map (fn [object] (run-with-bindings hfql-bindings hfql1/pull edge object)))
                              collection)
                     filtered (eduction (map-indexed vector)
@@ -740,7 +746,7 @@
                                      (RenderSeqableTitle traversal-edge pull-edge row-count Search (dissoc (meta %) `clojure.core.protocols/nav)
                                        (e/fn []
                                          (let [first-item (e/Snapshot (first %))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
-                                           (Timing 'infer-columns (partial #(hfql1/suggest (datafy/nav % nil first-item)) %))))))
+                                           (Timing 'infer-columns (partial #(hfql1/suggest (hfql1/safe-ccp-nav % nil first-item)) %))))))
                   search-cmd       (let [Search (e/server (first free-args))]
                                      (e/Reconcile (when Search
                                                     (e/call Search)))) ; fighting against sited destructuring

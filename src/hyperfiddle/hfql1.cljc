@@ -246,7 +246,7 @@
 (defn- touch [object] (if (seqable? object) (doall object) object))
 (def ^:public * (with-% (fn star [_lexical-env object] (touch object))))
 
-(defn- safe-ccp-nav [object key value]
+(defn safe-ccp-nav [object key value]
   (if (satisfies? ccp/Navigable object)
     (datafy/nav object key value)
     value))
