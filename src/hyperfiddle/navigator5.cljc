@@ -316,9 +316,9 @@
   ([symbolic-edge %]
    (e/server
      (let [[traversal-edge pull-edge] (hfql1/find-traversal *sitemap symbolic-edge)
-           %2 (run-with-bindings e/*bindings* hfql1/nav % traversal-edge)]
+           %2 (run-with-bindings e/*bindings* hfql1/nav % traversal-edge %)]
        (prn+ "NavigateSitemapEntry/2" symbolic-edge traversal-edge pull-edge % %2)
-       [traversal-edge pull-edge (#(or %1 %2) % %2)]))))
+       [traversal-edge pull-edge (#(or %1 #_%2) %2 %)]))))
 
 (defn- should-navigation-happen? [object]
   (or (sequential? object)
