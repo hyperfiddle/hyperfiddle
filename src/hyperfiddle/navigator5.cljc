@@ -196,16 +196,8 @@
       (e/Reconcile (e/call (Resolve (hfql1/unquote (::hfql1/Render (meta edge))) ; FIXME syntax wart
                              Render) object (vary-meta edge dissoc ::hfql1/Render) value)))))
 
-
-(defn- pull-leaf [bindings object edge]
-  (cond
-    (hfql1/traversal? edge) (as-> (run-with-bindings bindings hfql1/nav object edge) %
-                              (pull-leaf bindings % (first (hfql1/next edge))))
-    (hfql1/pull? edge)      (run-with-bindings bindings hfql1/pull edge   object)
-    :else                   (run-with-bindings bindings hfql1/nav  object edge)))
-
 (e/defn Render [object edge value] (RenderCell object edge value))
-(e/defn Render* [object edge] (Render object edge (doto (pull-leaf e/*bindings* object edge) (->> (prn "pulled leaf" (hfql1/form edge))))))
+(e/defn Render* [object edge] (Render object edge (doto (run-with-bindings e/*bindings* hfql1/pull-leaf object edge) (->> (prn "pulled leaf" (hfql1/form edge))))))
 
 (comment
   (hyperfiddle.rcf/enable! false)

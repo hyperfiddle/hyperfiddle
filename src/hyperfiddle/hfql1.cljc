@@ -808,6 +808,15 @@
 
   )
 
+(defn pull-leaf
+  "Pull and prune intermediate traversal from pulled result.
+  E.g., in {identity {:a :db/ident}}, return the value for :db/ident, skipping identity and :a."
+  [object edge]
+  (cond
+    (traversal? edge) (pull-leaf (nav object edge) (first (next edge)))
+    (pull? edge)      (pull edge   object)
+    :else             (nav  object edge)))
+
 (tests
   (hfql (identity 1) )
 
