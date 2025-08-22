@@ -119,15 +119,18 @@
 
 #?(:clj
    (defn- str-inline-coll [coll server-pretty]
-     (debug-exceptions `str-inline-coll
-       (let [coll-count (count coll)
-             base (binding [*print-length* 1, *print-level* 2]
-                    ;; `symbol` removes double quotes from the strings inside the collection
-                    (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
-                      str
-                      (str/replace (str \newline) (str \space))
-                      (str/trim)))]
-         (cond-> base (> coll-count 1) (str " " coll-count " elements"))))))
+     (try
+       (debug-exceptions `str-inline-coll
+         (let [coll-count (count coll)
+               base (binding [*print-length* 1, *print-level* 2]
+                      ;; `symbol` removes double quotes from the strings inside the collection
+                      (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
+                        str
+                        (str/replace (str \newline) (str \space))
+                        (str/trim)))]
+           (cond-> base (> coll-count 1) (str " " coll-count " elements"))))
+       (catch Throwable t ; glitch guard
+         (ex-message t)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Extensible Rendering ;;
