@@ -223,9 +223,24 @@
         args (map symbolic-form symbolic-args args)]
     (cons f args)))
 
+(defn- touch [object] (if (seqable? object) (doall object) object))
+(def ^:public * (with-% (fn star [_lexical-env object] (touch object))))
+(defn star? [edge-or-sym] (if (edge? edge-or-sym) (star? (form edge-or-sym)) (= '* edge-or-sym)))
+
+(defn star-traversal? [edge] ; splat?
+  (and (traversal? edge)
+    (star? (ffirst (value edge)))))
+
 (defn- lift-traversal [fn-like _metadata]
   {:pre [(map? fn-like)]}
-  (-> (fn traverse [lexical-env object] ((ffirst fn-like) lexical-env object))
+  (-> (fn traverse [lexical-env object]
+        (let [edge-fn (ffirst fn-like)
+
+              traversed (edge-fn lexical-env object)]
+          (if (star? edge-fn)
+            (let [next-edge-fn (val (first fn-like))]
+              (map next-edge-fn traversed))
+            traversed)))
     (with-%)
     (with-meta {:type ::traversal})))
 
@@ -239,11 +254,6 @@
   #_( (hfql {:a :db/ident}))
   ;; := :attribute/name
   )
-
-(defn star? [edge-or-sym] (if (edge? edge-or-sym) (star? (form edge-or-sym)) (= '* edge-or-sym)))
-
-(defn- touch [object] (if (seqable? object) (doall object) object))
-(def ^:public * (with-% (fn star [_lexical-env object] (touch object))))
 
 (defn safe-ccp-nav [object key value]
   (if (satisfies? ccp/Navigable object)
@@ -715,16 +725,21 @@
 (declare pull)
 
 (defn- multiplicity-many? [object]
-  (or (sequential? object)              ; lists, vectors, lazy seqs, ranges
+  (or (and (sequential? object)         ; lists, vectors, lazy seqs, ranges
+        (not (map-entry? object)))      ; don't treat map-entries as collections of size 2
     (set? object)                       ; typical Datomic :many materialization
     #?(:clj (instance? java.util.Iterator object)) ; raw Java iterators
     (and (seqable? object)              ; arrays, Iterable, eduction, etc.
       (not (associative? object))       ; reject maps, records, EntityMap
-      (not (map-entry? object))         ; don't tread map-entries as collections of size 2
+      (not (map-entry? object))         ; don't treat map-entries as collections of size 2
       (not (string? object))            ; treat strings as scalars
       ;; NOTE nth supports java.util.regex.Matcher but Matches is not seqable?. So no need to account for it here.
       )))
 
+(tests
+  (multiplicity-many? (data/map-entry 1 2)) := false
+  (multiplicity-many? "foo") := false
+  )
 
 (defn- traverse [object edge env]
   {:pre [(traversal? edge)]}
@@ -759,6 +774,7 @@
      (let [env (assoc env '% object)
            do-nav #(nav env object edge nil)]
        (cond
+         (star-traversal? edge) (do-nav) ;; (map #(pull (first (next edge)) % env) (do-nav))
          (traversal? edge) (traverse (do-nav) edge env)
          (pull? edge) (alist->map (reduce (fn [r edge]
                                             (let [pulled (pull edge object env)]
@@ -1136,3 +1152,15 @@ identifier, though it might not be serializable."
    (binding [*hierarchy* (or hierarchy *hierarchy*)]
      (-resolve object (dissoc opts ::hierarchy)))))
 
+
+(comment
+  (hfql {(all-ns) [symbol]})
+  ((hfql {(all-ns) [symbol]}))
+
+  (def _expr (hfql {ns-publics *}))
+  (_expr *ns*)
+  ((first (next _expr)) (ns-publics *ns*))
+  ((hfql {ns-publics *}) *ns*)
+  (pull (hfql {ns-publics [*]}) *ns*) 
+  (pull (hfql {ns-publics {* [val]}}) *ns*)
+  )
