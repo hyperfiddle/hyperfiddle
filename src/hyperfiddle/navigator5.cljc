@@ -258,15 +258,17 @@
 (e/defn Constantly [x] (e/fn [& _] x))
 (e/declare RenderSeqable RenderAssociative)
 
-(e/defn ResolveRenderer [object]
+(e/defn ResolveRenderer [edge object]
   (e/server
-    (list
-      (get {:object RenderAssociative
-            :collection RenderSeqable
-            :set RenderSeqable}
-        (infer-block-type object)
-        (Constantly nil))
-      object) ; HACK glitch guard: Ensures object and its corresponding Renderer update at the same time
+    (if (hfql/star-traversal? edge)
+      [RenderSeqable (hfql/nav object edge)]
+      (list
+        (get {:object RenderAssociative
+              :collection RenderSeqable
+              :set RenderSeqable}
+          (infer-block-type object)
+          (Constantly nil))
+        object)) ; HACK glitch guard: Ensures object and its corresponding Renderer update at the same time
     ))
 
 ;;;;;;;;;;;;;;;;
@@ -310,8 +312,8 @@
        (e/fn [effect-handlers Search]
          (e/server
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge)
-                 [Renderer %] (ResolveRenderer %)]
-             #_(prn "Navigate/1" symbolic-edge traversal-edge pull-edge (meta %))
+                 [Renderer %] (ResolveRenderer pull-edge %)]
+             (prn "Navigate/1" symbolic-edge traversal-edge pull-edge (meta %))
              (e/client
                (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth)))))))))
   ([symbolic-edge %]
@@ -321,8 +323,8 @@
          (e/server
            (let [[traversal-edge pull-edge %] (NavigateSitemapEntry symbolic-edge %)
                  traversal-edge (#(or traversal-edge (hfql/build-pull (map selection->edge symbolic-edge))))
-                 [Renderer %] (ResolveRenderer %)]
-             #_(prn "Navigate/2" symbolic-edge traversal-edge pull-edge %)
+                 [Renderer %] (ResolveRenderer pull-edge %)]
+             (prn "Navigate/2" symbolic-edge traversal-edge pull-edge %)
              (e/client
                (e/call Renderer traversal-edge pull-edge % effect-handlers Search (state-stored-in-route router/route *depth))))))))))
 
@@ -395,7 +397,7 @@
            collection)))))
 
 (e/defn RenderAssociative [traversal-edge pull-edge % effect-handlers Search route-state]
-  (e/client
+  #_(e/client
     (let [{saved-selection ::selection} route-state
           !selected-object              (e/server (atom nil))
           selected-object               (e/server (e/watch !selected-object))
@@ -516,9 +518,15 @@
      (when-some [row-object (nth data row-index nil)]
        [row-index row-object (run-with-bindings bindings hfql/safe-ccp-nav data nil row-object)])))
 
+(defn- get-columns-or-default-to-identity [edges]
+  (if-some [columns (seq (hfql/value edges))]
+    columns
+    [(hfql/hfql identity)]))
+
 (e/defn RenderSeqableBody [row-count row-height edges % pull-expr selected-object]
   (let [!selected-index (e/server (atom nil))
-        selected-index (e/server (e/watch !selected-index))]
+        selected-index (e/server (e/watch !selected-index))
+        columns (e/server (get-columns-or-default-to-identity edges))]
     (->> (forms/TablePicker! ::selection
            selected-index
            row-count
@@ -529,7 +537,7 @@
                    (when (some? navd)
                      (let [[row-index row-object row-hydrated-object] navd]
                        (select-row-if-match-url! !selected-index row-index row-hydrated-object selected-object)
-                       (e/for [edge edges] (Render* row-hydrated-object edge))))))))
+                       (e/for [edge (e/diff-by {} columns)] (Render* row-hydrated-object edge))))))))
            :row-height row-height
            :column-count (e/server (count (hfql/form pull-expr)))
            :as :tbody)
@@ -544,6 +552,7 @@
 
 (e/defn RenderSeqableHeader [edge !sort-spec]
   (e/server
+    ;; (when-some [columns (seq (hfql/value edge))])
     (dom/thead
       (dom/tr
         (e/for [edge (e/server (e/diff-by {} (hfql/value edge)))]
@@ -564,7 +573,20 @@
             (str/trim)
             (dustingetz.str/blank->nil))))
 
+(defn- get-sequable-columns [edge suggestions]
+  (prn "here - suggestions" suggestions)
+  (let [static-columns (if (hfql/pull? edge)
+                         (hfql/value (hfql/filter-pull (complement hfql/star?) edge))
+                         [])
+        resolved-keys (into #{} (map hfql/resolved-form static-columns))
+        pre-checked? (#(or (and (hfql/pull? edge) (hfql/pull-has-star? edge)) (empty? static-columns)))
+        suggested-columns (hfql/filter-pull (fn [edge] (not (resolved-keys (hfql/resolved-form edge)))) suggestions)]
+    (def _ret [static-columns suggested-columns pre-checked?])
+    _ret
+    [nil nil nil]))
+
 (e/defn RenderSeqableTitle [traversal-edge pull-edge row-count Search metadata Suggest*]
+  (e/server (def _rst_args [traversal-edge pull-edge row-count metadata (Suggest*)]))
   (dom/legend
     (dom/span
       (dom/span
@@ -575,20 +597,19 @@
           (dom/span ; dirty trick to circumvent sited destructuring out of RenderSeqableTitle
             (e/client (let [node dom/node] (e/fn [] (binding [dom/node node] (Search false #_(>= row-count COLLECTION-LIMIT)))))))
           (dom/text (format-collection-count row-count COLLECTION-LIMIT))
-          (let [keys (e/server (hfql/value (hfql/filter-pull (complement hfql/star?) pull-edge)))
-                resolved-keys (e/server (into #{} (map hfql/resolved-form keys)))
-                pre-checked (#(or (hfql/pull-has-star? pull-edge) (nil? pull-edge)))
-                new-suggest* (hfql/filter-pull (fn [edge] (not (resolved-keys (hfql/resolved-form edge))))
-                               (Suggest*))]
-            #_(e/server (prn {'keys keys, 'pull-edge pull-edge 'new-suggests new-suggest*}))
-            (dom/span
-              (e/server
-                (let [from-spec (e/as-vec (e/for [edge (e/diff-by {} keys)]
+          (e/server
+            (let [[static-columns suggested-columns pre-checked] (get-sequable-columns pull-edge (doto (Suggest*) (->> (prn "suggested"))))]
+              #_(e/server (prn {'keys keys, 'pull-edge pull-edge 'new-suggests suggested-columns}))
+              (dom/span
+                (let [from-spec (e/as-vec (e/for [edge (e/diff-by {} static-columns)]
                                             (e/When (forms/Checkbox* true :label (e/server (labelize edge)) :title (e/server (hfql/resolved-form edge)))
                                               edge)))
-                      selected (e/as-vec (e/for [edge (e/diff-by {} (hfql/value new-suggest*))]
+                      selected (e/as-vec (e/for [edge (e/diff-by {} (hfql/value suggested-columns))]
                                            (e/When (forms/Checkbox* pre-checked :label (e/server (labelize edge)) :title (e/server (hfql/resolved-form edge)))
                                              edge)))]
+                  ;; (prn "from spec" from-spec)
+                  ;; (prn "static columns" static-columns)
+                  ;; (prn "suggested-columns" suggested-columns)
                   (hfql/build-pull (into from-spec selected)))))))))))
 
 (defmulti search-matches (fn [object _needle] (type object)))
@@ -621,9 +642,12 @@
             (catch Throwable t (prn 'eager-pull-search-sort (ex-message t)) []))))
 
 (e/defn RenderSeqable [traversal-edge pull-edge % effect-handlers Search route-state]
-  #_(e/server (prn 'RenderSeqable pull-edge (meta %)))
+  (e/server (prn 'RenderSeqable pull-edge (meta %)))
   (e/server
-    (let [% (#(if (seqable? %) % ()) %)] ; when guard on switch from sequable to associative
+    (let [% (#(if (seqable? %) % ()) %) ; guard on switch from sequable to associative
+          #_#_% (#(if (hfql/star-traversal?rsal? pull-edge)
+                (hfql/nav % pull-edge)
+                %) %)]
       (e/client
         (let [{saved-selection ::selection} route-state
               !selected-object              (e/server (atom nil))
@@ -635,19 +659,21 @@
                                      (RenderSeqableTitle traversal-edge pull-edge row-count Search (dissoc (meta %) `clojure.core.protocols/nav)
                                        (e/fn []
                                          (let [first-item (e/Snapshot (first %))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
-                                           (hfql/suggest (hfql/safe-ccp-nav % nil first-item)) %))))
+                                           (doto (hfql/suggest (hfql/safe-ccp-nav % nil first-item))
+                                             (->> (prn "out of suggest"))) 
+                                           ))
+                                       ))
                   search-cmd       (let [Search (e/server (first free-args))]
                                      (e/Reconcile (when Search
                                                     (e/call Search)))) ; fighting against sited destructuring
-                  edge+suggestions (e/server (second free-args))
-                  !sort-spec       (atom [[(e/server (hfql/form (first (hfql/value edge+suggestions)))) true]]),
+                  columns (e/server (second free-args))
+                  !sort-spec       (atom [[(e/server (hfql/form (first (hfql/value columns)))) true]]),
                   sort-spec        (filterv first (e/watch !sort-spec))
                   row-height       24
-                  cols             (e/server (e/diff-by {} (hfql/value edge+suggestions)))
-                  column-count     (e/server (hfql/count edge+suggestions))
+                  column-count     (e/server (hfql/count columns))
                   data-count       (e/server (bounded-count COLLECTION-LIMIT %)) ; O(n)
                   data             (e/server (e/Reconcile (if (< data-count COLLECTION-LIMIT)
-                                                            (eager-pull-search-sort-BIG-O-N-SQUARE % edge+suggestions e/*bindings* *search sort-spec)
+                                                            (eager-pull-search-sort-BIG-O-N-SQUARE % columns e/*bindings* *search sort-spec)
                                                             (with-meta (into [] (take COLLECTION-LIMIT) %) (meta %))))) ; O(n)
                   selected-object  (e/server (#(or selected-object (reset! !selected-object (resolve-selected-object-BIG-O-N saved-selection e/*bindings* data)))))
                   data-count       (e/server (bounded-count COLLECTION-LIMIT data)) ; O(n)
@@ -658,11 +684,11 @@
               (binding [*block-opts (e/server (meta pull-edge) )] ; TODO remove
                 (dom/table
                   (dom/props {:style {:--row-height (str row-height "px"), :--column-count column-count}})
-                  (RenderSeqableHeader edge+suggestions !sort-spec)
+                  (RenderSeqableHeader columns !sort-spec)
                   (forms/Interpreter effect-handlers
                     (e/amb
                       (e/When search-cmd search-cmd)
-                      (->> (RenderSeqableBody row-count row-height cols data edge+suggestions selected-object)
+                      (->> (RenderSeqableBody row-count row-height columns data columns selected-object)
                         (forms/Parse (e/fn [[command & args]]
                                        (e/Reconcile
                                          (case command

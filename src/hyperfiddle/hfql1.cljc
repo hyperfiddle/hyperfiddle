@@ -244,8 +244,8 @@
     (with-%)
     (with-meta {:type ::traversal})))
 
+;; (declare hfql)
 (tests
-  (declare hfql)
   (let [attribute {:db/id 42, :db/ident :attribute/name}
         object (with-meta {:a 42} {`ccp/nav (fn [o k v] (if (= :a k) attribute (get o k v)))})]
     ((hfql :a) object)
@@ -304,14 +304,12 @@
            (var-form? edge) (with-% (fn [_lexical-env object] (*navigate* object (::value metadata) (get object (::value metadata))))) ; quoted var
            (map? edge) (lift-traversal edge metadata)
            (vector? edge) (let [fns edge]
-                              (if (empty? fns)
-                                 (constantly {})
-                                 (let [keys (map edge-name (::form metadata))
-                                       pull (apply juxt fns)]
-                                   (-> (fn edges [_lexical-env map-object]
-                                         (zipmap keys (cc/concat (pull map-object) (repeat nil))))
-                                     (with-%)
-                                     (with-meta {:type ::pull})))))
+                              (let [keys (map edge-name (::form metadata))
+                                    pull (if (empty? fns) (constantly []) (apply juxt fns))]
+                                (-> (fn edges [_lexical-env map-object]
+                                      (zipmap keys (cc/concat (pull map-object) (repeat nil))))
+                                  (with-%)
+                                  (with-meta {:type ::pull}))))
            (seq? edge) (with-% (fn call [lexical-env & _args] ; optional
                                  (let [[f & args] (add-point-to-call-form (::value metadata))
                                        args (replace (cc/merge (::lexical-env metadata) lexical-env) args)]
@@ -597,6 +595,14 @@
   (next (hfql {identity [:a]}) ) := [_]
   )
 
+(defn next2 [edge]
+  (cond
+    (star-traversal? edge) (let [next-edge (val (first (value edge)))]
+                             (if (pull? next-edge) next-edge (next2 next-edge)))
+    (traversal? edge) (val (first (value edge)))
+    (pull? edge) (seq (value edge))
+    :else nil))
+
 (tests
   ((hfql :a) {:a 1 :b 2})
   := 1
@@ -690,18 +696,79 @@
 (defn- left "Variadic opposite of `{}`." [a & _] a) ; almost the K combinator
 (defn- right "Variadic `{}`." [& args] (last args)) ; almost (K I)
 
+(defn- nav*
+  ([edge] (nav* nil edge))
+  ([object edge]
+   (nav* nil object edge (infer-nav-value object edge nil)))
+  ([object edge value] (nav* nil object edge value))
+  ([env object edge value]
+   (if-not (edge? edge)
+     [(safe-ccp-nav object edge value) nil] ; REPL convenience
+     (if (leaf? edge)
+       (binding [*navigate* right]
+         [(call edge (assoc env '% object) object) nil])
+       [(call edge (assoc env '% object) object)
+        (next2 edge)]))))
+
+(tests
+  (nav* {:a 1} (hfql :a)) := [1 nil]
+  (nav* {:a 1} (hfql {identity :a})) := [{:a 1} _]
+  (let [[% edge] *1]
+    (nav* % edge))
+  := [1 nil]
+  )
+
+
 (defn nav ; ①
   ([edge] (nav nil edge))
   ([object edge]
    (nav nil object edge (infer-nav-value object edge nil)))
   ([object edge value] (nav nil object edge value))
   ([env object edge value]
-   (if-not (edge? edge)
+   (first (nav* env object edge value))
+   #_(if-not (edge? edge)
      (safe-ccp-nav object edge value) ; REPL convenience
      (if (leaf? edge)
        (binding [*navigate* right]
          (call edge (assoc env '% object) object))
        (call edge (assoc env '% object) object)))))
+
+
+(defn- as-coll [object] (if (coll? object) object [object]))
+
+(defn pull3 [edge object]
+  (cond
+    (leaf? edge) (nav object edge)
+    (pull? edge) (into {} (map #(vector (edge-name (form %)) (pull3 % object))) (value edge))
+    (star-traversal? edge) (let [[objects edges] (nav* object edge)]
+                             (doall (for [object objects]
+                                      (if (seq? edges)
+                                        (into {}
+                                          (for [edge edges]
+                                            [(edge-name (form edge)) (pull3 edge object)]))
+                                        (pull3 edges object)))))
+    :else
+    {(edge-name (form edge))
+     (let [[object edge] (nav* object edge)]
+       (pull3 edge object))}))
+
+(tests
+  (pull3 (hfql :a) {:a 1}) := 1
+  (pull3 (hfql [:a]) {:a 1, :b 2}) := {:a 1}
+  (pull3 (hfql {identity [:a]}) {:a 1, :b 2}) := '{identity {:a 1}}
+  (pull3 (hfql {* [:a]}) [{:a 1, :b 2} {:a 3, :c 4}])
+  := [{:a 1} {:a 3}]
+  (pull3 (hfql {identity {* [:a]}}) [{:a 1, :b 2} {:a 3, :c 4}])
+  := '{identity ({:a 1} {:a 3})}
+  (pull3 (hfql {* {identity [:a]}}) [{:a 1, :b 2} {:a 3, :c 4}])
+  := '({:a 1} {:a 3})
+  (defn _ns-publics [ns] (take 2 (ns-publics ns)))
+  (pull3 (hfql {_ns-publics {* {val symbol}}}) *ns*)
+   := '{_ns-publics (hyperfiddle.hfql1/form hyperfiddle.hfql1/symbolic-call?)}
+  (pull3 (hfql {_ns-publics {* {val [symbol]}}}) *ns*)
+  := '{_ns-publics ({symbol hyperfiddle.hfql1/form} {symbol hyperfiddle.hfql1/symbolic-call?})}
+  ;; (next2 (hfql {* [:a]}))
+  )
 
 (tests ; ①
   (nav {:a 1} :a) := 1
@@ -774,7 +841,7 @@
      (let [env (assoc env '% object)
            do-nav #(nav env object edge nil)]
        (cond
-         (star-traversal? edge) (do-nav) ;; (map #(pull (first (next edge)) % env) (do-nav))
+         (star-traversal? edge) (pull (first (next edge)) (do-nav) env) ;; (map #(pull (first (next edge)) % env) (do-nav))
          (traversal? edge) (traverse (do-nav) edge env)
          (pull? edge) (alist->map (reduce (fn [r edge]
                                             (let [pulled (pull edge object env)]
@@ -787,6 +854,47 @@
      (catch #?(:clj Throwable, :cljs :default) ex
        (prn ex)
        (ex-info (ex-message ex) {})))))
+
+(comment
+  (pull (hfql {* {val [:a]}}) [(data/map-entry :k {:a 1 :b 2})])
+  )
+
+(defn pull2
+  ([edge object] (pull2 edge object {'% object}))
+  ([edge object env]
+   (cond
+     (traversal? edge) {(edge-name (form edge)) (pull2 (first (next edge)) (nav env object edge nil))}
+     (pull? edge)
+     (let [naved (nav env object edge nil)]
+       )
+     :else
+     (nav env object edge nil))
+   #_   (let [navigated (nav env object edge nil)]
+          (if (leaf? edge)
+            navigated
+            ::todo)
+          #_(if-some [next-edges (seq (next edge))]
+              {(edge-name (form edge))
+               (reduce (fn [r edge] (assoc r (edge-name (form edge)) (pull2 edge (get navigated (edge-name (form edge)))))) {} next-edges)}
+              navigated
+              ))
+   ))
+
+(comment
+  ((hfql {* key}) (take 1 (ns-publics *ns*)))
+  (pull (hfql {identity [key val]}) (data/map-entry :a :b))
+  (pull2 (hfql key) (data/map-entry :a :b))
+  (pull2 (hfql [key]) (data/map-entry :a :b))
+  (pull2 (hfql [{key [identity]}]) (data/map-entry :a :b))
+  (pull2 (hfql [key val]) (data/map-entry :a :b))
+  (pull2 (hfql {identity [key val]}) (data/map-entry :a :b))
+  (pull2 (hfql {identity [{key [identity]} val]}) (data/map-entry :a :b))
+  (pull (hfql {* [key]}) (ns-publics *ns*))
+  (pull2 (hfql {* [key]}) (ns-publics *ns*))
+  (pull (hfql {ns-publics {* key}}) *ns*)
+  (pull (hfql {ns-publics {* [key]}}) *ns*)
+  
+  )
 
 (tests
   (nav {:a 1} (hfql :a))
@@ -1163,4 +1271,6 @@ identifier, though it might not be serializable."
   ((hfql {ns-publics *}) *ns*)
   (pull (hfql {ns-publics [*]}) *ns*) 
   (pull (hfql {ns-publics {* [val]}}) *ns*)
+  (pull (hfql {ns-publics {* {val [symbol]}}}) *ns*)
+  (pull (hfql {* {val [symbol]}}) (seq (ns-publics *ns*)))
   )
