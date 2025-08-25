@@ -297,7 +297,8 @@
   (or (sequential? object)
     (set? object)
     #?(:clj (is-array? object))
-    #?(:clj (some? (hfql/suggest object)))))
+    (hfql/identify object)
+    (some? (hfql/suggest object))))
 
 (defn- selection->edge [selection]
   (hfql/lift selection {::hfql/form selection}))
