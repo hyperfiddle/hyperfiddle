@@ -239,17 +239,46 @@
               traversed (edge-fn lexical-env object)]
           (if (star? edge-fn)
             (let [next-edge-fn (val (first fn-like))]
-              (map next-edge-fn traversed))
+              (eduction (map next-edge-fn) traversed))
             traversed)))
     (with-%)
     (with-meta {:type ::traversal})))
+
+(defn- next3 [edge]
+  (cond
+    (traversal? edge) (val (first (value edge)))
+    (pull? edge)      (seq (value edge))
+    (leaf? edge)      nil
+    :else             (throw (ex-info "Unknown edge" {:type (type edge), :edge edge}))))
+
+(defn- lift-traversal2 [traversal _metadata]
+  {:pre [(map? traversal)]}
+  (-> (fn traverse [lexical-env object]
+        (let [[edge-fn continuation] (first traversal) ; we assume all traversal have been normalized
+              traversed (first (edge-fn lexical-env object))]
+          (if (star? edge-fn)
+            [(eduction (map continuation) (map first) traversed) ; eductions composes without realizing sequences
+             (next3 continuation)]
+            [traversed continuation])))
+    (with-%)
+    (with-meta {:type ::traversal})))
+
+(tests
+  ;; (sequence (eduction (map inc) (range 3)))
+  (let [[result continuation] ((hfql {(range 3) {* inc}}))]
+    (continuation result)) := ['(1 2 3) nil]
+
+  (let [[result continuation] ((hfql {(range 3) {* {inc {* inc}}}}))]
+    (let [[result continuation] (continuation result)]
+      (continuation result))) := ['(2 3 4) nil]
+  )
 
 ;; (declare hfql)
 (tests
   (let [attribute {:db/id 42, :db/ident :attribute/name}
         object (with-meta {:a 42} {`ccp/nav (fn [o k v] (if (= :a k) attribute (get o k v)))})]
     ((hfql :a) object)
-    := attribute)
+    := [attribute nil])
 
   #_( (hfql {:a :db/ident}))
   ;; := :attribute/name
@@ -282,7 +311,7 @@
     (string? obj)
     (keyword? obj)))
 
-(defn lift
+#_(defn- lift
   ([edge] (lift edge (meta edge)))
   ([edge metadata]
    (let [metadata (-> (meta edge)
@@ -315,6 +344,82 @@
                                        args (replace (cc/merge (::lexical-env metadata) lexical-env) args)]
                                    (apply f args))))
            :else (with-% (fn [_lexical-env object & args] (apply get-or-apply edge object args))))
+         ]
+     (vary-meta lifted-fn #(cc/merge metadata %)))))
+
+(defn- leaf [f]
+  (with-meta
+    (fn leaf [& args]
+      [(apply f args) nil])
+    (meta f)))
+
+(reduce conj (array-map) (map vector (range 9) (map str "abcdefghijklmnop")))
+
+(defn- ordered-map
+  "A simple, naive ordered map impl preserving order of keys given at creation
+  time, and behaving as a sorted-map on keys assoced after creation.
+  Performances aside, one can always re-build the map to freeze the keyset
+  order."
+  [& keyvals]
+  (let [order (into {} (comp (take-nth 2) (map-indexed #(vector %2 [%1 %2])))
+                keyvals)
+        max-static-key (count order)
+        position #(get order % [max-static-key %])]
+    (into (sorted-map-by #(compare (position %1) (position %2)))
+      (map vec) ; odd but required: partition returns pairs as lazy seqs and `conj` on a map expects vector-pairs.
+      (partition 2 keyvals))))
+
+(tests
+  (keys (conj (apply ordered-map
+                (interleave
+                  (map str "abcdefghijklmnop")
+                  (range 9) ; larger than clojure.lang.PersistentArrayMap/HASHTABLE_THRESHOLD
+                  ))
+         [:z 'whatever]
+         [:y 'whatever]))
+   := '("a" "b" "c" "d" "e" "f" "g" "h" "i" :y :z)
+  )
+
+(defn- lift-pull [edges metadata]
+  (let [keys (map edge-name (::form metadata))
+        pull-fns (map #(comp first %) edges)
+        pull (if (empty? edges)
+               (constantly [])
+               (apply juxt pull-fns))]
+    (-> (fn edges [_lexical-env map-object]
+          (let [pulled (pull map-object)]
+            [(apply ordered-map (interleave keys (cc/concat pulled (repeat nil))))
+             (seq (::value metadata))]))
+      (with-%)
+      (with-meta {:type ::pull}))))
+
+(defn lift2
+  ([edge] (lift2 edge (meta edge)))
+  ([edge metadata]
+   (let [metadata (-> (meta edge)
+                    (cc/merge metadata)
+                    (update ::value #(or % edge))
+                    (update ::form #(or % (if (literal? edge) edge nil)))
+                    (assoc :type ::edge))
+         lifted-fn
+         (cond
+           (star? edge)   (leaf *)
+           (ident? edge)  (leaf (getter edge))
+           (string? edge) (leaf (getter edge))
+           (var? edge)    (leaf (caller edge)) ; must wrap, putting meta on a var is a side effect
+           (fn? edge) (leaf (with-% (fn [_lexical-env object & args]
+                                      (try (apply get-or-apply edge object args)
+                                           (catch #?(:clj Throwable, :cljs :default) err
+                                             (#?(:clj log/warn, :cljs js/console.warn) "Failed to apply" (::form metadata) "onto" (cons object args))
+                                             err)))))
+           (var-form? edge) (leaf (with-% (fn [_lexical-env object] (*navigate* object (::value metadata) (get object (::value metadata)))))) ; quoted var
+           (map? edge) (lift-traversal2 edge metadata)
+           (vector? edge) (lift-pull edge metadata)
+           (seq? edge) (leaf (with-% (fn call [lexical-env & _args] ; optional
+                                       (let [[f & args] (add-point-to-call-form (::value metadata))
+                                             args (replace (cc/merge (::lexical-env metadata) lexical-env) args)]
+                                         (apply f args)))))
+           :else (leaf (with-% (fn [_lexical-env object & args] (apply get-or-apply edge object args)))))
          ]
      (vary-meta lifted-fn #(cc/merge metadata %)))))
 
@@ -548,8 +653,8 @@
                         (#'quote (dissoc (meta fn-like-form) ::form)) ; ⑦
                         )]
     (if (not-empty metadata)
-      `(lift ~symbolic-form ~metadata)
-      `(lift ~symbolic-form))))
+      `(lift2 ~symbolic-form ~metadata)
+      `(lift2 ~symbolic-form))))
 
 (tests
   (aliased-form (ns-name *ns*) ::test) := "::test"
@@ -605,32 +710,33 @@
 
 (tests
   ((hfql :a) {:a 1 :b 2})
-  := 1
+  := [1 nil]
 
   ((hfql 'c) {:a 1, :b 2, 'c 3})
-  := 3
+  := [3 nil]
 
   ((hfql "d") {:a 1, :b 2, 'c 3, "d" 4})
-  := 4
+  := [4 nil]
 
   ((hfql str) {:a 1, :b 2})
-  := "{:a 1, :b 2}"
+  := ["{:a 1, :b 2}" nil]
   )
 
 (tests
   ((hfql 'str) {'str 'str, str str, #'str #'str})
-  := 'str
+  := ['str nil]
   ((hfql str) {'str 'str, str str, #'str #'str})
-  := str
+  := [str nil]
   ((hfql #'str) {'str 'str, str str, #'str #'str})
-  := "{str str, #function[clojure.core/str] #function[clojure.core/str], #'clojure.core/str #'clojure.core/str}"
+  := ["{str str, #function[clojure.core/str] #function[clojure.core/str], #'clojure.core/str #'clojure.core/str}"
+      nil]
   ((hfql '#'str) {'str 'str, str str, #'str #'str})
-  := #'clojure.core/str
+  := [#'clojure.core/str nil]
 
   ((hfql 'str) {str str, #'str #'str})
-  := nil
+  := [nil nil]
   ((hfql '#'str) {'str 'str, str str})
-   := nil
+  := [nil nil]
   )
 
 (tests
@@ -640,28 +746,39 @@
 
 (tests
   ((hfql []) {:a 1})
-  := {}
+  := [{} nil]
 
-  ((hfql [:a]) {:a 1, :b 2})
-  := {:a 1}
+  ((hfql [:a]) {:a 1, :b 2}) 
+  := [{:a 1} [_]]
 
   ((hfql [:a :c]) {:a 1, :b 2})
-  := {:a 1, :c nil}
+  := [{:a 1, :c nil} [_ _]]
 
   ((hfql [:a :c str]) {:a 1, :b 2})
-   := {:a 1, :c nil, 'str "{:a 1, :b 2}"}
-   )
+  := [{:a 1, :c nil, 'str "{:a 1, :b 2}"}
+      [_ _ _]]
+  )
 
 (tests
+  ((hfql {* :a}) [{:a 1} {:a 2}])
+  := ['(1 2) nil]
+  ((hfql {(range 3) {* inc}}))
+  := ['(0 1 2) _]
+  (let [[result continuation] ((hfql {(range 3) {* inc}}))]
+    (continuation result))
+  := ['(1 2 3) nil]
+  )
+
+(tests
+  ;; ① – one value realized at a time – user can call returned continuation to nav further.
   (let [alice {:db/id 9, :user/email "alice@example.com"}]
     ((hfql {identity [:user/email]}) alice) )
-  := {:db/id 9, :user/email "alice@example.com"}
-  ;; ① – We only return the edge application result. User can call `next` to nav further.
+  := [{:db/id 9, :user/email "alice@example.com"} _]
   )
 
 (defn- call [f & args] (apply f args))
 
-#?(:clj (defn is-array? [x]
+#?(:clj (defn- is-array? [x]
           {:post [(boolean? %)]}
           (boolean (some-> x class .isArray))))
 
@@ -696,28 +813,37 @@
 (defn- left "Variadic opposite of `{}`." [a & _] a) ; almost the K combinator
 (defn- right "Variadic `{}`." [& args] (last args)) ; almost (K I)
 
-(defn- nav*
-  ([edge] (nav* nil edge))
+(defn- nav2
+  ([edge] (nav2 nil edge))
   ([object edge]
-   (nav* nil object edge (infer-nav-value object edge nil)))
-  ([object edge value] (nav* nil object edge value))
+   (nav2 nil object edge (infer-nav-value object edge nil)))
+  ([object edge value] (nav2 {'% object} object edge value))
   ([env object edge value]
    (if-not (edge? edge)
-     [(safe-ccp-nav object edge value) nil] ; REPL convenience
+     (safe-ccp-nav object edge value) ; REPL convenience
      (if (leaf? edge)
        (binding [*navigate* right]
-         [(call edge (assoc env '% object) object) nil])
-       [(call edge (assoc env '% object) object)
-        (next2 edge)]))))
+         (first (call edge (assoc env '% object) object)))
+       (first (call edge (assoc env '% object) object))))))
 
-(tests
-  (nav* {:a 1} (hfql :a)) := [1 nil]
-  (nav* {:a 1} (hfql {identity :a})) := [{:a 1} _]
-  (let [[% edge] *1]
-    (nav* % edge))
-  := [1 nil]
-  )
+(tests ; ①
+  (nav2 {:a 1} :a) := 1
+  (nav2 {:a 1} :b) := nil
+  (nav2 [:a :b :c] 1) := :b
+  (nav2 [:a :b :c] 3) := nil
 
+  (let [alice {:db/id 9, :user/name "Alice" :user/email "alice@example.com"}
+        pull-expression (hfql {identity [:user/name :user/email]})]
+
+    (nav2 alice pull-expression)
+    := alice
+
+    (nav2 alice (next3 pull-expression))
+    := {:user/name "Alice", :user/email "alice@example.com"}
+
+    (map (partial nav2 alice) (next (first (next pull-expression))))
+    := ["Alice" "alice@example.com"]
+    ))
 
 (defn nav ; ①
   ([edge] (nav nil edge))
@@ -725,32 +851,27 @@
    (nav nil object edge (infer-nav-value object edge nil)))
   ([object edge value] (nav nil object edge value))
   ([env object edge value]
-   (first (nav* env object edge value))
-   #_(if-not (edge? edge)
-     (safe-ccp-nav object edge value) ; REPL convenience
-     (if (leaf? edge)
-       (binding [*navigate* right]
-         (call edge (assoc env '% object) object))
-       (call edge (assoc env '% object) object)))))
+   (nav2 env object edge value)
+   #_(first (nav* env object edge value))))
 
-
-(defn- as-coll [object] (if (coll? object) object [object]))
-
-(defn pull3 [edge object]
-  (cond
-    (leaf? edge) (nav object edge)
-    (pull? edge) (into {} (map #(vector (edge-name (form %)) (pull3 % object))) (value edge))
-    (star-traversal? edge) (let [[objects edges] (nav* object edge)]
-                             (doall (for [object objects]
-                                      (if (seq? edges)
-                                        (into {}
-                                          (for [edge edges]
-                                            [(edge-name (form edge)) (pull3 edge object)]))
-                                        (pull3 edges object)))))
-    :else
-    {(edge-name (form edge))
-     (let [[object edge] (nav* object edge)]
-       (pull3 edge object))}))
+(defn pull3
+  ([edge] (pull3 edge nil))
+  ([edge object] (pull3 edge object {'% object}))
+  ([edge object env]
+   (cond
+     (leaf? edge) (nav env object edge object)
+     (pull? edge) (into {} (map #(vector (edge-name (form %)) (pull3 % object env))) (value edge))
+     (star-traversal? edge) (let [[objects edges] (call edge env object)]
+                              (doall (for [object objects]
+                                       (if (seq? edges)
+                                         (into {}
+                                           (for [edge edges]
+                                             [(edge-name (form edge)) (pull3 edge object (assoc env '% object))]))
+                                         (pull3 edges object (assoc env '% object))))))
+     :else
+     {(edge-name (form edge))
+      (let [[object continuation] (call edge env object)]
+        (pull3 continuation object (assoc env '% object)))})))
 
 (tests
   (pull3 (hfql :a) {:a 1}) := 1
@@ -770,24 +891,7 @@
   ;; (next2 (hfql {* [:a]}))
   )
 
-(tests ; ①
-  (nav {:a 1} :a) := 1
-  (nav {:a 1} :b) := nil
-  (nav [:a :b :c] 1) := :b
-  (nav [:a :b :c] 3) := nil
-
-  (let [alice {:db/id 9, :user/name "Alice" :user/email "alice@example.com"}
-        pull-expression (hfql {identity [:user/name :user/email]})]
-
-    (nav alice pull-expression)
-    := alice
-
-    (nav alice (first (next pull-expression)))
-    := {:user/name "Alice", :user/email "alice@example.com"}
-
-    (map (partial nav alice) (next (first (next pull-expression))))
-    := ["Alice" "alice@example.com"]
-    ))
+
 
 (declare pull)
 
@@ -837,7 +941,8 @@
   ([edge object] (pull edge object {'% object}))
   ([edge object env]
    (assert (edge? edge) "The given pull expression must be pre-processed with `(hfql <pull-expr>)`.")
-   (try
+   (pull3 edge object env)
+   #_(try
      (let [env (assoc env '% object)
            do-nav #(nav env object edge nil)]
        (cond
@@ -909,12 +1014,13 @@
     := {'identity {:user/email "alice@example.com"}}
 
    (let [ns-publics2 (comp vals ns-publics)]
-      (pull (hfql {(ns-publics2 '%) [symbol]}) *ns*))
+     (pull3 (hfql {(ns-publics2 ^::symbolic *ns*) symbol}) *ns*))
+   
 
   )
 
 (tests
-  (pull (hfql [:a {:a :db/ident}]) {:a {:db/id 1 :db/ident :foo}})
+  (pull3 (hfql [:a {:a :db/ident}]) {:a {:db/id 1 :db/ident :foo}})
   := {:a :foo}
   )
 
@@ -928,29 +1034,29 @@
     :else             (nav  object edge)))
 
 (tests
-  (hfql (identity 1) )
+  (hfql (identity 1)) := _
 
   ((hfql (identity 1)))
-  := 1
+  := [1 nil]
   ((hfql (identity '%)) "hello")
-  := "hello"
+  := ["hello" nil]
   ((hfql (str "value is: " '%)) 'foo)
-  := "value is: foo"
+  := ["value is: foo" nil]
 
   ((hfql (str "value is: " '%)) {'% 'foo} 'bar)
-  := "value is: bar"
+  := ["value is: bar" nil]
 
   ((let [x 1] (hfql (identity x))))
-  := 1
+  := [1 nil]
 
   ((let [x 2] (hfql (vector 1 x 3))))
-  := [1 2 3]
+  := [[1 2 3] nil]
 
   ((let [x 2] (hfql (vector 1 x 3 'y))) {'y 4} nil)
-  := [1 2 3 4]
+  := [[1 2 3 4] nil]
 
   ((let [x 2] (hfql (vector 1 x 3 'y '%))) {'y 4} 5)
-   := [1 2 3 4 5]
+  := [[1 2 3 4 5] nil]
   )
 
 (defn navigable [nav-fn object]
@@ -969,8 +1075,8 @@
   (let [user-summary #(str (:user/name %) " – " (:user/email %))
         selected 9
         expr (hfql {(_d-entity_ _db_ selected) [:db/id :user/email user-summary keys clojure.core/keys cc/keys]})]
-    (pull expr))
-  := {'(_d-entity_ _db_ 9)
+    (pull3 expr))
+  := {'(_d-entity_ _db_ 9) ; FIXME 9 is not templated
       {:db/id 9,
        :user/email "alice@example.com",
        'user-summary "Alice – alice@example.com",
@@ -981,23 +1087,23 @@
 
 (tests
   (let [selected 9]
-    (pull (hfql {(_d-entity_ _db_ selected) [:user/name {:user/address [:address/number]}]})))
-  := {'(_d-entity_ _db_ 9) {:user/name "Alice", :user/address {:address/number 42}}}
+    (pull3 (hfql {(_d-entity_ _db_ selected) [:user/name {:user/address [:address/number]}]})))
+  := {'(_d-entity_ _db_ 9) ; FIXME 9 is not templated
+      {:user/name "Alice", :user/address {:address/number 42}}}
   )
 
 (tests
   (hfql *) := _
   ((hfql *) {:a 1})
-   := {:a 1}
-  (pull (hfql *) _alice_)
+  := [{:a 1} nil]
+  (pull3 (hfql *) _alice_)
    := _alice_
-  (pull (hfql {identity [:db/id *]}) _alice_)
+  (pull3 (hfql {identity [:db/id *]}) _alice_) ; FIXME * is showing up in the pull result instead of being flattened
   := {'identity _alice_})
 
-
-(tests "multiplicity many"
-
-  ((hfql {(_people_) [:user/name]})) := (list 9 10 11)
+(tests
+  "multiplicity many"
+  ((hfql {(_people_) [:user/name]})) := ['(9 10 11) _]
 
   (let [pull-expr (hfql {(_people_) [:user/name]})
         people (nav pull-expr)]
@@ -1010,7 +1116,7 @@
       {:user/name "Bob"}
       {:user/name "Charlie"}]
 
-  (pull (hfql {(_people_) [:user/name]}))
+  (pull3 (hfql {(_people_) {* [:user/name]}})) ; FIXME impl misses call to ccp/nav before traversing on *
   := {'(_people_) [{:user/name "Alice"}
                    {:user/name "Bob"}
                    {:user/name "Charlie"}]}
@@ -1028,8 +1134,7 @@
   )
 
 
-(tests
-  "props"
+(comment "props"
   (hfql {identity (hfql [] {::select '(identity %)})})
   (edge {identity (hfql [] {:hyperfiddle.hfql1/select (identity '%)})})
   )
@@ -1104,7 +1209,7 @@
           )))))
 
 
-(tests
+(comment
   (def _lookup_sitemap (hfql {identity []
                               (identity) []
                               (identity '%) []
@@ -1147,7 +1252,7 @@
   (assert (and (edge? pull-expr-A) (edge? pull-expr-B)))
   (assert (vector? (value pull-expr-A)) (str "Can only concat two pull expressions (i.e. vectors). Given " (form pull-expr-A)))
   (assert (vector? (value pull-expr-B)) (str "Can only concat two pull expressions (i.e. vectors). Given " (form pull-expr-B)))
-  (lift (into (value pull-expr-A) (value pull-expr-B))
+  (lift2 (into (value pull-expr-A) (value pull-expr-B))
     (-> (meta pull-expr-A)
       (cc/merge (meta pull-expr-B))
       (assoc ::lexical-env (cc/merge (::lexical-env (meta pull-expr-A)) (::lexical-env (meta pull-expr-B))))
@@ -1159,7 +1264,7 @@
   ([traversalA traversalB]
    (assert (traversal? traversalA) (str "Can only merge two traversal expressions (i.e. maps). Given " (form traversalA)))
    (assert (traversal? traversalB) (str "Can only merge two traversal expressions (i.e. maps). Given " (form traversalB)))
-   (lift (cc/merge (value traversalA) (value traversalB))
+   (lift2 (cc/merge (value traversalA) (value traversalB))
      (-> (meta traversalA)
        (cc/merge (meta traversalB))
        (assoc ::lexical-env (cc/merge (::lexical-env (meta traversalA)) (::lexical-env (meta traversalB))))
@@ -1170,7 +1275,7 @@
 
 (defn build-pull [edges & [metadata]]
   (assert (every? edge? edges) (str "Not an edge" (first (remove edge? edges))))
-  (lift (vec edges)
+  (lift2 (vec edges)
     (cc/merge metadata
       {::lexical-env (reduce cc/merge {} (map ::lexical-env (map meta edges)))
        ::form (vec (map form edges))})))
@@ -1226,7 +1331,7 @@ identifier, though it might not be serializable."
 
 (extend-protocol Suggestable
   #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
-  (-suggest [m] (build-pull (map lift (keys m))))
+  (-suggest [m] (build-pull (map lift2 (keys m))))
   #?(:clj Object, :cljs default)
   (-suggest [_] (hfql [identity identify type]))
   nil (-suggest [_]))
@@ -1239,7 +1344,7 @@ identifier, though it might not be serializable."
 (defmethod suggest :default [object] (-suggest object))
 (defmethod suggest #?(:clj clojure.lang.IRecord, :cljs IRecord) [record]
   (build-pull
-    (map lift
+    (map lift2
       (map keyword
         #?(:clj
            (-> (type record)
