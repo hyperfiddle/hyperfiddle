@@ -1,15 +1,25 @@
 (ns hyperfiddle.hfql1.cofree-comonad
   (:refer-clojure :exclude [extend])
-  (:require
-   [hyperfiddle.rcf :refer [tests]]))
+  (:require [hyperfiddle.rcf :refer [tests]]))
 
-(defn extract "Cofree -> a" [W] (force (::value (meta W))))
-(defn extend "(Cofree -> b) -> Cofree a -> Cofree b. Or (w a -> b) -> w a -> w b" [wa->b W]
-  (vary-meta
-    (fn [] (map (fn [thunk] (fn [] (extend wa->b (thunk)))) (W)))
-    merge
-    (meta W)
-    {::value (delay (wa->b W))}))
+(defn- ->Cofree
+  "Cofree node: a MetaFn carrying a lazy ::value and returning a seq of child thunks at arity 0."
+  ([v] (->Cofree v ()))
+  ([v children]
+   (assert (delay? v) "Cofree `v` must be lazy (wrapped in `delay`) to ensure Cofree-wrapped effects are only computed on request (i.e. exctract), and not on every Cofree structural navigation.")
+   (with-meta
+     (fn ([] children))
+     {::value v}))
+  )
+
+(defn extract "Cofree -> a" [Cofree] (force (::value (meta Cofree))))
+(defn extend "(Cofree -> b) -> Cofree a -> Cofree b. Or (w a -> b) -> w a -> w b"
+  ([wa->b] (partial extend wa->b))
+  ([wa->b Wa]
+   (vary-meta
+     (->Cofree (delay (wa->b Wa))
+       (map (extend wa->b) (Wa)))
+     #(merge (meta Wa) %))))
 
 (defn duplicate "Cofree f a -> Cofree f (Cofree f a)" [W] (extend identity W))
 
@@ -17,14 +27,6 @@
 (defn fmap "(a -> b) -> f a -> f b"
   ([f] (liftW f))
   ([f W] ((fmap f) W)))
-
-(defn- node
-  "Cofree node = MetaFn carrying ::value and returning a seq of child thunks at arity 0."
-  ([v] (node v '()))
-  ([v kids]
-   (with-meta
-     (fn ([] kids))
-     {::value v})))
 
 (defn lift
   "Lift one or many projection functions `f` into the cofree-comonadic context.
@@ -35,16 +37,17 @@
     (fn edges
       ([] proj) ; edge descriptor
       ([x]
-       (node
+       (->Cofree
          (delay (map (fn [W] (extract (W x))) proj))
-         (map (fn [W] (fn [] (W x))) proj))))
+         (map (fn [W] #_(fn []) (W x)) proj))))
     :else
     (fn edge
       ([] '()) ; edge descriptor
       ([x]
-       (node (delay (proj x)))))))
+       (->Cofree (delay (doto (proj x)
+                          #_(->> (prn "Realizing" `(~proj ~x) "=>")))))))))
 
-(defn- end? [continuation] (empty? (continuation)))
+(defn- end? [Cofree] (empty? (Cofree)))
 
 (tests
   (def _leaf ((lift :a) {:a 1}))
@@ -141,13 +144,13 @@
   (extract (extend extract n))
   := (extract n)
 
-  (map (comp extract call) (n))
+  (map extract (n))
   := '(1 2)
 
-  (map (comp extract call) ((extend extract n)))
+  (map extract ((extend extract n)))
   := '(1 2)
 
-  (every? end? (map call ((extend extract n))))
+  (every? end? ((extend extract n)))
   := true
   )
 
@@ -156,25 +159,25 @@
 ;;;;;;;;;;;;;;;;;;;;
 
 (defn- _leaf-count [W]
-  (let [kids (map call (W))]
-    (if (seq kids)
-      (reduce + (map _leaf-count kids))
+  (let [children (W)]
+    (if (seq children)
+      (reduce + (map _leaf-count children))
       1)))
 
 (tests
   (def _q (lift [(lift :a)
-              (lift :b)
-              (lift [(lift :c)
-                     (lift :d)])]))
+                 (lift :b)
+                 (lift [(lift :c)
+                        (lift :d)])]))
   (def _n (_q nil))
 
   (extract (extend _leaf-count _n))
   := 4
-
-  (map (comp extract call) ((extend _leaf-count _n)))
+  (map extract ((extend _leaf-count _n)))
   := '(1 1 2)
-
   )
+
+(defn- lazy [object] (if (delay? object) object (delay object)))
 
 (defn unfold
   "unfold :: (b -> [a, f b]) -> b -> Cofree f a
@@ -185,28 +188,26 @@
   (let [[a fb] (coalgebra seed)
         seeds  (cond
                  (map? fb)   (vals fb) ; not sure about this one, we may need it for traversals?
-                 (nil? fb)   nil
-                 :else       fb)
-        kids   (map (fn [b] (fn [] (unfold coalgebra b))) seeds)]
-    (node a kids)))
-
+                 ;; (nil? fb)   nil
+                 :else       fb)]
+    (->Cofree (lazy a) (map (fn [b] (unfold coalgebra b)) seeds))))
 
 (defn- _countdown-coalgebra [n] [n (when (pos? n) [(dec n)])])
 
 (tests
   (def t (unfold _countdown-coalgebra 3))
   (extract t) := 3
-  (map (comp extract call) (t)) := '(2)
+  (map extract (t)) := '(2)
 
-  (def t1 ((first (t))))
+  (def t1 (first (t)))
   (extract t1) := 2
-  (map (comp extract call) (t1)) := '(1)
+  (map extract (t1)) := '(1)
 
-  (def t2 ((first (t1))))
+  (def t2 (first (t1)))
   (extract t2) := 1
-  (map (comp extract call) (t2)) := '(0)
+  (map extract (t2)) := '(0)
 
-  (def t3 ((first (t2))))
+  (def t3 (first (t2)))
   (extract t3) := 0
   (empty? (t3)) := true)
 
@@ -215,21 +216,19 @@
 (tests
   (def level1 (unfold _branching-colagebra 2))
   (extract level1) := 2
-  (def level2 (map call (level1)))
+  (def level2 (level1))
   (map extract level2) := '(1 1)
   (def level3 (mapcat call level2))
-  (map extract (map call level3)) := '(0 0 0 0) ; odd gymnastic. Why is there an extra (map call) layer? Is this correct?
-  (def level4 (map call level3)) ; same here
-  (every? empty? (map call level4)) := true)
+  (map extract level3) := '(0 0 0 0)
+  (def level4 (map call level3))
+  (every? empty? level4) := true)
 
 
 (tests
   "verify `extend extract = id` for unfold"
   (def t (unfold _branching-colagebra 2))
   (extract (extend extract t)) := (extract t)
-  (map (comp extract #(%)) ((extend extract t))) := (map (comp extract #(%)) (t)))
-
-
+  (map extract ((extend extract t))) := (map extract (t)))
 
 ;; TODO
 "
