@@ -273,11 +273,7 @@
 "
   ([coalgebra] (partial coiter coalgebra))
   ([coalgebra seed]
-   (let [fb (coalgebra seed)]
-     (->Cofree (lazy seed)
-       (map (coiter coalgebra)
-         (cond (map? fb) (vals fb)
-               :else fb))))))
+   (unfold (juxt identity coalgebra) seed)))
 
 (tests "Linear chain"
   (def _linear-coalgebra (fn [n] (when (pos? n) [(dec n)])))
