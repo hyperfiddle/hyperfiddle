@@ -6,7 +6,7 @@
 (defn extract "Cofree -> a" [W] (force (::value (meta W))))
 (defn extend "(Cofree -> b) -> Cofree a -> Cofree b. Or (w a -> b) -> w a -> w b" [wa->b W]
   (vary-meta
-    (fn [] (map (fn [Cofree] (fn [] (extend wa->b (Cofree)))) (W)))
+    (fn [] (map (fn [thunk] (fn [] (extend wa->b (thunk)))) (W)))
     merge
     (meta W)
     {::value (delay (wa->b W))}))
@@ -179,7 +179,7 @@
 (defn unfold
   "unfold :: (b -> [a, f b]) -> b -> Cofree f a
    Build a Cofree (as MetaFn) from a `coalgebra`.
-   `coalgebra`  return a value `a` and a *seqable* container of next seeds.
+   `coalgebra` must return a pair of a value `a` and a seqable container of next seeds.
    Maps are supported (children come from (vals fb))."
   [coalgebra seed]
   (let [[a fb] (coalgebra seed)
@@ -191,10 +191,10 @@
     (node a kids)))
 
 
-(defn- countdown-coalgebra [n] [n (when (pos? n) [(dec n)])])
+(defn- _countdown-coalgebra [n] [n (when (pos? n) [(dec n)])])
 
 (tests
-  (def t (unfold countdown-coalgebra 3))
+  (def t (unfold _countdown-coalgebra 3))
   (extract t) := 3
   (map (comp extract call) (t)) := '(2)
 
@@ -210,22 +210,22 @@
   (extract t3) := 0
   (empty? (t3)) := true)
 
-(defn- branching-colagebra [n] [n (when (pos? n) [(dec n) (dec n)])])
+(defn- _branching-colagebra [n] [n (when (pos? n) [(dec n) (dec n)])])
 
 (tests
-  (def level1 (unfold branching-colagebra 2))
+  (def level1 (unfold _branching-colagebra 2))
   (extract level1) := 2
   (def level2 (map call (level1)))
   (map extract level2) := '(1 1)
   (def level3 (mapcat call level2))
-  (map extract (map call level3)) := '(0 0 0 0) ; FIXME odd gymnastic. Why is there an extra (map call) layer? Is this correct?
+  (map extract (map call level3)) := '(0 0 0 0) ; odd gymnastic. Why is there an extra (map call) layer? Is this correct?
   (def level4 (map call level3)) ; same here
   (every? empty? (map call level4)) := true)
 
 
 (tests
   "verify `extend extract = id` for unfold"
-  (def t (unfold branching-colagebra 2))
+  (def t (unfold _branching-colagebra 2))
   (extract (extend extract t)) := (extract t)
   (map (comp extract #(%)) ((extend extract t))) := (map (comp extract #(%)) (t)))
 
