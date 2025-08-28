@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql1.cofree-comonad
+(ns hyperfiddle.hfql1.cofree-comonad ; coco-coco: generate cofree comonads from a coalgebra using coiteration.
   "Cofree comonads are quite useful for annotating syntax trees, or talking about streams.
 
   https://hackage.haskell.org/package/free-5.2/docs/Control-Comonad-Cofree.html"
@@ -304,4 +304,14 @@
   (def t2 (unfold (juxt identity _psi) 3))
   (extract t1) := (extract t2)
   (map extract (t1)) := (map extract (t2))
+  )
+
+(defn values "Utility. Lazy preorder traversal of node values."
+  [Wa]
+  (lazy-seq (cons (extract Wa) (mapcat values (unwrap Wa)))))
+
+(tests
+  (values ((lift :a) {:a 1})) := '(1)
+  (values ((lift [(lift :a)]) {:a 1})) := '((1) 1)
+  (values ((lift [(lift :a) (lift :b)]) {:a 1, :b 2, :c 3})) := '((1 2) 1 2)
   )
