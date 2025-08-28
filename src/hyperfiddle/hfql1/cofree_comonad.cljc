@@ -1,4 +1,7 @@
 (ns hyperfiddle.hfql1.cofree-comonad
+  "Cofree comonads are quite useful for annotating syntax trees, or talking about streams.
+
+  https://hackage.haskell.org/package/free-5.2/docs/Control-Comonad-Cofree.html"
   (:refer-clojure :exclude [extend])
   (:require [hyperfiddle.rcf :refer [tests]]))
 
@@ -12,8 +15,17 @@
      {::value v}))
   )
 
-(defn extract "Cofree -> a" [Cofree] (force (::value (meta Cofree))))
-(defn extend "(Cofree -> b) -> Cofree a -> Cofree b. Or (w a -> b) -> w a -> w b"
+(defn extract "Cofree -> a. Realize the effect of the given cofree instance, producing a value."
+  [Cofree]
+  (force (::value (meta Cofree))))
+
+(defn extend "Given a function f :: (w a -> b), return a structure with the same shape where each position is annotated by `(f context-at-that-position)`.
+  A.k.a. cobind – dual of monadic bind >>=.
+  extend :: (w a -> b) -> w a -> w b -- W stands for Comonad, as an upside down M.
+  bind   :: m a -> (a -> m b) -> m b
+  Here specialised to the Cofree Comonad:
+  extend :: (Cofree -> b) -> Cofree a -> Cofree b
+"
   ([wa->b] (partial extend wa->b))
   ([wa->b Wa]
    (vary-meta
@@ -21,15 +33,32 @@
        (map (extend wa->b) (Wa)))
      #(merge (meta Wa) %))))
 
-(defn duplicate "Cofree f a -> Cofree f (Cofree f a)" [W] (extend identity W))
+(defn duplicate "Turn a structure `w a` into the tree of all its sub-contexts: each node’s
+  label becomes the subtree rooted at that node, preserving shape.
+
+  Dual of monadic join.
+  duplicate :: w a -> w (w a)
+  join      :: m (m a) -> m a
+  Here specialised to the Cofree Comonad:
+  duplicate :: Cofree f a -> Cofree f (Cofree f a)
+  "
+  [Wa] (extend identity Wa))
+
+(defn unwrap "Given a Cofree instance, return its children.
+  unwrap :: w a -> f (w a)
+  Here specialised to the Cofree Comonad:
+  unwrap :: Cofree f a -> f (Cofree f a)
+"
+ [Wa] (Wa))
+
+(defn- end? [Cofree] (empty? (unwrap Cofree)))
 
 (defn liftW "Comonad w => (a -> b) -> w a -> w b " [a->b] (partial extend (comp a->b extract)))
 (defn fmap "(a -> b) -> f a -> f b"
   ([f] (liftW f))
   ([f W] ((fmap f) W)))
 
-(defn lift
-  "Lift one or many projection functions `f` into the cofree-comonadic context.
+(defn lift "Lift one or many projection functions `f` into the cofree-comonadic context.
   e.g. (lift inc), (lift identity), (lift :a), or (lift [(lift :a)]) "
   [proj]
   (cond
@@ -46,8 +75,6 @@
       ([x]
        (->Cofree (delay (doto (proj x)
                           #_(->> (prn "Realizing" `(~proj ~x) "=>")))))))))
-
-(defn- end? [Cofree] (empty? (Cofree)))
 
 (tests
   (def _leaf ((lift :a) {:a 1}))
@@ -133,9 +160,6 @@
   := (extract (extend (comp inc extract) _W))
   )
 
-
-(defn- call [f & args] (apply f args)) ; helper
-
 (tests
   (def q (lift [(lift :a) (lift :b)]))
   (def n (q {:a 1 :b 2 :c 3}))
@@ -179,18 +203,26 @@
 
 (defn- lazy [object] (if (delay? object) object (delay object)))
 
-(defn unfold
-  "unfold :: (b -> [a, f b]) -> b -> Cofree f a
-   Build a Cofree (as MetaFn) from a `coalgebra`.
-   `coalgebra` must return a pair of a value `a` and a seqable container of next seeds.
-   Maps are supported (children come from (vals fb))."
-  [coalgebra seed]
-  (let [[a fb] (coalgebra seed)
-        seeds  (cond
-                 (map? fb)   (vals fb) ; not sure about this one, we may need it for traversals?
-                 ;; (nil? fb)   nil
-                 :else       fb)]
-    (->Cofree (lazy a) (map (fn [b] (unfold coalgebra b)) seeds))))
+;; -- | Unfold a cofree comonad from a seed.
+;; unfold :: Functor f => (b -> (a, f b)) -> b -> Cofree f a
+;; unfold f c = case f c of
+;;   (x, d) -> x :< fmap (unfold f) d
+(defn unfold "Build a Cofree from a `coalgebra` and a `seed`.
+  `coalgebra` must return a pair of a value `a` and a seqable container of next seeds.
+  Maps are supported (children come from (vals fb)).
+
+  unfold :: Functor f => (b    -> [a, f b   ]) -> b    -> Cofree f a
+  unfold :: Functor f => (seed -> [a, f seed]) -> seed -> Cofree f a
+"
+  ([coalgebra] (partial unfold coalgebra))
+  ([coalgebra seed]
+   (let [[a fb] (coalgebra seed)]
+     (->Cofree (lazy a)
+       (map (unfold coalgebra)
+         (cond
+           (map? fb)   (vals fb) ; not sure about this one, we may need it for traversals?
+           ;; (nil? fb)   nil
+           :else       fb))))))
 
 (defn- _countdown-coalgebra [n] [n (when (pos? n) [(dec n)])])
 
@@ -218,9 +250,9 @@
   (extract level1) := 2
   (def level2 (level1))
   (map extract level2) := '(1 1)
-  (def level3 (mapcat call level2))
+  (def level3 (mapcat unwrap level2))
   (map extract level3) := '(0 0 0 0)
-  (def level4 (map call level3))
+  (def level4 (map unwrap level3))
   (every? empty? level4) := true)
 
 
@@ -230,10 +262,50 @@
   (extract (extend extract t)) := (extract t)
   (map extract ((extend extract t))) := (map extract (t)))
 
-;; TODO
+;; coiter :: Functor f => (a -> f a) -> a -> Cofree f a
+;; coiter psi a = a :< (coiter psi <$> psi a)
+;; coiter f = unfold (id Control.Arrow.&&& f)
+(defn coiter "Use coiteration to generate a cofree comonad from a `seed` using given `coalgebra`.
+  Accepts any seqable `f a`; if `coalgebra` returns a map, we use its vals.
+  coiter :: Functor f => (a -> f a) -> a -> Cofree f a
+                             ↓         ↓
+                          coalgebra   seed
 "
--- @'coiter' f = 'unfold' ('id' 'Control.Arrow.&&&' f)@
-coiter :: Functor f => (a -> f a) -> a -> Cofree f a
-coiter psi a = a :< (coiter psi <$> psi a)
-"
-(defn coiter [])
+  ([coalgebra] (partial coiter coalgebra))
+  ([coalgebra seed]
+   (let [fb (coalgebra seed)]
+     (->Cofree (lazy seed)
+       (map (coiter coalgebra)
+         (cond (map? fb) (vals fb)
+               :else fb))))))
+
+(tests "Linear chain"
+  (def _linear-coalgebra (fn [n] (when (pos? n) [(dec n)])))
+  (def t (coiter _linear-coalgebra 3))
+  (extract t) := 3
+  (map extract (t)) := '(2)
+  (def t1 (first (t)))
+  (map extract (t1)) := '(1)
+  (def t2 (first (t1)))
+  (map extract (t2)) := '(0)
+  (end? (first (t2))) := true
+  )
+
+(tests "Branching"
+  (def _branching-colagebra (fn [n] (when (pos? n) [(dec n) (dec n)])))
+  (def b (coiter _branching-colagebra 2))
+  (extract b) := 2
+  (map extract (b)) := '(1 1)
+  (def b2 (mapcat unwrap (b)))
+  (map extract b2) := '(0 0 0 0)
+  (every? end? b2) := true
+  )
+
+(tests "Law check vs unfold"
+  ;; coiter psi a == unfold (juxt identity psi) a
+  (def _psi _linear-coalgebra)
+  (def t1 (coiter _psi 3))
+  (def t2 (unfold (juxt identity _psi) 3))
+  (extract t1) := (extract t2)
+  (map extract (t1)) := (map extract (t2))
+  )
