@@ -3,7 +3,8 @@
   (:require
    [clojure.core.protocols :as ccp]
    [clojure.datafy :as datafy]
-   [hyperfiddle.hfql1.cofree-comonad :as coco :refer [unfold extract extend duplicate values synthesize]]
+   [hyperfiddle.hfql1.comonad :refer [extract duplicate]]
+   [hyperfiddle.hfql1.cofree-comonad :as coco :refer [unfold values synthesize unwrap]]
    [hyperfiddle.rcf :refer [tests]]))
 
 (defn safe-ccp-nav [object key value]
@@ -44,7 +45,7 @@
     (map? expr) (key (first expr))
     :else expr))
 
-(defn hfql
+(defn hfql-coalgebra
   "A coalgebra unfolding a pre-analyzed HFQL AST into a tree of steps: [value next-steps].
   Unfolding this coalgebra into the cofree comonad makes value and next-step
   computation fully lazy: values and next steps are only computed as the resulting cofree
@@ -56,7 +57,7 @@
       ::star      [(star value) nil]
       ::ident     [(getter value projection) nil]
       ::pull      (let [value (into {} (mapcat (fn [k]
-                                                 (let [v (first (values (unfold hfql [k value])))]
+                                                 (let [v (first (values (unfold hfql-coalgebra [k value])))]
                                                    (if (= '* k)
                                                      (update-keys v pull-key)
                                                      [[(pull-key k) v]])))
@@ -81,33 +82,35 @@
       ::key (pull-key projection)
       ::projection projection)))
 
+
+
 (tests
-  (values (unfold hfql [inc 1]))
+  (values (unfold hfql-coalgebra [inc 1]))
   := '(2)
 
-  (values (unfold hfql [:a {:a 1}]))
+  (values (unfold hfql-coalgebra [:a {:a 1}]))
   := '(1)
 
-  (values (unfold hfql [[:a] {:a 1, :b 2}]))
+  (values (unfold hfql-coalgebra [[:a] {:a 1, :b 2}]))
   := '({:a 1} 1)
 
-  (values (unfold hfql [[:a '*] {:a 1, :b 2}]))
+  (values (unfold hfql-coalgebra [[:a '*] {:a 1, :b 2}]))
   := '({:a 1, :b 2} 1 2)
 
-  (values (unfold hfql [{:a inc} {:a 1, :b 3}]))
+  (values (unfold hfql-coalgebra [{:a inc} {:a 1, :b 3}]))
   := '(1 2)
 
-  (values (unfold hfql [[{:a inc}] {:a 1, :b 3}]))
+  (values (unfold hfql-coalgebra [[{:a inc}] {:a 1, :b 3}]))
   := '({:a 1} 1 2)
 
-  (values (unfold hfql [{inc inc} 1]))
+  (values (unfold hfql-coalgebra [{inc inc} 1]))
   := '(2 3)
 
-  (values (unfold hfql [{inc {inc {inc inc}}} 1]))
+  (values (unfold hfql-coalgebra [{inc {inc {inc inc}}} 1]))
   := '(2 3 4 5)
 
   (let [fork (fn [x] (list x x))]
-    (values (unfold hfql [{identity {fork {fork fork}}} '.])))
+    (values (unfold hfql-coalgebra [{identity {fork {fork fork}}} '.])))
    := '(              .
                     (. .)
                 ((. .) (. .))
@@ -115,7 +118,7 @@
 
 
    (let [fork (fn [x] (list x x))]
-     (values (unfold hfql [{identity {fork {'* {fork {'* fork}}}}} '.])))
+     (values (unfold hfql-coalgebra [{identity {fork {'* {fork {'* fork}}}}} '.])))
     := '(. (. .) (. .) (. .) (. .) (. .) (. .) (. .)) ; 8 elements
     ;; * doesn't flatten, it fans-out, `values` is responsible for the apparent flattening. Values arbitrarily traverses in pre-order.
 
@@ -123,17 +126,17 @@
 
 (tests
   "calling fn in pull"
-  (values (unfold hfql [[identity :a] {:a 1, :b 2}]))
+  (values (unfold hfql-coalgebra [[identity :a] {:a 1, :b 2}]))
   := [{identity {:a 1, :b 2}, :a 1} {:a 1, :b 2} 1]
   )
 
 (tests
   "traversal in pull"
-  (values (unfold hfql [['* {:a inc}] {:a 1, :b 2}]))
+  (values (unfold hfql-coalgebra [['* {:a inc}] {:a 1, :b 2}]))
   := '({:a 1, :b 2} 1 2)
   )
 
-(defn- φ-pull2 [W children]
+(defn- pull-algebra [W children]
   (let [v (extract W)]
     (case (projection-type W)
       ::pull (reduce (fn [r [k child]]
@@ -149,44 +152,45 @@
         v
         {(::key (meta W)) v}))))
 
-(def pull (comp (synthesize φ-pull2) duplicate))
+
+(def pull (comp (synthesize pull-algebra) duplicate))
 
 (tests
-  (extract (pull (unfold hfql [identity 1])))
+  (extract (pull (unfold hfql-coalgebra [identity 1])))
   := 1
 
-  (extract (pull (unfold hfql [:a {:a 1}])))
+  (extract (pull (unfold hfql-coalgebra [:a {:a 1}])))
   := 1
 
-  (extract (pull (unfold hfql [[:a] {:a 1, :b 2}])))
+  (extract (pull (unfold hfql-coalgebra [[:a] {:a 1, :b 2}])))
   := {:a 1}
 
-  (extract (pull (unfold hfql [[:a :b] {:a 1}])))
+  (extract (pull (unfold hfql-coalgebra [[:a :b] {:a 1}])))
   := {:a 1, :b nil}
 
-  (extract (pull (unfold hfql [[:a :b] {:a 1, :b 2}])))
+  (extract (pull (unfold hfql-coalgebra [[:a :b] {:a 1, :b 2}])))
   := {:a 1, :b 2}
 
-  (extract (pull (unfold hfql [[:a identity] {:a 1}])))
+  (extract (pull (unfold hfql-coalgebra [[:a identity] {:a 1}])))
   := {:a 1, identity {:a 1}}
 
-  (extract (pull (unfold hfql [[{:a inc}] {:a 1}])))
+  (extract (pull (unfold hfql-coalgebra [[{:a inc}] {:a 1}])))
   := {:a 2}
 
-  (extract (pull (unfold hfql [[{:a {inc inc}}] {:a 1}])))
+  (extract (pull (unfold hfql-coalgebra [[{:a {inc inc}}] {:a 1}])))
   := {:a {inc 3}}
 
-  (extract (pull (unfold hfql [{identity :a} {:a 1}])))
+  (extract (pull (unfold hfql-coalgebra [{identity :a} {:a 1}])))
   := {identity 1}
 
-  (extract (pull (unfold hfql [{identity [:a]} {:a 1}])))
+  (extract (pull (unfold hfql-coalgebra [{identity [:a]} {:a 1}])))
   := {identity {:a 1}}
 
-  (extract (pull (unfold hfql [range 3])))
+  (extract (pull (unfold hfql-coalgebra [range 3])))
   := '(0 1 2)
 
-  (extract (pull (unfold hfql [{range {'* {inc inc}}} 3])))
+  (extract (pull (unfold hfql-coalgebra [{range {'* {inc inc}}} 3])))
 
-  (extract (pull (unfold hfql [{ns-publics {'* val}} *ns*])))
+  (extract (pull (unfold hfql-coalgebra [{ns-publics {'* val}} *ns*])))
 
   )
