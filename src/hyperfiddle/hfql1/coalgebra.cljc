@@ -26,6 +26,25 @@
 (defn- touch [object] (if (seqable? object) (doall object) object))
 (defn- star [object] (touch (force object)))
 
+
+
+(def ^:private NS *ns*)
+
+(defn- preanalyzed-projection-type [projection]
+  (let [type (type projection)]
+    (when (and (qualified-ident? type)
+            (= (ns-name NS) (namespace type)))
+      type)))
+
+(defn- projection-type [projection]
+  (or (preanalyzed-projection-type projection)
+    (cond
+      (= '* projection)    ::star
+      (ident? projection)  ::ident
+      (vector? projection) ::pull
+      (map? projection)    ::traversal
+      (ifn? projection)    ::ifn)))
+
 (defn- pull-key [expr]
   (cond
     (map? expr) (key (first expr))
@@ -38,31 +57,32 @@
   comonad is navigated, step by step.
   "
   [[projection value]]
-  (cond
-    (= '* projection)       [(star value) nil]
-    (ident? projection)     [(getter value projection) nil]
-    (vector? projection)    (let [value (into {} (mapcat (fn [k]
-                                                           (let [v (first (values (unfold hfql [k value])))]
-                                                             (if (= '* k)
-                                                               (update-keys v pull-key)
-                                                               [[(pull-key k) v]])))
-                                                   projection))]
-                              [value
-                               (if (some #{'*} projection)
-                                 (map vector (keys value) (repeat value))
-                                 (map (fn [proj] [proj value]) projection))])
-    (map? projection)       (let [[f sub] (first projection) ; TODO support maps with multiple entries
-                                  y (f value)]
-                              (cond
-                                ;; *-traversal special case: {f {'* sub}}
-                                (and (map? sub) (contains? sub '*))
-                                [y (sequence (map (fn [e] [(get sub '*) e])) y)]
-                                ;; regular case
-                                (vector? sub) [y [[sub y]]]
-                                (nil? sub)    [y nil]
-                                :else         [y [[sub y]]]))
-    (ifn? projection)        [(get-or-call projection value) nil]
-    :else (throw (ex-info "Unknown projection" {:type (type projection), :projection projection}))))
+  (case (projection-type projection)
+    ::star      [(star value) nil]
+    ::ident     [(getter value projection) nil]
+    ::pull      (let [value (into {} (mapcat (fn [k]
+                                               (let [v (first (values (unfold hfql [k value])))]
+                                                 (if (= '* k)
+                                                   (update-keys v pull-key)
+                                                   [[(pull-key k) v]])))
+                                       projection))]
+                  [value
+                   (if (some #{'*} projection)
+                     (map vector (keys value) (repeat value))
+                     (map (fn [proj] [proj value]) projection))])
+    ::traversal (let [[f sub] (first projection) ; TODO support maps with multiple entries
+                      y       (f value)]
+                  (cond
+                    ;; *-traversal special case: {f {'* sub}}
+                    (and (map? sub) (contains? sub '*))
+                    [y (sequence (map (fn [e] [(get sub '*) e])) y)]
+                    ;; regular case
+                    (vector? sub) [y [[sub y]]]
+                    (nil? sub)    [y nil]
+                    :else         [y [[sub y]]]))
+    ::ifn       [(get-or-call projection value) nil]
+    (throw (ex-info "Unknown projection" {:type (type projection), :projection projection}))))
+
 
 (tests
   (values (unfold hfql [inc 1]))
