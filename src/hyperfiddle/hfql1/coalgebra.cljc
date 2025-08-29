@@ -14,6 +14,14 @@
 
 (defn- getter [object key] (*navigate* (force object) key (get (force object) key)))
 (defn- caller [ifn & args] (apply ifn (map force args)))
+(defn- get-or-call [ifn object & args]
+  (let [object (force object)]
+    (if (try (contains? object ifn) ; FIXME find a better check
+             (catch #?(:clj Throwable, :cljs :default) _
+               #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+               false))
+      (*navigate* object ifn (get object ifn))
+      (apply ifn object args))))
 
 (defn- touch [object] (if (seqable? object) (doall object) object))
 (defn- star [object] (touch (force object)))
@@ -33,7 +41,6 @@
   (cond
     (= '* projection)       [(star value) nil]
     (ident? projection)     [(getter value projection) nil]
-    (fn? projection)        [(caller projection value) nil]
     (vector? projection)    (let [value (into {} (mapcat (fn [k]
                                                            (let [v (first (values (unfold hfql [k value])))]
                                                              (if (= '* k)
@@ -53,7 +60,9 @@
                                 ;; regular case
                                 (vector? sub) [y [[sub y]]]
                                 (nil? sub)    [y nil]
-                                :else         [y [[sub y]]]))))
+                                :else         [y [[sub y]]]))
+    (ifn? projection)        [(get-or-call projection value) nil]
+    :else (throw (ex-info "Unknown projection" {:type (type projection), :projection projection}))))
 
 (tests
   (values (unfold hfql [inc 1]))
@@ -97,7 +106,7 @@
 
 (tests
   "calling fn in pull"
-  (values (unfold hfql [[identity :a] {:a 1, :b 2}])) ; FAIL FIXME
+  (values (unfold hfql [[identity :a] {:a 1, :b 2}]))
   := [{identity {:a 1, :b 2}, :a 1} {:a 1, :b 2} 1]
   )
 
