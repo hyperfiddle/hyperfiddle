@@ -111,7 +111,7 @@
 
 (defn- comonad-law-3 "extend f . extend g = extend (f . extend g)" [f g W]
   (let [left (extend f (extend g W)) ; extend f . extend g
-        right (extend (comp f (partial extend g)) W)] ; extend (f . extend g)
+        right (extend (comp f (extend g)) W)] ; extend (f . extend g)
     (= (extract left) (extract right))))
 
 (tests
@@ -216,13 +216,15 @@
 "
   ([coalgebra] (partial unfold coalgebra))
   ([coalgebra seed]
-   (let [[a fb] (coalgebra seed)]
-     (->Cofree (lazy a)
-       (map (unfold coalgebra)
-         (cond
-           (map? fb)   (vals fb) ; not sure about this one, we may need it for traversals?
-           ;; (nil? fb)   nil
-           :else       fb))))))
+   (let [[a fb :as step] (coalgebra seed)]
+     (vary-meta
+       (->Cofree (lazy a)
+         (map (unfold coalgebra)
+           (cond
+             (map? fb)   (vals fb) ; not sure about this one, we may need it for traversals?
+             ;; (nil? fb)   nil
+             :else       fb)))
+       merge (meta step)))))
 
 (defn- _countdown-coalgebra [n] [n (when (pos? n) [(dec n)])])
 
@@ -306,12 +308,40 @@
   (map extract (t1)) := (map extract (t2))
   )
 
-(defn values "Utility. Lazy preorder traversal of node values."
-  [Wa]
-  (lazy-seq (cons (extract Wa) (mapcat values (unwrap Wa)))))
+(defn fold-preorder
+  "Post-order fold. φ takes (label, seq of folded child results) and returns b.
+   Type: φ :: (a, Seq b) -> b  ; fold-cofree :: Cofree a -> b"
+  ([φ] (partial fold-preorder φ))
+  ([φ w]
+   (φ (extract w) (map (fold-preorder φ) (unwrap w)))))
+
+(def ^{:arglists '([Cofree])}
+  values "Utility. Lazy preorder traversal of cofree values."
+  (fold-preorder
+    (fn [a bss]
+      (lazy-seq (cons a (mapcat identity bss))))))
 
 (tests
   (values ((lift :a) {:a 1})) := '(1)
   (values ((lift [(lift :a)]) {:a 1})) := '((1) 1)
   (values ((lift [(lift :a) (lift :b)]) {:a 1, :b 2, :c 3})) := '((1 2) 1 2)
   )
+
+(defn fold-postorder
+  "Post-order fold. φ takes (label, seq of folded child results) and returns b.
+   Type: φ :: (a, Seq b) -> b  ; fold-cofree :: Cofree a -> b"
+  ([φ] (partial fold-postorder φ))
+  ([φ w]
+   (φ (extract w) (map (fold-postorder φ) (unwrap w)))))
+
+(defn synthesize
+  "Annotate every node with the folded value `φ` of its subtree. Lazily computed on extract.
+   Equivalent to: fmap (fold-cofree φ) (duplicate w) – i.e. extend composed with a catamorphism.
+
+  > A synthesized attribute is computed from the values of attributes of the
+  > children. Since the values of the children must be computed first, this is an
+  > example of bottom-up propagation. — https://en.wikipedia.org/wiki/Attribute_grammar#Synthesized_attributes
+  "
+  ([φ] (partial synthesize φ))
+  ([φ w] (extend (fold-postorder φ) w)))
+

@@ -1,8 +1,9 @@
 (ns hyperfiddle.hfql1.coalgebra
+  (:refer-clojure :exclude [extend])
   (:require
    [clojure.core.protocols :as ccp]
    [clojure.datafy :as datafy]
-   [hyperfiddle.hfql1.cofree-comonad :as coco :refer [unfold values]]
+   [hyperfiddle.hfql1.cofree-comonad :as coco :refer [unfold extract extend duplicate values synthesize]]
    [hyperfiddle.rcf :refer [tests]]))
 
 (defn safe-ccp-nav [object key value]
@@ -28,16 +29,9 @@
 
 
 
-(def ^:private NS *ns*)
-
-(defn- preanalyzed-projection-type [projection]
-  (let [type (type projection)]
-    (when (and (qualified-ident? type)
-            (= (ns-name NS) (namespace type)))
-      type)))
-
 (defn- projection-type [projection]
-  (or (preanalyzed-projection-type projection)
+  (or #_(preanalyzed-projection-type projection)
+    (some-> projection meta ::projection projection-type)
     (cond
       (= '* projection)    ::star
       (ident? projection)  ::ident
@@ -57,32 +51,35 @@
   comonad is navigated, step by step.
   "
   [[projection value]]
-  (case (projection-type projection)
-    ::star      [(star value) nil]
-    ::ident     [(getter value projection) nil]
-    ::pull      (let [value (into {} (mapcat (fn [k]
-                                               (let [v (first (values (unfold hfql [k value])))]
-                                                 (if (= '* k)
-                                                   (update-keys v pull-key)
-                                                   [[(pull-key k) v]])))
-                                       projection))]
-                  [value
-                   (if (some #{'*} projection)
-                     (map vector (keys value) (repeat value))
-                     (map (fn [proj] [proj value]) projection))])
-    ::traversal (let [[f sub] (first projection) ; TODO support maps with multiple entries
-                      y       (f value)]
-                  (cond
-                    ;; *-traversal special case: {f {'* sub}}
-                    (and (map? sub) (contains? sub '*))
-                    [y (sequence (map (fn [e] [(get sub '*) e])) y)]
-                    ;; regular case
-                    (vector? sub) [y [[sub y]]]
-                    (nil? sub)    [y nil]
-                    :else         [y [[sub y]]]))
-    ::ifn       [(get-or-call projection value) nil]
-    (throw (ex-info "Unknown projection" {:type (type projection), :projection projection}))))
-
+  (->
+    (case (projection-type projection)
+      ::star      [(star value) nil]
+      ::ident     [(getter value projection) nil]
+      ::pull      (let [value (into {} (mapcat (fn [k]
+                                                 (let [v (first (values (unfold hfql [k value])))]
+                                                   (if (= '* k)
+                                                     (update-keys v pull-key)
+                                                     [[(pull-key k) v]])))
+                                         projection))]
+                    [value
+                     (if (some #{'*} projection)
+                       (map vector (keys value) (repeat value))
+                       (map (fn [proj] [proj value]) projection))])
+      ::traversal (let [[f sub] (first projection) ; TODO support maps with multiple entries
+                        y       (f value)]
+                    (cond
+                      ;; *-traversal special case: {f {'* sub}}
+                      (and (map? sub) (contains? sub '*))
+                      ^::star [y (sequence (map (fn [e] [(get sub '*) e])) y)]
+                      ;; regular case
+                      (vector? sub) [y [[sub y]]]
+                      (nil? sub)    [y nil]
+                      :else         [y [[sub y]]]))
+      ::ifn       [(get-or-call projection value) nil]
+      (throw (ex-info "Unknown projection" {:type (type projection), :projection projection})))
+    (vary-meta assoc
+      ::key (pull-key projection)
+      ::projection projection)))
 
 (tests
   (values (unfold hfql [inc 1]))
@@ -134,4 +131,62 @@
   "traversal in pull"
   (values (unfold hfql [['* {:a inc}] {:a 1, :b 2}]))
   := '({:a 1, :b 2} 1 2)
+  )
+
+(defn- φ-pull2 [W children]
+  (let [v (extract W)]
+    (case (projection-type W)
+      ::pull (reduce (fn [r [k child]]
+                       (if (map? child)
+                         (assoc r k (get child k child))
+                         (assoc r k child)))
+               v (map vector (keys v) children))
+      ::traversal {(::key (meta W))
+                     (if (::star (meta W))
+                       (vary-meta children assoc ::star true)
+                       (first children))}
+      (if (empty? children)
+        v
+        {(::key (meta W)) v}))))
+
+(def pull (comp (synthesize φ-pull2) duplicate))
+
+(tests
+  (extract (pull (unfold hfql [identity 1])))
+  := 1
+
+  (extract (pull (unfold hfql [:a {:a 1}])))
+  := 1
+
+  (extract (pull (unfold hfql [[:a] {:a 1, :b 2}])))
+  := {:a 1}
+
+  (extract (pull (unfold hfql [[:a :b] {:a 1}])))
+  := {:a 1, :b nil}
+
+  (extract (pull (unfold hfql [[:a :b] {:a 1, :b 2}])))
+  := {:a 1, :b 2}
+
+  (extract (pull (unfold hfql [[:a identity] {:a 1}])))
+  := {:a 1, identity {:a 1}}
+
+  (extract (pull (unfold hfql [[{:a inc}] {:a 1}])))
+  := {:a 2}
+
+  (extract (pull (unfold hfql [[{:a {inc inc}}] {:a 1}])))
+  := {:a {inc 3}}
+
+  (extract (pull (unfold hfql [{identity :a} {:a 1}])))
+  := {identity 1}
+
+  (extract (pull (unfold hfql [{identity [:a]} {:a 1}])))
+  := {identity {:a 1}}
+
+  (extract (pull (unfold hfql [range 3])))
+  := '(0 1 2)
+
+  (extract (pull (unfold hfql [{range {'* {inc inc}}} 3])))
+
+  (extract (pull (unfold hfql [{ns-publics {'* val}} *ns*])))
+
   )
