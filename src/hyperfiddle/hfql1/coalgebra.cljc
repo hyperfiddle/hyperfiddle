@@ -3,8 +3,10 @@
   (:require
    [clojure.core.protocols :as ccp]
    [clojure.datafy :as datafy]
+   [hyperfiddle.hfql1.functor :refer [fmap]]
    [hyperfiddle.hfql1.comonad :refer [extract duplicate]]
-   [hyperfiddle.hfql1.cofree-comonad :as coco :refer [unfold values synthesize unwrap]]
+   [hyperfiddle.hfql1.cofree-comonad :as coco :refer [unfold values synthesize unwrap cofreeT ->Cofree unwrapT]]
+   [hyperfiddle.hfql1.monad-reader :refer [asks reader local runReader]]
    [hyperfiddle.rcf :refer [tests]]))
 
 (defn safe-ccp-nav [object key value]
@@ -13,22 +15,6 @@
     value))
 
 (def ^:dynamic *navigate* safe-ccp-nav)
-
-(defn- getter [object key] (*navigate* (force object) key (get (force object) key)))
-(defn- caller [ifn & args] (apply ifn (map force args)))
-(defn- get-or-call [ifn object & args]
-  (let [object (force object)]
-    (if (try (contains? object ifn) ; FIXME find a better check
-             (catch #?(:clj Throwable, :cljs :default) _
-               #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
-               false))
-      (*navigate* object ifn (get object ifn))
-      (apply ifn object args))))
-
-(defn- touch [object] (if (seqable? object) (doall object) object))
-(defn- star [object] (touch (force object)))
-
-
 
 (defn- projection-type [projection]
   (or #_(preanalyzed-projection-type projection)
@@ -45,96 +31,62 @@
     (map? expr) (key (first expr))
     :else expr))
 
-(defn hfql-coalgebra
-  "A coalgebra unfolding a pre-analyzed HFQL AST into a tree of steps: [value next-steps].
-  Unfolding this coalgebra into the cofree comonad makes value and next-step
-  computation fully lazy: values and next steps are only computed as the resulting cofree
-  comonad is navigated, step by step.
-  "
-  [[projection value]]
+(defn- getterR [key] (asks (fn [%] (*navigate* (force %) key (get (force %) key)))))
+(defn- get-or-callR [ifn]
+  (asks (fn [%]
+          (let [% (force %)]
+            (if (try (contains? % ifn) ; FIXME find a better check
+                     (catch #?(:clj Throwable, :cljs :default) _
+                       #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+                       false))
+              (runReader (getterR ifn) %)
+              (apply ifn % ()) ; FIXME provide args
+              )))))
+
+(defn- touch [object] (if (seqable? object) (doall object) object))
+(defn- star [object] (touch (force object)))
+
+(defn leaf [reader] (fmap (fn [v] [v ()]) reader))
+
+(defn hfqlT ; TODO express in term of Ψ and unfoldT/coiterT separate ψ from unfold
+  "Analyze phase: turn a HFQL expression into a CofreeT Reader, producing an HFQL evaluator with no initial value.
+  Use (injectR ... env) to produce a concrete Cofree Comonad, lazily realizing successive navs as a tree traversal."
+  [projection]
   (->
     (case (projection-type projection)
-      ::star      [(star value) nil]
-      ::ident     [(getter value projection) nil]
-      ::pull      (let [value (into {} (mapcat (fn [k]
-                                                 (let [v (first (values (unfold hfql-coalgebra [k value])))]
-                                                   (if (= '* k)
-                                                     (update-keys v pull-key)
-                                                     [[(pull-key k) v]])))
-                                         projection))]
-                    [value
-                     (if (some #{'*} projection)
-                       (map vector (keys value) (repeat value))
-                       (map (fn [proj] [proj value]) projection))])
-      ::traversal (let [[f sub] (first projection) ; TODO support maps with multiple entries
-                        y       (f value)]
-                    (cond
-                      ;; *-traversal special case: {f {'* sub}}
-                      (and (map? sub) (contains? sub '*))
-                      ^::star [y (sequence (map (fn [e] [(get sub '*) e])) y)]
-                      ;; regular case
-                      (vector? sub) [y [[sub y]]]
-                      (nil? sub)    [y nil]
-                      :else         [y [[sub y]]]))
-      ::ifn       [(get-or-call projection value) nil]
-      (throw (ex-info "Unknown projection" {:type (type projection), :projection projection})))
-    (vary-meta assoc
-      ::key (pull-key projection)
-      ::projection projection)))
+      ::ident (cofreeT (leaf (getterR projection)))
+      ::star (cofreeT (leaf (asks star) ))
+      ::ifn (cofreeT (leaf (get-or-callR projection)))
+      ::pull (let [kids (map (fn [s] (vary-meta (hfqlT s) assoc ::key (pull-key s))) projection)]
+               (cofreeT
+                 (asks (fn [m]
+                         [(into {} (map (fn [pt] [(::key (meta pt)) (first (runReader (unwrapT pt) m))])
+                                     kids))
+                          kids]))))
+    ::traversal
+    (let [[f sub] (first projection)] ; assumes all multi traversals have been normalized to single traversals already
+      (cond
+        (and (map? sub) (contains? sub '*)) ; {f {'* sub}}
+        (let [childT (hfqlT (get sub '*))]
+          (vary-meta
+            (cofreeT (asks (fn [a] (let [ys (f a)] ; TODO template call args
+                                     [ys (map (fn [e] ; child uses env = e
+                                                (vary-meta
+                                                  (cofreeT (local (constantly e) (unwrapT childT)))
+                                                  merge (meta childT)))
+                                           ys)]))))
+            assoc ::star true))
 
-
+        :else
+        (let [subT (when sub (hfqlT sub))]
+          (cofreeT (asks (fn [%]
+                           (let [% (f %)]
+                             [% (if subT
+                                  [(vary-meta (cofreeT (local (constantly %) (unwrapT subT)))
+                                     merge (meta subT))]
+                                  [])]))))))))
+    (vary-meta assoc ::projection projection, ::key (pull-key projection))))
 
-(tests
-  (values (unfold hfql-coalgebra [inc 1]))
-  := '(2)
-
-  (values (unfold hfql-coalgebra [:a {:a 1}]))
-  := '(1)
-
-  (values (unfold hfql-coalgebra [[:a] {:a 1, :b 2}]))
-  := '({:a 1} 1)
-
-  (values (unfold hfql-coalgebra [[:a '*] {:a 1, :b 2}]))
-  := '({:a 1, :b 2} 1 2)
-
-  (values (unfold hfql-coalgebra [{:a inc} {:a 1, :b 3}]))
-  := '(1 2)
-
-  (values (unfold hfql-coalgebra [[{:a inc}] {:a 1, :b 3}]))
-  := '({:a 1} 1 2)
-
-  (values (unfold hfql-coalgebra [{inc inc} 1]))
-  := '(2 3)
-
-  (values (unfold hfql-coalgebra [{inc {inc {inc inc}}} 1]))
-  := '(2 3 4 5)
-
-  (let [fork (fn [x] (list x x))]
-    (values (unfold hfql-coalgebra [{identity {fork {fork fork}}} '.])))
-   := '(              .
-                    (. .)
-                ((. .) (. .))
-        (((. .) (. .)) ((. .) (. .)))) ; 8 elements
-
-
-   (let [fork (fn [x] (list x x))]
-     (values (unfold hfql-coalgebra [{identity {fork {'* {fork {'* fork}}}}} '.])))
-    := '(. (. .) (. .) (. .) (. .) (. .) (. .) (. .)) ; 8 elements
-    ;; * doesn't flatten, it fans-out, `values` is responsible for the apparent flattening. Values arbitrarily traverses in pre-order.
-
-  )
-
-(tests
-  "calling fn in pull"
-  (values (unfold hfql-coalgebra [[identity :a] {:a 1, :b 2}]))
-  := [{identity {:a 1, :b 2}, :a 1} {:a 1, :b 2} 1]
-  )
-
-(tests
-  "traversal in pull"
-  (values (unfold hfql-coalgebra [['* {:a inc}] {:a 1, :b 2}]))
-  := '({:a 1, :b 2} 1 2)
-  )
 
 (defn- pull-algebra [W children]
   (let [v (extract W)]
@@ -145,244 +97,244 @@
                          (assoc r k child)))
                v (map vector (keys v) children))
       ::traversal {(::key (meta W))
-                     (if (::star (meta W))
-                       (vary-meta children assoc ::star true)
-                       (first children))}
+                   (if (::star (meta W))
+                     (vary-meta children assoc ::star true)
+                     (first children))}
       (if (empty? children)
         v
         {(::key (meta W)) v}))))
 
-
 (def pull (comp (synthesize pull-algebra) duplicate))
 
+
+
+(defn- unfoldT
+  "unfoldT :: (b -> Reader env [a, f b]) -> b -> CofreeT f Reader a
+   `coalgebra b` produces a Reader that, when run, yields (label, next seeds)."
+  [coalgebra seed]
+  (cofreeT
+    (reader
+      (fn [env]
+        (let [[a bs] (runReader (coalgebra seed) env)]
+          [a (map #(unfoldT coalgebra %) bs)])))))
+
+
+(defn coiterT
+  "coiterT :: (a -> Reader env (f a)) -> a -> CofreeT f Reader a
+   Special case where the node label is the seed itself."
+  [coalgebra a0]
+  (cofreeT
+    (reader
+      (fn [env]
+        (let [fa (runReader (coalgebra a0) env)]
+          [a0 (map #(coiterT coalgebra %) fa)])))))
+
+(defn injectR
+  "Run a CofreeT Reader at environment `env` to obtain a plain Cofree.
+   Copies ::key from *param children* to injected children; stores ::param backrefs."
+  [cofree-t env]
+  (let [[a kidsT] (runReader (unwrapT cofree-t) env)
+        kidsC     (map #(injectR % env) kidsT)
+        node      (->Cofree (delay a)
+                    (map (fn [pt c] (vary-meta c #(merge (meta pt) % {::param pt})))
+                      kidsT kidsC))]
+    (vary-meta node #(merge (meta cofree-t) % {::param cofree-t}))))
+
+
+
 (tests
-  (extract (pull (unfold hfql-coalgebra [identity 1])))
-  := 1
-
-  (extract (pull (unfold hfql-coalgebra [:a {:a 1}])))
-  := 1
-
-  (extract (pull (unfold hfql-coalgebra [[:a] {:a 1, :b 2}])))
-  := {:a 1}
-
-  (extract (pull (unfold hfql-coalgebra [[:a :b] {:a 1}])))
-  := {:a 1, :b nil}
-
-  (extract (pull (unfold hfql-coalgebra [[:a :b] {:a 1, :b 2}])))
-  := {:a 1, :b 2}
-
-  (extract (pull (unfold hfql-coalgebra [[:a identity] {:a 1}])))
-  := {:a 1, identity {:a 1}}
-
-  (extract (pull (unfold hfql-coalgebra [[{:a inc}] {:a 1}])))
-  := {:a 2}
-
-  (extract (pull (unfold hfql-coalgebra [[{:a {inc inc}}] {:a 1}])))
-  := {:a {inc 3}}
-
-  (extract (pull (unfold hfql-coalgebra [{identity :a} {:a 1}])))
-  := {identity 1}
-
-  (extract (pull (unfold hfql-coalgebra [{identity [:a]} {:a 1}])))
-  := {identity {:a 1}}
-
-  (extract (pull (unfold hfql-coalgebra [range 3])))
-  := '(0 1 2)
-
-  (extract (pull (unfold hfql-coalgebra [{range {'* {inc inc}}} 3])))
-
-  (extract (pull (unfold hfql-coalgebra [{ns-publics {'* val}} *ns*])))
+  ;; coiterT with branching that depends on env (Reader)
+  (defn psi-branch [n]
+    (reader (fn [_] (when (pos? n) [(dec n) (dec n)]))))  ; ignore env here
+  (def tT (coiterT psi-branch 2))
+  (def t  (injectR tT :env))
+  (map extract (mapcat unwrap (unwrap t)))  ;; => '(0 0 0 0)
 
   )
 
-
-
-(defn hfqlR-coalgebra
-  "A coalgebra unfolding a pre-analyzed HFQL AST into a tree of steps: [value next-steps].
-  Unfolding this coalgebra into the cofree comonad makes value and next-step
-  computation fully lazy: values and next steps are only computed as the resulting cofree
-  comonad is navigated, step by step.
-  "
-  [projection]
-  (->
-    (case (projection-type projection)
-      ;; ::star      [#(star %) (constantly ())]
-      ::ident     [#(getter % projection) (constantly ())]
-      ::ifn       [#(apply get-or-call projection %&) (constantly ())]
-      #_#_::pull      (let [value (into {} (mapcat (fn [k]
-                                                 (let [v (first (values (unfold hfql-coalgebra [k value])))]
-                                                   (if (= '* k)
-                                                     (update-keys v pull-key)
-                                                     [[(pull-key k) v]])))
-                                         projection))]
-                    [value
-                     (if (some #{'*} projection)
-                       (map vector (keys value) (repeat value))
-                       (map (fn [proj] [proj value]) projection))])
-      #_#_::traversal (let [[f sub] (first projection) ; TODO support maps with multiple entries
-                        y       (f value)]
-                    (cond
-                      ;; *-traversal special case: {f {'* sub}}
-                      (and (map? sub) (contains? sub '*))
-                      ^::star [y (sequence (map (fn [e] [(get sub '*) e])) y)]
-                      ;; regular case
-                      (vector? sub) [y [[sub y]]]
-                      (nil? sub)    [y nil]
-                      :else         [y [[sub y]]]))
-      
-      (throw (ex-info "Unknown projection" {:type (type projection), :projection projection})))
-    (vary-meta assoc
-      ::key (pull-key projection)
-      ::projection projection)))
-
-(defn unfold "Build a Cofree from a `coalgebra` and a `seed`.
-  `coalgebra` must return a pair of a value `a` and a seqable container of next seeds.
-  Maps are supported (children come from (vals fb)).
-
-  unfold :: Functor f => (b    -> [a, f b   ]) -> b    -> Cofree f a
-  unfold :: Functor f => (seed -> [a, f seed]) -> seed -> Cofree f a
-"
-  ([coalgebra] (partial unfold coalgebra))
-  ([coalgebra seed]
-   (let [[a fb :as step] (coalgebra seed)]
-     (vary-meta
-       (cr/->CofreeR a
-         (map (unfold coalgebra)
-           (cond
-             (map? fb)   (vals fb) ; not sure about this one, we may need it for traversals?
-             ;; (nil? fb)   nil
-             :else       fb)))
-       merge (meta step)))))
-
-
-
-(comment
-  (defn- prebind
-    "Freeze a param subtree to a fixed env e (ignores the env it will be called with)."
-    [WR e]
-    (cr/->CofreeR
-      (fn [_] (cr/extractR WR e))
-      (fn [_] (map #(prebind % e) (cr/unwrapR WR e)))))
-
-  (defn to-CofreeR
-    "Lift the hfql-coalgebra `[spec env] -> [a, fb]` into a parametric CofreeR built
-   from `spec` only. Root gets ::key = (pull-key spec) so folds can wrap it."
-    [hfql-coalgebra spec]
-    (letfn [(rec [spec]
-              (let [analyzed (hfql-coalgebra [spec nil])]
-                (let [valf   (fn [env] (first (hfql-coalgebra [spec env])))
-                      edgesf (fn [env]
-                               (let [[_ fb :as analyzed] (hfql-coalgebra [spec env])]
-                                 (map (fn [[subspec subenv :as child]]
-                                        ;; build param child; fix its local env to subenv
-                                        (vary-meta (prebind (rec subspec) subenv)
-                                          #(merge (meta child) %)))
-                                   (or fb []))))]
-                  (vary-meta (cr/->CofreeR valf edgesf)
-                    #(merge (meta analyzed) %)))))]
-      (rec spec)))
-
-  (to-CofreeR hfql-coalgebra :a)
-  (to-CofreeR hfql-coalgebra [:a])
+(tests
+  ;; unfoldT where label depends on env
+  (defn psi-plus [n] (reader (fn [e] [(+ n e) []])))
+  (extract (injectR (unfoldT psi-plus 10) 5))
+  := 15
+  )
 
 
-  ;; [:a :b]
-  (let [p (to-CofreeR hfql-coalgebra [:a])
-        t (cr/inject p {:a 1 :b 2})]
-    [(extract t)                         ; => {:a 1, :b 2}
-     (map extract (unwrap t))])          ; => (1 2)
+(tests
+  ;; Simple HFQL-style case {identity [:a :b]} via unfoldT
+  (defn psi-pull [spec]
+    (reader
+      (fn [m]
+        (cond
+          (= spec identity) [m []]
+          (ident? spec)     [(spec m) []]
+          (vector? spec)    [(select-keys m spec) (seq spec)]
+          :else             [nil []]))))
+  (values (injectR (unfoldT psi-pull identity ) {:a 1 :b 2}))
+  := '({:a 1, :b 2})
 
-  (let [p (to-CofreeR hfql-coalgebra [:a])
-        t (cr/inject p {:a 1, :b 2})]
-    (coco/fold-postorder pull-algebra (duplicate t))
-    )
+  (values (injectR (unfoldT psi-pull [:a]) {:a 1 :b 2}))
+  := '({:a 1} 1)
 
-  ;; {identity [:a :b]}
-  (let [p (to-CofreeR hfql-coalgebra {identity [:a :b]})
-        t (cr/inject p {:a 1 :b 2})
-        proj (coco/fold-postorder pull-algebra (duplicate t)) #_(fold-keyed φ-pull t)]
-    ;; (extract proj)
-    proj)                                 ; => {identity {:a 1, :b 2}}
-
-  ;; Traversal {range {'* inc}} with different environments
-  (let [p (to-CofreeR hfql-coalgebra {range {'* inc}})]
-    [(values (inject p 3))               ; => ((0 1 2) 1 2 3)
-     (values (inject p 5))])             ; => ((0 1 2 3 4) 1 2 3 4 5)
-
-  ;; Reseed a subtree: analyze once, vary env later
-  (let [p  (to-CofreeR hfql-coalgebra inc)
-        t1 (inject p 1)
-        t2 (inject p 2)]
-    [(extract t1) (extract t2)])         ; => [2 3]
-                                        ; => (1 2)
+  )
 
 
-  (comment
+(tests
+  (values (injectR (hfqlT inc) 1))
+  := '(2)
 
-    (defn unfoldR "Build a Cofree from a `coalgebra` and a `seed`.
-  `coalgebra` must return a pair of a value `a` and a seqable container of next seeds.
-  Maps are supported (children come from (vals fb)).
+  (values (injectR (hfqlT :a) {:a 1}))
+  := '(1)
 
-  unfold :: Functor f => (b    -> [a, f b   ]) -> b    -> Cofree f a
-  unfold :: Functor f => (seed -> [a, f seed]) -> seed -> Cofree f a
-  "
-      ([coalgebra] (partial unfoldR coalgebra))
-      ([coalgebra seed]
-       (let [[aF nextF :as step] (coalgebra seed)]
-         (vary-meta
-           (cr/->CofreeR aF
-             (map (unfold coalgebra)
-               (cond
-                 (map? fb)   (vals fb) ; not sure about this one, we may need it for traversals?
-                 ;; (nil? fb)   nil
-                 :else       fb)))
-           merge (meta step)))))
+  (values (injectR (hfqlT [:a]) {:a 1, :b 2}))
+  := '({:a 1} 1)
 
-    (defn hfqlR-coalgebra
-      "Like `hfql-coalgebra`, but unfolds to cofree coalgebra unfolding a pre-analyzed HFQL AST into a tree of steps: [value next-steps].
-  Unfolding this coalgebra into the cofree comonad makes value and next-step
-  computation fully lazy: values and next steps are only computed as the resulting cofree
-  comonad is navigated, step by step.
-  "
-      [projection]
-      (->
-        (case (projection-type projection)
-          ::star      [#(star %) (constantly ())]
-          ::ident     [#(getter % projection) (constantly ())]
-          #_#_::pull      (let [value (into {} (mapcat (fn [k]
-                                                         (let [v (first (values (unfold hfql-coalgebra [k value])))]
-                                                           (if (= '* k)
-                                                             (update-keys v pull-key)
-                                                             [[(pull-key k) v]])))
-                                                 projection))]
-                            [value
-                             (if (some #{'*} projection)
-                               (map vector (keys value) (repeat value))
-                               (map (fn [proj] [proj value]) projection))])
-          #_#_::traversal (let [[f sub] (first projection) ; TODO support maps with multiple entries
-                                y       (f value)]
-                            (cond
-                              ;; *-traversal special case: {f {'* sub}}
-                              (and (map? sub) (contains? sub '*))
-                              ^::star [y (sequence (map (fn [e] [(get sub '*) e])) y)]
-                              ;; regular case
-                              (vector? sub) [y [[sub y]]]
-                              (nil? sub)    [y nil]
-                              :else         [y [[sub y]]]))
-          ::ifn       [(fn val [& args] (apply get-or-call projection args)) (fn next [& _] nil)]
-          (throw (ex-info "Unknown projection" {:type (type projection), :projection projection})))
-        (vary-meta assoc
-          ::key (pull-key projection)
-          ::projection projection)))
+  (values (injectR (hfqlT [:a '*]) {:a 1, :b 2})) ; FAIL
+  := '({:a 1, :b 2} 1 2)
+
+  (values (injectR (hfqlT {:a inc}) {:a 1, :b 3}))
+  := '(1 2)
+
+  (values (injectR (hfqlT [{:a inc}]) {:a 1, :b 3}))
+  := '({:a 1} 1 2)
+
+  (values (injectR (hfqlT {inc inc}) 1))
+  := '(2 3)
+
+  (values (injectR (hfqlT {inc {inc {inc inc}}}) 1))
+  := '(2 3 4 5)
+
+  (let [fork (fn [x] (list x x))]
+    (values (injectR (hfqlT {identity {fork {fork fork}}}) '.)))
+   := '(              .
+                    (. .)
+                ((. .) (. .))
+        (((. .) (. .)) ((. .) (. .)))) ; 8 elements
 
 
-    (tests
-      
-      (cr/extract (cr/inject 2 (cr/unfold hfqlR-coalgebra +)))
-      ;; (((cr/unfold hfqlR-coalgebra +)))
+   (let [fork (fn [x] (list x x))]
+     (values (injectR (hfqlT {identity {fork {'* {fork {'* fork}}}}}) '.)))
+    := '(. (. .) (. .) (. .) (. .) (. .) (. .) (. .)) ; 8 elements
+    ;; * doesn't flatten, it fans-out, `values` is responsible for the apparent flattening. Values arbitrarily traverses in pre-order.
 
-      
+  )
 
-      (str (constantly ()))
-      
-      )))
+(tests
+  "calling fn in pull"
+  (values (injectR (hfqlT [identity :a]) {:a 1, :b 2}))
+  := [{identity {:a 1, :b 2}, :a 1} {:a 1, :b 2} 1]
+  )
+
+(tests
+  "traversal in pull"
+  (values (injectR (hfqlT ['* {:a inc}]) {:a 1, :b 2})) ; FAIL
+  := '({:a 1, :b 2} 1 2)
+  )
+
+
+(tests
+  (extract (pull (injectR (hfqlT identity) 1)))
+  := 1
+
+  (extract (pull (injectR (hfqlT :a) {:a 1})))
+  := 1
+
+  (extract (pull (injectR (hfqlT [:a]) {:a 1, :b 2})))
+  := {:a 1}
+
+  (extract (pull (injectR (hfqlT [:a :b]) {:a 1})))
+  := {:a 1, :b nil}
+
+  (extract (pull (injectR (hfqlT [:a :b]) {:a 1, :b 2})))
+  := {:a 1, :b 2}
+
+  (extract (pull (injectR (hfqlT [:a identity]) {:a 1})))
+  := {:a 1, identity {:a 1}}
+
+  (extract (pull (injectR (hfqlT [{:a inc}]) {:a 1})))
+  := {:a 2}
+
+  (extract (pull (injectR (hfqlT [{:a {inc inc}}]) {:a 1})))
+  := {:a {inc 3}}
+
+  (extract (pull (injectR (hfqlT {identity :a}) {:a 1})))
+  := {identity 1}
+
+  (extract (pull (injectR (hfqlT {identity [:a]}) {:a 1})))
+  := {identity {:a 1}}
+
+  (extract (pull (injectR (hfqlT range) 3)))
+  := '(0 1 2)
+
+  (extract (pull (injectR (hfqlT {range {'* {inc inc}}}) 3)))
+
+  (extract (pull (injectR (hfqlT {ns-publics {'* val}}) *ns*)))
+
+  )
+
+
+(tests
+  (extract (injectR (hfqlT '*) {:a 1}))
+  := {:a 1}
+
+  (extract (injectR (hfqlT :a) {:a 1}))
+  := 1
+
+  (extract (injectR (hfqlT identity) {:a 1}))
+  := {:a 1}
+
+  (extract (injectR (hfqlT identity) {identity 'identity}))
+  := 'identity
+
+  )
+
+(tests
+  (values (injectR (hfqlT [:a :b]) {:a 1, :b 2, :c 3}))
+  := '({:a 1, :b 2} 1 2)
+  )
+
+
+(tests
+  (values (pull (injectR (hfqlT :a) {:a 1, :b 2, :c 3})))
+  := '(1)
+
+  (values (pull (injectR (hfqlT [:a :b]) {:a 1, :b 2, :c 3})))
+  := '({:a 1, :b 2} 1 2)
+
+  )
+
+(tests
+  (values (pull (injectR (hfqlT {identity identity}) 1)))
+  := [{identity 1} 1]
+  (values (pull (injectR (hfqlT {identity inc}) 1)))
+  := [{identity 2} 2]
+
+
+  (values (pull (injectR (hfqlT {inc inc}) 1)))
+  :=
+  [{inc 3}
+   3]
+
+  (values (pull (injectR (hfqlT {inc {inc {inc inc}}}) 1)))
+  := [{inc {inc {inc 5}}}
+      {inc {inc 5}}
+      {inc 5}
+      5]
+
+  (values (injectR (hfqlT {identity [:a]}) {:a 1, :b 2}))
+  := '({:a 1, :b 2} {:a 1} 1)
+
+  (values (pull (injectR (hfqlT {identity [:a]}) {:a 1, :b 2})))
+  := [{identity {:a 1}} {:a 1} 1]
+
+  )
+
+
+(tests
+  (values (injectR (hfqlT {range {'* inc}}) 3))
+  := '((0 1 2) 1 2 3)
+
+  (values (pull (injectR (hfqlT {range {'* inc}}) 3)))
+  := [{range '(1 2 3)} 1 2 3]
+
+ )

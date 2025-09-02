@@ -4,7 +4,9 @@
   https://hackage.haskell.org/package/free-5.2/docs/Control-Comonad-Cofree.html"
   (:refer-clojure :exclude [extend])
   (:require [hyperfiddle.rcf :refer [tests]]
-            [hyperfiddle.hfql1.comonad :refer [Comonad Functor extract duplicate extend liftW fmap]]))
+            [hyperfiddle.hfql1.functor :refer [Functor fmap]]
+            [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend liftW]]
+            [hyperfiddle.hfql1.monad-reader :refer [reader ask local]]))
 
 (defprotocol ComonadCofree
   (-unwrap [Wa] "unwrap :: Functor f => w a -> f (w a)"))
@@ -320,4 +322,21 @@
   "
   ([φ] (partial synthesize φ))
   ([φ w] (extend (fold-postorder φ) w)))
+
+
+
+;;; CofreeT
+
+(defrecord CofreeT [step])
+
+(defn cofreeT
+  "cofreeT :: (Reader [a CofreeT*]) -> (CofreeT (Reader [a CofreeT*])) – stepR is a Reader that yields [a, seq of child CofreeT]."
+  [step] (->CofreeT step))
+
+(defn unwrapT
+  "runCofreeT: Reader env [a, children]"
+  [^CofreeT t]
+  (.-step t))
+
+
 
