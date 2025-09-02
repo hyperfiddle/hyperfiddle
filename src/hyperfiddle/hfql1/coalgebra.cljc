@@ -72,7 +72,7 @@
                                  next-child (fn [v]
                                               (-> (cofreeT (local (constantly v) (unwrapT childT)))
                                                 (vary-meta merge (meta childT) {::param-base childT})))]
-                             [v (map next-child (if star? v [v]))]))))
+                             [v (iterator-seq (.iterator (eduction (map next-child) (if star? v [v]))))]))))
         (vary-meta assoc ::star star?))))
     (vary-meta assoc ::projection projection, ::key (pull-key projection))))
 
@@ -116,15 +116,33 @@
         (let [fa (runReader (coalgebra a0) env)]
           [a0 (map #(coiterT coalgebra %) fa)])))))
 
+(defn- trully-lazy-map [f & colls]
+  (apply sequence (map f) colls))
+
+(defn unchunk [s]
+  (iterator-seq (.iterator s))
+  #_(lazy-seq
+    (when-let [s (seq s)]
+      (cons (first s) (unchunk (rest s))))))
+
 (defn injectR [t env]
-  (let [[a kidsT] (runReader (unwrapT t) env)
-        kidsC     (map #(injectR % env) kidsT)]
-    (-> (->Cofree (delay a)
-          (map (fn [pt c]
-                 (let [base (or (::param-base (meta pt)) pt)]
-                   (with-meta c (assoc (meta c) ::param base))))
-            kidsT kidsC))
+  (let [[a kidsT] (runReader (unwrapT t) env)]
+    (-> (->Cofree (delay (force a))
+          (unchunk(map (fn [pt c]
+                         (let [base (or (::param-base (meta pt)) pt)]
+                           (with-meta c (assoc (meta c) ::param base))))
+                    (unchunk kidsT) (unchunk (map #(force (injectR % env)) kidsT)))))
       (vary-meta #(merge (meta t) % {::param t})))))
+
+(comment
+  (def _range (fn [x] (prn "called range"x ) (sequence (map identity) (range x))))
+  (def _inc (fn [x] (Thread/sleep 10) (prn "called inc" x ) (inc x)))
+
+  (time (def _C (injectR (hfqlT {_range {'* _inc}}) 10000000)))
+  (extract _C)
+  (extract (nth (unwrap _C) 1000))
+  (values _C)
+  )
 
 (defn reseed
   "Given an injected Cofree node `w` and a new environment `env'`, re-inject
