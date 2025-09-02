@@ -31,15 +31,15 @@
     (map? expr) (key (first expr))
     :else expr))
 
-(defn- getterR [key] (asks (fn [%] (*navigate* (force %) key (get (force %) key)))))
-(defn- get-or-callR [ifn]
+(defn- getter [key] (asks (fn [%] (*navigate* (force %) key (get (force %) key)))))
+(defn- get-or-call [ifn]
   (asks (fn [%]
           (let [% (force %)]
             (if (try (contains? % ifn) ; FIXME find a better check
                      (catch #?(:clj Throwable, :cljs :default) _
                        #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
                        false))
-              (runReader (getterR ifn) %)
+              (runReader (getter ifn) %)
               (apply ifn % ()) ; FIXME provide args
               )))))
 
@@ -48,15 +48,15 @@
 
 (defn leaf [reader] (fmap (fn [v] [v ()]) reader))
 
-(defn hfqlT ; TODO express in term of Ψ and unfoldT/coiterT separate ψ from unfold
+(defn hfqlT ; TODO if possible, express in term of Ψ and unfoldT/coiterT. I.e. separate ψ from unfold
   "Analyze phase: turn a HFQL expression into a CofreeT Reader, producing an HFQL evaluator with no initial value.
   Use (injectR ... env) to produce a concrete Cofree Comonad, lazily realizing successive navs as a tree traversal."
   [projection]
   (->
     (case (projection-type projection)
-      ::ident (cofreeT (leaf (getterR projection)))
+      ::ident (cofreeT (leaf (getter projection)))
       ::star (cofreeT (leaf (asks star) ))
-      ::ifn (cofreeT (leaf (get-or-callR projection)))
+      ::ifn (cofreeT (leaf (get-or-call projection)))
       ::pull (let [kids (map (fn [s] (vary-meta (hfqlT s) assoc ::key (pull-key s))) projection)]
                (cofreeT
                  (asks (fn [m]
@@ -64,29 +64,17 @@
                                      kids))
                           kids]))))
     ::traversal
-    (let [[f sub] (first projection)] ; assumes all multi traversals have been normalized to single traversals already
-      (cond
-        (and (map? sub) (contains? sub '*)) ; {f {'* sub}}
-        (let [childT (hfqlT (get sub '*))]
-          (vary-meta
-            (cofreeT (asks (fn [a] (let [ys (f a)] ; TODO template call args
-                                     [ys (map (fn [e] ; child uses env = e
-                                                (vary-meta
-                                                  (cofreeT (local (constantly e) (unwrapT childT)))
-                                                  merge (meta childT)))
-                                           ys)]))))
-            assoc ::star true))
-
-        :else
-        (let [subT (when sub (hfqlT sub))]
-          (cofreeT (asks (fn [%]
-                           (let [% (f %)]
-                             [% (if subT
-                                  [(vary-meta (cofreeT (local (constantly %) (unwrapT subT)))
-                                     merge (meta subT))]
-                                  [])]))))))))
+    (let [[f sub] (first projection) ; assumes all multi traversals have been normalized to single traversals already
+          star? (and (map? sub) (contains? sub '*))]
+      (-> (cofreeT (asks (fn [env]
+                           (let [childT (hfqlT (if star? (get sub '*) sub))
+                                 v (f env)
+                                 next-child (fn [v]
+                                              (-> (cofreeT (local (constantly v) (unwrapT childT)))
+                                                (vary-meta merge (meta childT) {::param-base childT})))]
+                             [v (map next-child (if star? v [v]))]))))
+        (vary-meta assoc ::star star?))))
     (vary-meta assoc ::projection projection, ::key (pull-key projection))))
-
 
 (defn- pull-algebra [W children]
   (let [v (extract W)]
@@ -108,9 +96,9 @@
 
 
 
-(defn- unfoldT
+(defn- unfoldT ; for future improvements
   "unfoldT :: (b -> Reader env [a, f b]) -> b -> CofreeT f Reader a
-   `coalgebra b` produces a Reader that, when run, yields (label, next seeds)."
+   `coalgebra b` produces a Reader that, when run, yields (value, next seeds)."
   [coalgebra seed]
   (cofreeT
     (reader
@@ -118,8 +106,7 @@
         (let [[a bs] (runReader (coalgebra seed) env)]
           [a (map #(unfoldT coalgebra %) bs)])))))
 
-
-(defn coiterT
+(defn- coiterT ; for future improvements
   "coiterT :: (a -> Reader env (f a)) -> a -> CofreeT f Reader a
    Special case where the node label is the seed itself."
   [coalgebra a0]
@@ -129,16 +116,39 @@
         (let [fa (runReader (coalgebra a0) env)]
           [a0 (map #(coiterT coalgebra %) fa)])))))
 
-(defn injectR
-  "Run a CofreeT Reader at environment `env` to obtain a plain Cofree.
-   Copies ::key from *param children* to injected children; stores ::param backrefs."
-  [cofree-t env]
-  (let [[a kidsT] (runReader (unwrapT cofree-t) env)
-        kidsC     (map #(injectR % env) kidsT)
-        node      (->Cofree (delay a)
-                    (map (fn [pt c] (vary-meta c #(merge (meta pt) % {::param pt})))
-                      kidsT kidsC))]
-    (vary-meta node #(merge (meta cofree-t) % {::param cofree-t}))))
+(defn injectR [t env]
+  (let [[a kidsT] (runReader (unwrapT t) env)
+        kidsC     (map #(injectR % env) kidsT)]
+    (-> (->Cofree (delay a)
+          (map (fn [pt c]
+                 (let [base (or (::param-base (meta pt)) pt)]
+                   (with-meta c (assoc (meta c) ::param base))))
+            kidsT kidsC))
+      (vary-meta #(merge (meta t) % {::param t})))))
+
+(defn reseed
+  "Given an injected Cofree node `w` and a new environment `env'`, re-inject
+   the corresponding subtree."
+  [w env']
+  (if-let [t (::param (meta w))]
+    (injectR t env')
+    (throw (ex-info "No ::param backref on node; cannot reseed" {}))))
+
+(tests
+  "reseeding"
+  (let [w (injectR (hfqlT {inc {inc {inc inc}}}) 1)]
+    (extract w) := 2
+    (let [w2 (first (unwrap w))
+          w3 (reseed w2 10)]
+      (extract w2) := 3
+      (values w3)
+      )
+    )
+
+
+  ;; (values (reseed (injectR (hfqlT [:a]) {:a 1}) {:a 10}))
+  (values (reseed (injectR (hfqlT {inc {inc {inc inc}}}) 1) 100))
+  )
 
 
 
@@ -306,9 +316,9 @@
 (tests
   (values (pull (injectR (hfqlT {identity identity}) 1)))
   := [{identity 1} 1]
+
   (values (pull (injectR (hfqlT {identity inc}) 1)))
   := [{identity 2} 2]
-
 
   (values (pull (injectR (hfqlT {inc inc}) 1)))
   :=
@@ -338,3 +348,18 @@
   := [{range '(1 2 3)} 1 2 3]
 
  )
+
+
+(tests
+  "reseeding"
+  (let [w (injectR (hfqlT {inc {inc {inc inc}}}) 1)]
+    (extract w) := 2
+    (let [w2 (first (unwrap w))]
+      [(values w2)
+       (values (reseed w2 10))]))
+  := '[(3 4 5) (11 12 13)]
+
+  (values (reseed (injectR (hfqlT [:a]) {:a 1}) {:a 10}))
+  := '({:a 10} 10)
+
+  )
