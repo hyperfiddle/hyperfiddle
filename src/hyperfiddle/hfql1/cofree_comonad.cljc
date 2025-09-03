@@ -24,7 +24,7 @@
       #(merge (meta Wa) %)))
   (-duplicate [Wa] (extend identity Wa))
   ComonadCofree
-  (-unwrap [_] next))
+  (-unwrap [_] (force next)))
 
 (defn unwrap "Given a Cofree instance, return its children.
   unwrap :: w a -> f (w a)
@@ -286,18 +286,48 @@
   (map extract (unwrap t1)) := (map extract (unwrap t2))
   )
 
-(defn fold-preorder
-  "Post-order fold. φ is an algebra, taking (label, seq of folded child results) and returning b.
-   Type: φ :: (a, Seq b) -> b  ; fold-cofree :: Cofree a -> b"
-  ([φ] (partial fold-preorder φ))
-  ([φ w]
-   (φ (extract w) (map (fold-preorder φ) (unwrap w)))))
+(defn- unchunk-seq
+  "Turn a clojure chunked seq into a one-step-at-a-time seq. Noop on non-chunked
+  seqs. Preserves eventual metadata. Must be called on the original chunked seq.
+  Calling `unchunk-seq` on any descendent seq won't have any effect.
+  E.g. `(unchunk-seq (range 3))` – turns a chunked LongRange into a proper
+  lazy-seq. But `(unchunk-seq (map prn (range 3)))` will still print 0 1 2 because
+  `map` eagerly preprocesses the first chunk.
 
-(def ^{:arglists '([Cofree])}
-  values "Utility. Lazy preorder traversal of cofree values."
-  (fold-preorder
-    (fn [a bss]
-      (lazy-seq (cons a (mapcat identity bss))))))
+  Use case: prevent undesired side effects while building the cofree tree. We
+  don't want to realize any child value when computing fan-out cardinality (e.g. '*).
+  Example: In {range {'* inc}}, given `range` receives 3, `range` will produce a
+  chunked LongRange. Any downstream `map`, `filter`, `for` etc. will pre-process
+  the first chunk and eventually call `inc`. This is not acceptable because in
+  the general case `inc` may not be a pure function.
+
+  Note range is a good example because: `range` may or may not return a chunked seq:
+  - (type (range)) := clojure.lang.Iterate – not chucked, fully lazy
+  - (type (range 1)) or (range 1 10 1) := LongRange – chunked
+  - (type (range 1 1)) := PersistentList$EmptyList
+  "
+  [aseq]
+  (if (chunked-seq? aseq)
+    (with-meta
+      (lazy-seq
+        (when-let [s (seq aseq)]
+          (cons (first s) (unchunk-seq (rest s)))))
+      (meta aseq))
+    aseq))
+
+(defn values*
+  "Lazy pre-order traversal of the Cofree tree. Return an eduction of delays one can \"jump over\" by composing with (eduction (drop n) ...) "
+  [W]
+  (eduction
+    (tree-seq
+      (fn [x] (seq (unwrap x))) ; TODO optimize by looking at the pullspec in metas - star case will still need to run but that's ok
+      unwrap
+      W)))
+
+(defn values
+  "Lazy preorder traversal of the Cofree tree. Return an eduction of results. Use values* to safely skip over values."
+  [W]
+  (eduction (map extract) (values* W)))
 
 (tests
   (values ((lift :a) {:a 1})) := '(1)

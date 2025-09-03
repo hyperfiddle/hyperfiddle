@@ -63,6 +63,10 @@
     (binding [*context* ma]
       (a->mb (runIdentity ma)))))
 
+(extend-type #?(:clj clojure.lang.Delay, :cljs Delay)
+  Monad
+  (-bind [ma a->mb] (delay (force (a->mb (force ma))))))
+
 ;;; Laws
 
 (tests

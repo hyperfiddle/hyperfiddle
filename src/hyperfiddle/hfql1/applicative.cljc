@@ -60,6 +60,11 @@
     (binding [*context* fa]
       (fapply (fmap a->b->c fa) fb))))
 
+(extend-type #?(:clj clojure.lang.Delay, :cljs Delay)
+  Applicative
+  (-pure [_ x] (delay x))
+  (-fapply [Df Da] (delay ((force Df) (force Da)))))
+
 (tests
   (fapply (Identity. inc) (Identity. 1))
   := (Identity. 2)

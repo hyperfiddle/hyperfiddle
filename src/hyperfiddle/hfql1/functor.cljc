@@ -46,6 +46,11 @@
 
 (defn runIdentity "The Identity F-Algebra on Identity" [Id_a] (:a Id_a))
 
+;; Question: do we want to implement Functor (and Applicative/Monad/ etc.) onto the implicit clojure-baked Identity context?
+;; If so `(fmap inc 1)` would be strictly equivalent to `(inc 1)`. Comonad's extract would be identity, etc.
+;; It's easy to do: implement it on Object/:default.
+;; But is it a good idea?
+
 ;; FIXME cljs can't extend a protocol onto another protocol (e.g. ISeq)
 ;; Solution (todo implement):
 ;; - list all concrete types
@@ -83,6 +88,9 @@
   ;; MapEntry
   #?(:clj clojure.lang.AMapEntry :cljs MapEntry)
   (-fmap [fa a->b] (first {(key fa) (a->b (val fa))}))
+
+  #?(:clj clojure.lang.Delay, :cljs Delay)
+  (-fmap [fa a->b] (delay (a->b (force fa))))
   )
 
 (extend-protocol FunctorDiscard
