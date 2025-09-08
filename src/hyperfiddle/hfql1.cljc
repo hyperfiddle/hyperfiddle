@@ -1,4 +1,23 @@
-;; * Rules of HFQL
+;; * What is it
+;;   - HFQL is a data navigation and querying utility.
+;;   - Given a symbolic query representation, HFQL produces navigation functions.
+;;   - The query language is an extension of Datomic Pull syntax.
+;;     - It is a goal for HFQL to support any valid Datomic pull expression.
+;;
+;;
+;;   - Technically, HFQL is
+;;     - a comonad: because HFQL-generated step functions carries and model the
+;;       navigation context, e.g. lexical scope, parent/sibling dependencies,
+;;       etc.
+;;     - a cofree comonad: because calling an HFQL generated function returns a
+;;       pair `[result continuation]`, where `continuation` is itself an HFQL
+;;       generated function, modeling "how to navigate further". It is possible
+;;       to extend the navigation plan without running it or reanalyzing it.
+;;     - a coalgebra producing a cofree comonad: because repeated applications
+;;       of `continuation` over `result` (coiteration) produces the whole cofree
+;;       structure. Eagerly realizing this structure gives us half of
+;;       datomic.api/pull. The other half is in charge of producing a nested structure.
+;; * Rules of HFQL – internal
 ;;
 ;; ** Don't force an evaluation model ①
 ;;    HFQL can be lazy or eager. But it's on the user to decide how to run it.
