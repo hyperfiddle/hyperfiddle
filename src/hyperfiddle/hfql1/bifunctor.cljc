@@ -32,69 +32,74 @@
     (-bimap p f g)
     (first f (second g p))))
 
-(defrecord Pair [fst snd]
-  Functor
-  (-fmap [p f] (second f p))
+(defprotocol IPair
+  (fst [pair] "fst :: (a, b) -> a.  Extract the first component of a pair.")
+  (snd [pair] "snd :: (a, b) -> b. Extract the second component of a pair."))
+
+(defn pair [a b] (clojure.core/first {a b}))
+
+(extend-type #?(:clj clojure.lang.AMapEntry :cljs MapEntry)
+  IPair
+  (fst [entry] (key entry))
+  (snd [entry] (val entry))
   Bifunctor
-  (-bimap [_ f g] (Pair. (f fst) (g snd))))
+  (-bimap [entry f g] (clojure.core/first {(f (fst entry)) (g (snd entry))})))
 
 (tests
   "second ≡ fmap"
-  (second inc (->Pair nil 1))
-  := (fmap inc (->Pair nil 1)))
+  (second inc (pair nil 1))
+  := (fmap inc (pair nil 1)))
 
 (tests
   "second id ≡ id"
-  (second id (->Pair nil 1))
-  := (->Pair nil 1))
+  (second id (pair nil 1))
+  := (pair nil 1))
 
 (tests
   "bimap id id ≡ id"
-  (bimap id id (->Pair 1 2))
-  := (->Pair 1 2))
+  (bimap id id (pair 1 2))
+  := (pair 1 2))
 
 (tests
   "first id ≡ id, second id ≡ id"
-  (first id (->Pair "a" 1))
-  := (->Pair "a" 1)
+  (first id (pair "a" 1))
+  := (pair "a" 1)
 
-  (second id (->Pair "a" 1))
-  := (->Pair "a" 1))
+  (second id (pair "a" 1))
+  := (pair "a" 1))
 
 (tests
   "bimap f g ≡ first f ∘ second g"
-  (bimap inc str (->Pair 1 2))
-  := (first inc (second str (->Pair 1 2))))
+  (bimap inc str (pair 1 2))
+  := (first inc (second str (pair 1 2))))
 
 (tests
   "bimap (f ∘ g) (h ∘ i) ≡ bimap f h ∘ bimap g i"
-  (bimap (comp str inc) (comp str inc) (->Pair 1 2))
-  := (bimap str str (bimap inc inc (->Pair 1 2))))
+  (bimap (comp str inc) (comp str inc) (pair 1 2))
+  := (bimap str str (bimap inc inc (pair 1 2))))
 
 (tests
   "first (f ∘ g) ≡ first f ∘ first g"
-  (first (comp str inc) (->Pair 1 2))
-  := (first str (first inc (->Pair 1 2))))
+  (first (comp str inc) (pair 1 2))
+  := (first str (first inc (pair 1 2))))
 
 (tests
   "second (f ∘ g) ≡ second f ∘ second g"
-  (second (comp str inc) (->Pair 1 2))
-  := (second str (second inc (->Pair 1 2))))
+  (second (comp str inc) (pair 1 2))
+  := (second str (second inc (pair 1 2))))
 
-(defn fst "fst :: (a, b) -> a.  Extract the first component of a pair." [pair] (:fst pair))
-(defn snd "snd :: (a, b) -> b. Extract the second component of a pair." [pair] (:snd pair))
-(defn swap "swap :: (a,b) -> (b, a). Swap the components of a pair." [pair] (->Pair (snd pair) (fst pair)))
+(defn swap "swap :: (a,b) -> (b, a). Swap the components of a pair." [p] (pair (snd p) (fst p)))
 
 (tests
-  (fst (->Pair 1 2)) := 1
-  (snd (->Pair 1 2)) := 2
-  (fst (swap (->Pair 1 2))) := 2
-  (snd (swap (->Pair 1 2))) := 1)
+  (fst (pair 1 2)) := 1
+  (snd (pair 1 2)) := 2
+  (fst (swap (pair 1 2))) := 2
+  (snd (swap (pair 1 2))) := 1)
 
 (defn curry "curry :: ((a, b) -> c) -> a -> b -> c. Convert an uncurried function to a curried function."
   ([f] (partial curry f))
   ([f x] (partial curry f x))
-  ([f x y] (f (->Pair x y))))
+  ([f x y] (f (pair x y))))
 
 (defn uncurry "uncurry :: (a -> b -> c) -> ((a, b) -> c). Converts a curried function to a function on pairs."
   ([f] (partial uncurry f))
@@ -104,8 +109,8 @@
 (tests
   (((curry fst) 1) 2)
   := 1
-  ((uncurry +) (->Pair 1 2))
+  ((uncurry +) (pair 1 2))
   := 3
 
-  ((uncurry str) (swap (->Pair 1 2)))
+  ((uncurry str) (swap (pair 1 2)))
   := "21")
