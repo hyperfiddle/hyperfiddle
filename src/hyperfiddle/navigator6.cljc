@@ -21,7 +21,7 @@
             [hyperfiddle.hfql1.cofree-comonad :refer [unwrap]]
             [hyperfiddle.hfql1.monad :refer [join]]
             [hyperfiddle.hfql1.functor :refer [fmap]]
-            [hyperfiddle.hfql1.bifunctor :refer [->Pair]]
+            [hyperfiddle.hfql1.bifunctor :refer [->Pair fst snd]]
             )
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
@@ -712,7 +712,7 @@
 #?(:clj
    (defn- eager-pull-search-sort-BIG-O-N-SQUARE []
      ;; (prn `eager-pull-search-sort-BIG-O-N-SQUARE edge hfql-bindings search sort-spec)
-     (let [filter-pred (prefix-filterer (fn [needle pair] (search-matches (:second pair) needle)))]
+     (let [do-filter (prefix-filterer (fn [needle pair] (search-matches (snd pair) needle)))]
        (fn [hfql hfql-bindings search sort-spec]
          (try
            (debug-exceptions `eager-pull-search-sort-BIG-O-N-SQUARE
@@ -720,16 +720,16 @@
              (let [pulled (sequence
                             (eduction
                               (map (join ->Pair)) ; duplicate arg and apply both to ->Pair
-                              (map (fmap pull))
-                              (map (fmap extract))
+                              (map (fmap pull)) ; pull right side of pair
+                              (map (fmap extract)) ; extract right side of pair
                               (unwrap hfql)))
                    filtered (if (not-empty search)
-                              (filter-pred search pulled)
+                              (do-filter search pulled)
                               pulled)
                    sorted (if-some [sorter (and (not-empty sort-spec) (->sort-comparator sort-spec))]
-                            (try (sort-by :second sorter filtered) (catch Throwable _ filtered))
+                            (try (sort-by snd sorter filtered) (catch Throwable _ filtered))
                             filtered)]
-               (with-meta (map :first sorted) (meta (extract hfql)))))
+               (with-meta (map fst sorted) (meta (extract hfql)))))
            (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) []))))))
 
 (defn caching-nth

@@ -32,11 +32,11 @@
     (-bimap p f g)
     (first f (second g p))))
 
-(defrecord Pair [first second]
+(defrecord Pair [fst snd]
   Functor
-  (-fmap [p f] (hyperfiddle.hfql1.bifunctor/second f p))
+  (-fmap [p f] (second f p))
   Bifunctor
-  (-bimap [_ f g] (Pair. (f first) (g second))))
+  (-bimap [_ f g] (Pair. (f fst) (g snd))))
 
 (tests
   "second ≡ fmap"
@@ -81,3 +81,31 @@
   (second (comp str inc) (->Pair 1 2))
   := (second str (second inc (->Pair 1 2))))
 
+(defn fst "fst :: (a, b) -> a.  Extract the first component of a pair." [pair] (:fst pair))
+(defn snd "snd :: (a, b) -> b. Extract the second component of a pair." [pair] (:snd pair))
+(defn swap "swap :: (a,b) -> (b, a). Swap the components of a pair." [pair] (->Pair (snd pair) (fst pair)))
+
+(tests
+  (fst (->Pair 1 2)) := 1
+  (snd (->Pair 1 2)) := 2
+  (fst (swap (->Pair 1 2))) := 2
+  (snd (swap (->Pair 1 2))) := 1)
+
+(defn curry "curry :: ((a, b) -> c) -> a -> b -> c. Convert an uncurried function to a curried function."
+  ([f] (partial curry f))
+  ([f x] (partial curry f x))
+  ([f x y] (f (->Pair x y))))
+
+(defn uncurry "uncurry :: (a -> b -> c) -> ((a, b) -> c). Converts a curried function to a function on pairs."
+  ([f] (partial uncurry f))
+  ([f pair]
+   (f (fst pair) (snd pair))))
+
+(tests
+  (((curry fst) 1) 2)
+  := 1
+  ((uncurry +) (->Pair 1 2))
+  := 3
+
+  ((uncurry str) (swap (->Pair 1 2)))
+  := "21")
