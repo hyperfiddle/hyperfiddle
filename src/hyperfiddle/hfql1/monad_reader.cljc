@@ -14,20 +14,18 @@
 
 (defrecord Reader [r->a]
   Functor
-  (-fmap [ma a->b] (->Reader (comp a->b r->a)))
+  (-fmap [ma a->b] (Reader. (comp a->b r->a)))
   Applicative
-  (-fapply [mf mx] (->Reader (fn [r]
+  (-fapply [mf mx] (Reader. (fn [r]
                               (let [f (runReader mf r)
                                     x (runReader mx r)]
                                 (f x)))))
-  (-pure [_ r->a] (->Reader (constantly r->a)))
+  (-pure [_ r->a] (Reader. (constantly r->a)))
   Monad
-  (-bind [ma k] (->Reader (fn [r] (runReader (k (runReader ma r)) r))))
+  (-bind [ma k] (Reader. (fn [r] (runReader (k (runReader ma r)) r))))
   MonadReader
-  (-local [ma r->r]
-    (->Reader (fn [r] (runReader ma (r->r r)))))
-  (-reader [_ r->a]
-    (->Reader r->a)))
+  (-local [ma r->r] (Reader. (fn [r] (runReader ma (r->r r)))))
+  (-reader [_ r->a] (Reader. r->a)))
 
 (defn local "local :: (r -> r) -> Reader r a -> Reader r a" [r->r Ra] (-local Ra r->r))
 (defn reader [r->a] (-reader (->Reader id) r->a))

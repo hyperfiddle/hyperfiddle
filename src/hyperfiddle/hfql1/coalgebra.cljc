@@ -16,7 +16,7 @@
 
 (def ^:dynamic *navigate* safe-ccp-nav) ; default is to navigate objects, except in UIs where, at leaves, where we want to see the symbolic values
 
-(defn- projection-type [projection]
+(defn projection-type [projection]
   (or #_(preanalyzed-projection-type projection)
     (some-> projection meta ::projection projection-type)
     (cond
@@ -26,7 +26,7 @@
       (map? projection)    ::traversal
       (ifn? projection)    ::ifn)))
 
-(defn- pull-key [expr]
+(defn pull-key [expr]
   (cond
     (map? expr) (key (first expr))
     :else expr))
@@ -50,6 +50,7 @@
 (defn leaf [reader] (fmap (fn [v] [v ()]) reader))
 
 (declare unchunk-seq)
+(defn- ensure-seqable [x] (if (seqable? x) x (cons x nil)))
 
 (defn hfqlT ; TODO if possible, express in term of Ψ and unfoldT/coiterT. I.e. separate ψ from unfold, ensuring no recursivity.
   "Analyze phase: turns a symbolic HFQL expression into a CofreeT Reader, producing an HFQL program
@@ -77,25 +78,32 @@
                             (delay
                               (let [dynamic-star-keys (keys (get (force with-star) '*))
                                     static-user-keys (map (comp ::key meta) kids-no-star)
-                                    new-star-keys (remove (set static-user-keys) dynamic-star-keys)]
-                                (concat kids-no-star (build-kids new-star-keys))))])))))
+                                    new-star-keys (remove (set static-user-keys) dynamic-star-keys)
+                                    children (concat kids-no-star (build-kids new-star-keys))]
+                                (map (fn [childT]
+                                       (-> (cofreeT (local (constantly (force base)) (unwrapT childT)))
+                                         (vary-meta merge (meta childT) {::param-base childT, ::env (force base)})))
+                                  children)))])))))
       ::traversal
       (let [[f sub] (first projection) ; assumes all multi traversals have been normalized to single traversals already
-            star? (and (map? sub) (contains? sub '*))]
+            star? (= '* f)
+            f (if star? identity f)]
         (-> (cofreeT (asks (fn [env]
-                             (let [childT (hfqlT (if star? (get sub '*) sub))
+                             (let [childT (hfqlT sub)
                                    v (delay (f env))
                                    next-child (fn [v]
                                                 (delay
                                                   (-> (cofreeT (local (constantly (force v)) (unwrapT childT)))
-                                                    (vary-meta merge (meta childT) {::param-base childT}))))]
-                               [v (delay (map next-child (if star? (unchunk-seq (force v)) [(force v)])))]))))
+                                                    (vary-meta merge (meta childT) {::param-base childT, ::env v}))))]
+                               [v (delay (map next-child (ensure-seqable (if star? (unchunk-seq (force v)) [(force v)]))))]))))
           (vary-meta assoc ::star star?))))
     (vary-meta assoc ::projection projection, ::key (pull-key projection))))
 
 ;;;;;;;;;;
 ;; Pull ;;
 ;;;;;;;;;;
+
+(defn- star-child? [W] (some-> W unwrap first meta ::star))
 
 (defn- pull-algebra [W children]
   (let [v (extract W)]
@@ -106,14 +114,21 @@
                          (assoc r k child)))
                v (map vector (keys v) children))
       ::traversal {(::key (meta W))
-                   (if (::star (meta W))
+                   (if (star-child? W)
+                     ;; Problem: is `(0)` a single child, or a * traversal that
+                     ;; produced a collection of a single element? At this point
+                     ;; '* nodes have already been filtered out, but the
+                     ;; filtering op has tagged star children with ::star. so if
+                     ;; the first child at point has ::star, then all of them
+                     ;; should have it too, and it means these children have
+                     ;; been flattened in by star.
                      (vary-meta children assoc ::star true)
                      (first children))}
       (if (empty? children)
         v
         {(::key (meta W)) v}))))
 
-(def pull "Equivalent of `datomic.api/pull`. Reshape an HFQL tree `W` into a post-order version of the same tree.
+(defn pull "Equivalent of `datomic.api/pull`. Reshape an HFQL tree `W` into a post-order version of the same tree.
   Lazy in theory, eager in practice.
   `(pull W)` is O(1) and its result can be navigated just like `W`. The type is
   W a -> W a. But because the tree returned by pull is now in post-order, then
@@ -124,13 +139,22 @@
   Asking for all values of (pull W) means traversing the eagerly projected
   expression. This can be seen as a \"renavigation\" onto a precomputed tree.
   "
+  [W] ; could be written point-free but adding a point produces better stacktraces
   ;; Note `pull` is defined in term of comonadic operations. `pull-algebra` is the
   ;; interpreter "zipping" values up the tree. The sole purpose of `pull-algebra` is to re-attach
   ;; keys onto projected values, producing a result of the same shape as the original symbolic
   ;; query.
-  (comp (synthesize pull-algebra) duplicate))
+  ((synthesize pull-algebra) (duplicate W)))
 
 ;;; ----------------------------------
+
+(defn- skip-intermediate-star-fan-outs
+  "Star-traversals are syntactic. The value at a star point – e.g. {'* ...} – is
+  the same as the parent and it is not interesting to produce a node for it. We
+  want to skip over it and inline children in place." []
+  (mapcat (fn [child] (if (::star (meta child))
+                        (map #(vary-meta % assoc ::star true) (unwrap child))
+                        [child]))))
 
 (defn seed
   "Turns an HFQL program into a fully lazily navigable structure by providing an
@@ -173,18 +197,20 @@
   ³: except for \"pull\" ops – they peek at their direct children (max one level) to build a {key
   value} structure.
   "
-[t env]
+  [t env]
   (let [t (force t)
         [a kidsT] (runReader (unwrapT t) env)]
     (-> (->Cofree a
           (delay
-            (sequence
-              (comp (map (juxt identity #(seed % env)))
-                (map (fn [[pt c]]
-                       (let [base (or (::param-base (meta (force pt))) (force pt))]
-                         (vary-meta c #(merge % {::param base}))))))
-              (unchunk-seq (force kidsT)))))
-      (vary-meta #(merge (meta t) {::param t} %)))))
+            (sequence ; dummy cast to support `count` – Virtual Scroll UI needs to know children count.
+              (eduction
+                (map (juxt identity #(seed % env)))
+                (map (fn [[cofreeT-child hydrated-child]]
+                       (let [base (or (::param-base (meta (force cofreeT-child))) (force cofreeT-child))]
+                         (vary-meta hydrated-child #(merge % {::param base})))))
+                (skip-intermediate-star-fan-outs)
+                (unchunk-seq (force kidsT))))))
+      (vary-meta #(merge {::env env} (meta t) {::param t} %)))))
 
 (defn reseed
   "See `seed` for a high-level overview. Given an injected Cofree node `w` and a
@@ -268,7 +294,6 @@
   := 15
   )
 
-
 (tests
   ;; Simple HFQL-style case {identity [:a :b]} via unfoldT
   (defn psi-pull [spec]
@@ -315,16 +340,15 @@
 
   (let [fork (fn [x] (list x x))]
     (values (seed (hfqlT {identity {fork {fork fork}}}) '.)))
-   := '(              .
-                    (. .)
-                ((. .) (. .))
-        (((. .) (. .)) ((. .) (. .)))) ; 8 elements
+  := '(              .
+                   (. .)
+               ((. .) (. .))
+       (((. .) (. .)) ((. .) (. .))))  ; 8 elements
 
-
-   (let [fork (fn [x] (list x x))]
-     (values (seed (hfqlT {identity {fork {'* {fork {'* fork}}}}}) '.)))
-    := '(. (. .) (. .) (. .) (. .) (. .) (. .) (. .)) ; 8 elements
-    ;; * doesn't flatten, it fans-out, `values` is responsible for the apparent flattening. Values arbitrarily traverses in pre-order.
+  (let [fork (fn [x] (list x x))]
+    (values (seed (hfqlT {identity {fork {'* {fork {'* fork}}}}}) '.)))
+  := '(. (. .) (. .) (. .) (. .) (. .) (. .) (. .)) ; 8 elements
+  ;; * doesn't flatten, it fans-out, `values` is responsible for the apparent flattening. Values arbitrarily traverses in pre-order.
 
   )
 
@@ -376,7 +400,7 @@
 
   (extract (pull (seed (hfqlT {range {'* {inc inc}}}) 3)))
 
-  (extract (pull (seed (hfqlT {ns-publics {'* val}}) *ns*)))
+  #?(:clj (extract (pull (seed (hfqlT {ns-publics {'* val}}) *ns*))))
 
   )
 
