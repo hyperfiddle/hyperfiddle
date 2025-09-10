@@ -91,6 +91,9 @@
 
   #?(:clj clojure.lang.Delay, :cljs Delay)
   (-fmap [fa a->b] (delay (a->b (force fa))))
+
+  #?(:clj clojure.lang.Fn, :cljs function)
+  (-fmap [fa f] (comp f fa))
   )
 
 (extend-protocol FunctorDiscard

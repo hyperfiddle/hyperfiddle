@@ -19,6 +19,7 @@
             [hyperfiddle.hfql1.coalgebra :as coalgebra :refer [projection-type pull hfqlT seed pull-key]]
             [hyperfiddle.hfql1.comonad :refer [extract]]
             [hyperfiddle.hfql1.cofree-comonad :refer [unwrap]]
+            [hyperfiddle.hfql1.monad :refer [join]]
             [hyperfiddle.hfql1.functor :refer [fmap]]
             [hyperfiddle.hfql1.bifunctor :refer [->Pair]]
             )
@@ -718,7 +719,7 @@
              ;; (Thread/sleep 3000)
              (let [pulled (sequence
                             (eduction
-                              (map #(->Pair % %))
+                              (map (join ->Pair)) ; duplicate arg and apply both to ->Pair
                               (map (fmap pull))
                               (map (fmap extract))
                               (unwrap hfql)))

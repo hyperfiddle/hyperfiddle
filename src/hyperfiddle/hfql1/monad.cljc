@@ -24,9 +24,19 @@
      (A/with-context *context*
        ~@body)))
 
+(defmulti valid-bind-return-value?
+  "Monadic bind is supposed to produce the same monad as the one passed in.
+  But given clojure shenanigans we also allow subtypes. E.g.
+  - MetaFn <: Fn – is a subtype of
+  - (type +) ≠ (type -) in clojure, but true in cljs
+  - PersistentArrayMap ≮: PersistentHashMap and vice-versa and accepting common ancestors is brittle."
+  (fn [input output] (type input)))
+
+(defmethod valid-bind-return-value? :default [input output] (isa? (type output) (type input)))
+
 (defn bind [ma a->mb]
   {:pre [(satisfies? Monad ma)]
-   :post [(satisfies? Monad %) (= (type ma) (type %))]}
+   :post [(satisfies? Monad %) (valid-bind-return-value? ma %) #_(= (type ma) (type %))]}
   (binding [*context* ma]
     (-bind ma (fn [a]
                 (binding [*context* ma]
@@ -105,3 +115,29 @@
     (fmap inc (Identity. 1))
     := (>>= (Identity. 1) (comp return inc)))
   )
+
+;;; Extensions
+
+(extend-type #?(:clj clojure.lang.Fn, :cljs function)
+  ;; Functions are monads: https://hackage.haskell.org/package/ghc-internal-9.1201.0/docs/src/GHC.Internal.Base.html#line-1539
+  Monad
+  (-bind [Ff k] (fn bound [a] ((k (partial Ff a)) a))))
+
+(defmethod valid-bind-return-value? #?(:clj clojure.lang.Fn, :cljs js/Function) [input output]
+  (and (fn? input) (fn? output)))
+
+
+(tests
+  ((join +) 2) := 4  ; join on a function duplicates arguments
+  ((join *) 5) := 25
+  ((join +) 2)
+  := (#(+ % %) 2)
+
+  ((join +) 2)
+  := ((comp (partial apply +) (juxt identity identity)) 2)
+  )
+
+(tests
+  ((bind id (fn [xf] #(+ (xf) %))) ; ⚠ note `id` has been curried and must be forced. Clojure doesn't have proper auto-currying.
+   4)
+  := 8)

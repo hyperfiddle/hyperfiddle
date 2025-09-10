@@ -15,7 +15,7 @@
 
 (defn fapply "<*> :: f (a -> b) -> f a -> f b" [fa->b fa]
   {:pre [(satisfies? Applicative fa)]
-   :post [(satisfies? Applicative %) (= (type fa) (type %))]}
+   :post [(satisfies? Applicative %) #_(= (type fa) (type %))]}
   (-fapply fa->b fa))
 
 (def <*> "<*> aka fapply :: f (a -> b) -> f a -> f b" fapply)
@@ -64,6 +64,11 @@
   Applicative
   (-pure [_ x] (delay x))
   (-fapply [Df Da] (delay ((force Df) (force Da)))))
+
+(extend-type #?(:clj clojure.lang.Fn, :cljs function)
+  Applicative
+  (-pure [_ a] (constantly a))
+  (-fapply [Ff Fa] (fn [b] ((Ff b) (Fa b)))))
 
 (tests
   (fapply (Identity. inc) (Identity. 1))
