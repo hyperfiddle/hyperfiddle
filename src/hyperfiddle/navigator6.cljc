@@ -16,12 +16,14 @@
             [geoffreygaillard.predicates :as pred]
             #?(:clj [clojure.tools.logging :as log])
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
-            [hyperfiddle.hfql1.coalgebra :as coalgebra :refer [projection-type pull hfqlT seed pull-key]]
+            [hyperfiddle.hfql1.functor :refer [fmap]]
+            [hyperfiddle.hfql1.bifunctor :refer [pair fst snd]]
+            [hyperfiddle.hfql1.monoid :refer [mappend]]
+            [hyperfiddle.hfql1.monad :refer [join]]
             [hyperfiddle.hfql1.comonad :refer [extract]]
             [hyperfiddle.hfql1.cofree-comonad :refer [unwrap]]
-            [hyperfiddle.hfql1.monad :refer [join]]
-            [hyperfiddle.hfql1.functor :refer [fmap]]
-            [hyperfiddle.hfql1.bifunctor :refer [->Pair fst snd]]
+            [hyperfiddle.hfql1.coalgebra :as coalgebra :refer [projection-type pull hfqlT seed reseed pull-key]]
+            
             )
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
@@ -418,7 +420,7 @@
        #_(prn {'static-keys static-keys
              'static-kvs static-children
              'dynamic-kvs dynamic-children})
-       (concat (keep (fn [pullspec-key] (get static-map pullspec-key)) static-keys)
+       (mappend (keep (fn [pullspec-key] (get static-map pullspec-key)) static-keys)
          (?sort-by (comp ::coalgebra/key meta) (remove (comp some? static-keyset ::coalgebra/key meta) dynamic-children))))))
 
 #?(:clj (defn- realize ; TODO useful enough and hard-to-get-right enough to promote to HFQL
@@ -603,7 +605,6 @@
 
 (e/defn RenderSeqableHeader [hfql !sort-spec]
   (e/server
-    ;; (when-some [columns (seq (hfql/value hfql))])
     (dom/thead
       (dom/tr
         (e/for [child (e/server (e/diff-by {} (unwrap (first (unwrap hfql)))))]
@@ -626,17 +627,20 @@
 
 (defn- get-sequable-columns [hfql suggestions]
   (prn "here - suggestions" suggestions)
-  (let [static-columns (if (= ::coalgebra/pull (projection-type hfql))
-                         (map (comp ::coalgebra/key meta) (unwrap hfql))
+  (let [pull (first (unwrap hfql))
+        static-columns (if (= ::coalgebra/pull (projection-type pull))
+                         (map (comp ::coalgebra/key meta) (unwrap pull))
                          #_(hfql/value (hfql/filter-pull (complement hfql/star?) hfql))
                          [])
-        resolved-keys (into #{} static-columns #_(map hfql/resolved-form static-columns))
+        resolved-keys (mappend #{} static-columns #_(map hfql/resolved-form static-columns))
         pre-checked? (#(or (and #_(hfql/pull? hfql) (= ::coalgebra/pull (projection-type hfql))
                              #_(hfql/pull-has-star? hfql))
                          (empty? static-columns)))
-        suggested-columns [] #_(hfql/filter-pull (fn [hfql] (not (resolved-keys (hfql/resolved-form hfql)))) suggestions)]
+        suggested-columns suggestions
+        #_(hfql/filter-pull (fn [hfql] (not (resolved-keys (hfql/resolved-form hfql)))) suggestions)]
     (def _ret [static-columns suggested-columns pre-checked?])
-    [nil nil nil]))
+    #_[nil nil nil]
+    _ret))
 
 (e/defn RenderSeqableTitle [hfql row-count Search Suggest*]
   (e/server (def _rst_args [hfql row-count (Suggest*)]))
@@ -658,14 +662,15 @@
                 (let [from-spec (e/as-vec (e/for [edge (e/diff-by {} static-columns)]
                                             (e/When (forms/Checkbox* true :label (e/server (pr-str edge) #_(labelize edge)) :title (e/server (pr-str edge)#_(hfql/resolved-form edge)))
                                               edge)))
-                      selected [] #_(e/as-vec (e/for [edge (e/diff-by {} (hfql/value suggested-columns))]
-                                              (e/When (forms/Checkbox* pre-checked :label (e/server (labelize edge)) :title (e/server (hfql/resolved-form edge)))
-                                                edge)))]
+                      selected (e/as-vec (e/for [edge (e/diff-by {} suggested-columns)]
+                                           (e/When (forms/Checkbox* pre-checked :label (e/server (str edge)) :title (e/server (str edge)))
+                                             edge)))]
                   ;; (prn "from spec" from-spec)
                   ;; (prn "static columns" static-columns)
                   ;; (prn "suggested-columns" suggested-columns)
-                  #_(hfql/build-pull (into from-spec selected))
-                  (seed (hfqlT (into from-spec selected)) (extract hfql)))))))))))
+                  (seed (hfqlT {'* (mappend from-spec selected)})
+                    (extract hfql) ; because we know we are in the seqable case
+                    ))))))))))
 
 (defmulti search-matches (fn [object _needle] (type object)))
 (defmethod search-matches :default [object needle] (strx/any-matches? object needle))
@@ -719,7 +724,7 @@
              ;; (Thread/sleep 3000)
              (let [pulled (sequence
                             (eduction
-                              (map (join ->Pair)) ; duplicate arg and apply both to ->Pair
+                              (map (join pair)) ; duplicate arg and apply both to ->Pair
                               (map (fmap pull)) ; pull right side of pair
                               (map (fmap extract)) ; extract right side of pair
                               (unwrap hfql)))
@@ -769,6 +774,11 @@
   (or (some-> hfql unwrap first unwrap count)
     0))
 
+(defn- first-value [hfql]
+  (some-> hfql unwrap first extract))
+
+;; (e/defn Max ([x] (swap! (atom ##-Inf) max x)))
+
 (e/defn RenderSeqable [hfql effect-handlers Search route-state]
   ;; (e/server (prn 'RenderSeqable (meta hfql)))
   (e/server
@@ -786,18 +796,19 @@
             (let [free-args        (e/server
                                      (RenderSeqableTitle hfql row-count Search
                                        (e/fn []
-                                         #_(let [first-item (e/Snapshot (first %))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
-                                             (doto (hfql/suggest (hfql/safe-ccp-nav % nil first-item))
-                                               (->> (prn "out of suggest")))))))
+                                         (let [coll (extract hfql)
+                                               first-item (e/Snapshot (first coll))] ; snapshot so we don't re-infer if query shrinks to 0. Also prevents nasty crash
+                                           (doto (hfql/suggest (hfql/safe-ccp-nav coll nil first-item))
+                                             (->> (prn "out of suggest")))))))
                   search-cmd       (let [Search (e/server (first free-args))]
                                      (e/Reconcile (when Search
                                                     (e/call Search)))) ; fighting against sited destructuring
-                  columns (e/server (second free-args))
-                  !sort-spec      (atom [[(e/server (::coalgebra/key (meta (first (unwrap columns))))) true]])
+                  hfql (e/server (second free-args))
+                  !sort-spec      (atom [[(e/server (str (::coalgebra/key (meta (first (unwrap hfql)))))) true]])
                   sort-spec       (filterv first (e/watch !sort-spec))
                   row-height       24
                   #_#_column-count     (e/server (hfql/count columns))
-                  children          (e/server (unwrap hfql))
+                  children          (e/server (extract hfql))
                   children-count    (e/server (bounded-count COLLECTION-LIMIT children)) ; O(n)
                   children-filtered (e/server (e/Reconcile (if (< children-count COLLECTION-LIMIT)
                                                              ((eager-pull-search-sort-BIG-O-N-SQUARE) hfql e/*bindings* *search sort-spec)
@@ -808,10 +819,11 @@
               ;; (e/server (prn 'free-args free-args))
               (prn 'count children-count)
               (prn 'sort-spec sort-spec)
+              ;; (e/server (prn 'columns (unwrap columns)))
               (reset! !row-count children-count)
               search-cmd                    ; force order
               (dom/table
-                (dom/props {:style {:--row-height (str row-height "px"), :--column-count (e/server (e/Snapshot (infer-column-count hfql))) #_column-count}})
+                (dom/props {:style {:--row-height (str row-height "px"), :--column-count (e/server (max 1 (count (unwrap (first (unwrap hfql))))))}})
                 (RenderSeqableHeader hfql !sort-spec)
                 (forms/Interpreter effect-handlers
                   (e/amb

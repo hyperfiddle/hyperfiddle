@@ -442,6 +442,8 @@
          ]
      (vary-meta lifted-fn #(cc/merge metadata %)))))
 
+(def lift lift2)
+
 #?(:clj
    (defmethod print-method ::edge [object writer]
      (.write writer (str "#" `hfql "[" (short-form object) "]"))))
@@ -797,7 +799,7 @@
 
 (defn- call [f & args] (apply f args))
 
-#?(:clj (defn- is-array? [x]
+#?(:clj (defn is-array? [x]
           {:post [(boolean? %)]}
           (boolean (some-> x class .isArray))))
 
@@ -1350,9 +1352,9 @@ identifier, though it might not be serializable."
 
 (extend-protocol Suggestable
   #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
-  (-suggest [m] (build-pull (map lift2 (keys m))))
+  (-suggest [m] (keys m) #_(build-pull (map lift (keys m))))
   #?(:clj Object, :cljs default)
-  (-suggest [_] (hfql [identity identify type]))
+  (-suggest [_] #_(hfql) [identity identify type])
   nil (-suggest [_]))
 
 #?(:clj (extend-type Class

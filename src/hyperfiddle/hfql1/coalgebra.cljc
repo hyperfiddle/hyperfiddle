@@ -215,10 +215,11 @@
 (defn reseed
   "See `seed` for a high-level overview. Given an injected Cofree node `w` and a
   new environment `env'`, re-hydrates the corresponding subtree."
-  [w env']
-  (if-let [t (::param (meta w))]
-    (seed t env')
-    (throw (ex-info "No ::param backref on node; cannot reseed" {}))))
+  ([w] (partial reseed w))
+  ([w env']
+   (if-let [t (::param (meta w))]
+     (seed t env')
+     (throw (ex-info "No ::param backref on node; cannot reseed" {})))))
 
 
 (defn- unfoldT ; for future improvements
