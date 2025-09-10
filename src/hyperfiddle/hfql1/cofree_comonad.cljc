@@ -19,7 +19,7 @@
   (-extract [_] (force a))
   (-extend [Wa wa->b]
     (vary-meta
-      (->Cofree (delay (wa->b Wa))
+      (Cofree. (delay (wa->b Wa))
         (map (extend wa->b) (unwrap Wa)))
       #(merge (meta Wa) %)))
   (-duplicate [Wa] (extend identity Wa))
