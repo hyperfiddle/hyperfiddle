@@ -21,7 +21,7 @@
             [hyperfiddle.hfql1.monoid :refer [mappend]]
             [hyperfiddle.hfql1.monad :refer [join]]
             [hyperfiddle.hfql1.comonad :refer [extract]]
-            [hyperfiddle.hfql1.cofree-comonad :refer [unwrap]]
+            [hyperfiddle.hfql1.cofree :refer [unwrap]]
             [hyperfiddle.hfql1.coalgebra :as coalgebra :refer [projection-type pull hfqlT seed reseed pull-key]]
             
             )

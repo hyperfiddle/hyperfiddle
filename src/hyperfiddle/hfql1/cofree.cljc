@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql1.cofree-comonad2 ; coco-coco: generate cofree comonads from a coalgebra using coiteration.
+(ns hyperfiddle.hfql1.cofree
   "Cofree comonads are quite useful for annotating syntax trees, or talking about streams.
 
   https://hackage.haskell.org/package/free-5.2/docs/Control-Comonad-Cofree.html"

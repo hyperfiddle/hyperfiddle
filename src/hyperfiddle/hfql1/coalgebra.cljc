@@ -2,12 +2,16 @@
   (:refer-clojure :exclude [extend])
   (:require
    [clojure.core.protocols :as ccp]
+   [contrib.data :refer [group-by-pred]]
    [clojure.datafy :as datafy]
    [hyperfiddle.hfql1.functor :refer [fmap]]
-   [hyperfiddle.hfql1.comonad :refer [extract duplicate]]
-   [hyperfiddle.hfql1.cofree-comonad :as coco :refer [values synthesize unwrap cofreeT ->Cofree unwrapT]]
+   [hyperfiddle.hfql1.bifunctor :as bf :refer [fst snd bimap pair swap]]
+   [hyperfiddle.hfql1.monoid :refer [mappend]]
+   [hyperfiddle.hfql1.comonad :refer [extract duplicate extend]]
+   [hyperfiddle.hfql1.cofree :as coco :refer [values synthesize unwrap cofreeT cofree unwrapT]]
    [hyperfiddle.hfql1.monad-reader :refer [asks reader local runReader]]
-   [hyperfiddle.rcf :refer [tests]]))
+   [hyperfiddle.rcf :refer [tests]]
+   [hyperfiddle.hfql1.analyzer :as ana :refer []]))
 
 (defn safe-ccp-nav [object key value]
   (if (satisfies? ccp/Navigable object)
@@ -16,150 +20,99 @@
 
 (def ^:dynamic *navigate* safe-ccp-nav) ; default is to navigate objects, except in UIs where, at leaves, where we want to see the symbolic values
 
-(defn projection-type [projection]
-  (or #_(preanalyzed-projection-type projection)
-    (some-> projection meta ::projection projection-type)
-    (cond
-      (= '* projection)    ::star
-      (ident? projection)  ::ident
-      (vector? projection) ::pull
-      (map? projection)    ::traversal
-      (ifn? projection)    ::ifn)))
-
-(defn pull-key [expr]
-  (cond
-    (map? expr) (key (first expr))
-    :else expr))
+(def metas fst)
+(def projection-type (comp ::ana/type metas))
+(def symbolic-edge (comp ::ana/edge metas))
+(def star? (comp #(= ::ana/star %) ::ana/type metas))
+(def star-traversal? (comp #(= ::ana/star %) ::ana/kind metas))
 
 (defn- getter [key] (asks (fn [%] (*navigate* (force %) key (get (force %) key)))))
 (defn- get-or-call [ifn]
   (asks (fn [%]
-          (delay
-            (let [% (force %)]
-              (if (try (contains? % ifn) ; FIXME find a better check
-                       (catch #?(:clj Throwable, :cljs :default) _
-                         #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
-                         false))
-                (runReader (getter ifn) %)
-                (apply ifn % ()) ; FIXME provide args
-                ))))))
+          (let [% (force %)]
+            (if (try (contains? % ifn) ; FIXME find a better check
+                     (catch #?(:clj Throwable, :cljs :default) _
+                       #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+                       false))
+              (runReader (getter ifn) %)
+              (apply ifn % ()) ; FIXME provide args
+              )))))
 
 (defn- touch [object] (if (seqable? object) (doall object) object))
-(defn- star [object] (delay (touch (force object))))
+(defn- star [_] (asks (fn [env] (touch env))))
 
-(defn leaf [reader] (fmap (fn [v] [v ()]) reader))
+(defn leaf [reader] (fmap (fn [v] (pair v ())) reader))
+
+(defn- pull-peek-at-immediate-kids! [env kidsT]
+  ;; Unless I'm mistaken, this is only a test convenience utility.
+  ;; A proper UI wouldn't ask for a pull value at point but
+  ;; would "just" render a key-value layout and iterate on
+  ;; children. Static keys are already available in metas. Dynamic
+  ;; keys are available on children metas. So in a UI there's no
+  ;; need to build a map here, unless there's a use case to render
+  ;; the raw value at point (unpulled), e.g. for an EDN <pre>,
+  ;; which may be no different from of test utility?
+  (->> kidsT
+    (fmap unwrapT)
+    (fmap (fmap #(runReader % env)))
+    (fmap (comp fst snd))
+    (map pair (fmap (comp symbolic-edge unwrapT) kidsT))
+    (into {})))
 
 (declare unchunk-seq)
-(defn- ensure-seqable [x] (if (seqable? x) x (cons x nil)))
 
-(defn hfqlT ; TODO if possible, express in term of Ψ and unfoldT/coiterT. I.e. separate ψ from unfold, ensuring no recursivity.
-  "Analyze phase: turns a symbolic HFQL expression into a CofreeT Reader, producing an HFQL program
-  with no initial value (no seed) and so no dimension. Use (seed ... env) to produce a concrete
-  Cofree Comonad, lazily realizing successive navs as a tree traversal."
-  [projection]
-  (->
-    (case (projection-type projection)
-      ::ident (cofreeT (leaf (getter projection)))
-      ::star (vary-meta (cofreeT (leaf (asks star)))
-               assoc ::star? true)
-      ::ifn (cofreeT (leaf (get-or-call projection)))
-      ::pull (let [build-kids (fn [kids] (map #(vary-meta (hfqlT %) assoc ::key (pull-key %)) kids))
-                   kids (build-kids projection)
-                   kids-no-star (remove #(::star? (meta %)) kids)]
-               (cofreeT
-                 (asks (fn [m]
-                         (let [kids (delay (map (fn [pt] [(::key (meta pt)) (force (first (runReader (unwrapT pt) m)))]) kids))
-                               with-star (delay (into {} (force kids)))
-                               base (delay (let [base (force with-star)]
-                                             (if (contains? base '*)
-                                               (into (get base '*) (dissoc base '*))
-                                               base)))]
-                           [base
-                            (delay
-                              (let [dynamic-star-keys (keys (get (force with-star) '*))
-                                    static-user-keys (map (comp ::key meta) kids-no-star)
-                                    new-star-keys (remove (set static-user-keys) dynamic-star-keys)
-                                    children (concat kids-no-star (build-kids new-star-keys))]
-                                (map (fn [childT]
-                                       (-> (cofreeT (local (constantly (force base)) (unwrapT childT)))
-                                         (vary-meta merge (meta childT) {::param-base childT, ::env (force base)})))
-                                  children)))])))))
-      ::traversal
-      (let [[f sub] (first projection) ; assumes all multi traversals have been normalized to single traversals already
-            star? (= '* f)
-            f (if star? identity f)]
-        (-> (cofreeT (asks (fn [env]
-                             (let [childT (hfqlT sub)
-                                   v (delay (f env))
-                                   next-child (fn [v]
-                                                (delay
-                                                  (-> (cofreeT (local (constantly (force v)) (unwrapT childT)))
-                                                    (vary-meta merge (meta childT) {::param-base childT, ::env v}))))]
-                               [v (delay (map next-child (ensure-seqable (if star? (unchunk-seq (force v)) [(force v)]))))]))))
-          (vary-meta assoc ::star star?))))
-    (vary-meta assoc ::projection projection, ::key (pull-key projection))))
+(defn hfqlT  ; TODO if possible, express in term of Ψ and unfoldT/coiterT. I.e. separate ψ from unfold, ensuring no recursivity.
+  "A coalgebra turning a statically analyzed HFQL Cofree tree into lazy,
+  effectful, step-by-step navigator of type (CofreeT (Meta, (Reader a))).
 
-;;;;;;;;;;
-;; Pull ;;
-;;;;;;;;;;
-
-(defn- star-child? [W] (some-> W unwrap first meta ::star))
-
-(defn- pull-algebra [W children]
-  (let [v (extract W)]
-    (case (projection-type W)
-      ::pull (reduce (fn [r [k child]]
-                       (if (map? child)
-                         (assoc r k (get child k child))
-                         (assoc r k child)))
-               v (map vector (keys v) children))
-      ::traversal {(::key (meta W))
-                   (if (star-child? W)
-                     ;; Problem: is `(0)` a single child, or a * traversal that
-                     ;; produced a collection of a single element? At this point
-                     ;; '* nodes have already been filtered out, but the
-                     ;; filtering op has tagged star children with ::star. so if
-                     ;; the first child at point has ::star, then all of them
-                     ;; should have it too, and it means these children have
-                     ;; been flattened in by star.
-                     (vary-meta children assoc ::star true)
-                     (first children))}
-      (if (empty? children)
-        v
-        {(::key (meta W)) v}))))
-
-(defn pull "Equivalent of `datomic.api/pull`. Reshape an HFQL tree `W` into a post-order version of the same tree.
-  Lazy in theory, eager in practice.
-  `(pull W)` is O(1) and its result can be navigated just like `W`. The type is
-  W a -> W a. But because the tree returned by pull is now in post-order, then
-  navigating onto the first value will eagerly traverse the entire tree `W`.
-  Further navigation will still be lazy, but will be produced from an already
-  fully realized tree.
-
-  Asking for all values of (pull W) means traversing the eagerly projected
-  expression. This can be seen as a \"renavigation\" onto a precomputed tree.
-  "
-  [W] ; could be written point-free but adding a point produces better stacktraces
-  ;; Note `pull` is defined in term of comonadic operations. `pull-algebra` is the
-  ;; interpreter "zipping" values up the tree. The sole purpose of `pull-algebra` is to re-attach
-  ;; keys onto projected values, producing a result of the same shape as the original symbolic
-  ;; query.
-  ((synthesize pull-algebra) (duplicate W)))
-
-;;; ----------------------------------
-
-(defn- skip-intermediate-star-fan-outs
-  "Star-traversals are syntactic. The value at a star point – e.g. {'* ...} – is
-  the same as the parent and it is not interesting to produce a node for it. We
-  want to skip over it and inline children in place." []
-  (mapcat (fn [child] (if (::star (meta child))
-                        (map #(vary-meta % assoc ::star true) (unwrap child))
-                        [child]))))
+  Where a Cofree is fully realized, a CofreeT required a monad (here Reader) to
+  compute the next step. In our model (Reader a) produces the \"context at
+  point\", a.k.a. '%. This lazy CofreeT tree has no initial value and no
+  dimension, meaning children are unknown. Use (seed env ...) to produce a
+  concrete Cofree Comonad, lazily realizing successive navs as a tree
+  traversal."
+  [hfql]
+  (let [content  (extract hfql)
+        children (unwrap hfql)]
+    (case (projection-type content)
+      ::ana/ident (cofreeT (fmap (fmap leaf getter) content))
+      ::ana/fn    (cofreeT (fmap (fmap leaf get-or-call) content))
+      ::ana/star  (cofreeT (fmap (fmap leaf star) content))
+      ::ana/pull
+      (cofreeT
+        (fmap (fn [_]
+                (asks (fn [env]
+                        (let [[[star?] kids] (group-by-pred (comp star? extract) children)
+                              dynamic-keys   (when star? (keys (runReader (star nil) env)))
+                              star-kidsT     (let [static-keys         (set (map (comp symbolic-edge extract) kids))
+                                                   remaining-star-keys (remove static-keys dynamic-keys)]
+                                               (map hfqlT (fmap (fmap swap) (unwrap (ana/analyze {} (vec remaining-star-keys))))))
+                              kidsT          (map hfqlT kids)]
+                          (pair (delay (mappend (pull-peek-at-immediate-kids! env kidsT) (pull-peek-at-immediate-kids! env star-kidsT)))
+                            (mappend kidsT star-kidsT))))))
+          content))
+      ::ana/traversal
+      (cofreeT
+        (fmap (fn [_]
+                (asks (fn [env]
+                        (let [edge (fst (snd content))
+                              new-context (edge env)
+                              [fan-out? childT] (let [direct-child (first children) ; we know traversals have only one child.
+                                                      fan-out?     (star-traversal? (extract direct-child))]
+                                                  [fan-out? (hfqlT (if (star-traversal? (extract direct-child))
+                                                                     (first (unwrap direct-child))
+                                                                     direct-child))])
+                              build-child (fn [new-context] (fmap (bimap #(assoc % ::param-base childT) (local (constantly new-context)))
+                                                              childT))]
+                          (pair new-context
+                            (if fan-out?
+                              (map build-child (unchunk-seq new-context))
+                              [(build-child new-context)]))))))
+          content)))))
 
 (defn seed
   "Turns an HFQL program into a fully lazily navigable structure by providing an
-  initial environment value. An HFQL program is built by calling `(hfqlT
-  <hfql-expr>)`.
+  initial environment value. An HFQL program is built by calling `(-hfql <analyzed-hfql-expr>)`.
 
   Once seeded, an HFQL tree can be lazily traversed (think navigated, e.g. with tree-seq) without
   forcing any userland side effect, up to multiplicity-many branching points (e.g. *)¹.
@@ -173,7 +126,7 @@
 
   Both `seed` and `reseed` are pure and can be considered O(1)².
 
-  Concretely: Turns the value returned by `hfqlT` (a CofreeT) virtual tree with no state (no Reader
+  Concretely: Turns the value returned by `-hfql` (a CofreeT) virtual tree with no state (no Reader
   context) and so no known multiplicity, into a concrete Comonadic tree (aka. Cofree: an infinitely
   unfolding structure) where all \"value at points\" are lazily available and where all children
   multiplicity is lazily known. Traversing the tree (e.g. tree-seq) will lazily realize values at
@@ -197,29 +150,234 @@
   ³: except for \"pull\" ops – they peek at their direct children (max one level) to build a {key
   value} structure.
   "
-  [t env]
-  (let [t (force t)
-        [a kidsT] (runReader (unwrapT t) env)]
-    (-> (->Cofree a
-          (delay
-            (sequence ; dummy cast to support `count` – Virtual Scroll UI needs to know children count.
-              (eduction
-                (map (juxt identity #(seed % env)))
-                (map (fn [[cofreeT-child hydrated-child]]
-                       (let [base (or (::param-base (meta (force cofreeT-child))) (force cofreeT-child))]
-                         (vary-meta hydrated-child #(merge % {::param base})))))
-                (skip-intermediate-star-fan-outs)
-                (unchunk-seq (force kidsT))))))
-      (vary-meta #(merge {::env env} (meta t) {::param t} %)))))
+  ([env] (partial seed env))
+  ([env t]
+   (let [[meta [value kidsT]] (fmap #(runReader % env) (unwrapT t))]
+     (cofree (map (seed env) (unchunk-seq kidsT))
+       (pair (assoc meta ::env env, ::param (::param-base meta t))
+         value)))))
+
+(defn- -analyze [hfql] (fmap swap (ana/analyze {} hfql)))
+(defn- -hfql [hfql] (extract (extend hfqlT (-analyze hfql))))
+(defn- -values [W] (map force (fmap snd (sequence (values W)))))
+
+
+(tests
+  (-values (seed 1 (-hfql inc)))
+  := '(2)
+
+  (-values (seed {:a 1} (-hfql :a)))
+  := '(1)
+
+  (-values (seed {:a 1, :b 2} (-hfql [:a])))
+  := '({:a 1} 1)
+
+  (-values (seed {:a 1, :b 2} (-hfql [:a '*])))
+  := '({:a 1, :b 2} 1 2)
+
+  (-values (seed {:a 1, :b 3} (-hfql {:a inc})))
+  := '(1 2)
+
+  (-values (seed {:a 1, :b 3} (-hfql [{:a inc}])))
+  := '({:a 1} 1 2)
+
+  (-values (seed 1 (-hfql {inc inc})))
+  := '(2 3)
+
+  (-values (seed 1 (-hfql {inc {inc {inc inc}}})))
+  := '(2 3 4 5)
+
+  (let [fork (fn [x] (list x x))]
+    (-values (seed '. (-hfql {identity {fork {fork fork}}}))))
+  := '(              .
+                   (. .)
+               ((. .) (. .))
+       (((. .) (. .)) ((. .) (. .))))  ; 8 elements
+
+  (let [fork (fn [x] (list x x))]
+    (-values (seed '. (-hfql {identity {fork {'* {fork {'* fork}}}}}))))
+  := '(. (. .) (. .) (. .) (. .) (. .) (. .) (. .)) ; 8 elements
+  ;; * doesn't flatten, it fans-out, `-values` is responsible for the apparent flattening. Values arbitrarily traverses in pre-order.
+
+  )
+
+(tests
+  "calling fn in pull"
+  (-values (seed {:a 1, :b 2} (-hfql [identity :a]))) ; FAIL label
+  := [{(list 'quote identity) {:a 1, :b 2}, :a 1} {:a 1, :b 2} 1]
+  )
+
+(tests
+  "traversal in pull"
+  (-values (seed {:a 1, :b "b"} (-hfql ['* {:a inc}])))
+  := '({:a 1, :b "b"} 1 2 "b")
+  )
+
+(defn- pull-algebra [W children]
+  (let [point (extract W)]
+    (case (projection-type point)
+      ::ana/pull (into {}
+                   (map (fn [point value]
+                          (case (projection-type point)
+                            ::ana/traversal value
+                            (pair (symbolic-edge point) value)))
+                     (map extract (unwrap W))
+                     children))
+      ::ana/traversal {(symbolic-edge point)
+                       (if (= ::ana/many (::ana/multiplicity (metas point)))
+                         children #_(vary-meta children assoc ::ana/multiplicity ::ana/many)
+                         (first children))}
+      (snd point))))
+
+(defn pull "Equivalent of `datomic.api/pull`. Reshape an HFQL tree `W` into a post-order version of the same tree.
+  Lazy in theory, eager in practice.
+  `(pull W)` is O(1) and its result can be navigated just like `W`. The type is
+  W a -> W a. But because the tree returned by pull is now in post-order, then
+  navigating onto the first value will eagerly traverse the entire tree `W`.
+  Further navigation will still be lazy, but will be produced from an already
+  fully realized tree.
+
+  Asking for all values of (pull W) means traversing the eagerly projected
+  expression. This can be seen as a \"renavigation\" onto a precomputed tree.
+  "
+  [W] ; could be written point-free but adding a point produces better stacktraces
+  ;; Note `pull` is defined in term of comonadic operations. `pull-algebra` is the
+  ;; interpreter "zipping" values up the tree. The sole purpose of `pull-algebra` is to re-attach
+  ;; keys onto projected values, producing a result of the same shape as the original symbolic
+  ;; query.
+  ((synthesize pull-algebra) (duplicate W)))
+
+
+(tests
+  (extract (pull (seed 1 (-hfql identity))))
+  := 1
+
+  (extract (pull (seed {:a 1} (-hfql :a))))
+  := 1
+
+  (extract (pull (seed {:a 1, :b 2} (-hfql [:a]))))
+  := {:a 1}
+
+  (extract (pull (seed {:a 1} (-hfql [:a :b]))))
+  := {:a 1, :b nil}
+
+  (extract (pull (seed {:a 1, :b 2} (-hfql [:a :b]))))
+  := {:a 1, :b 2}
+
+  (extract (pull (seed {:a 1} (-hfql [:a identity]))))
+  := {:a 1, (list 'quote identity) {:a 1}}
+
+  (extract (pull (seed {:a 1} (-hfql [{:a inc}]))))
+  := {:a 2}
+
+  (extract (pull (seed {:a 1} (-hfql [{:a {inc inc}}]))))
+  := {:a {inc 3}}
+
+  (extract (pull (seed {:a 1} (-hfql {identity :a}))))
+  := {identity 1}
+
+  (extract (pull (seed {:a 1} (-hfql {identity [:a]}))))
+  := {identity {:a 1}}
+
+  (extract (pull (seed 3 (-hfql range))))
+  := '(0 1 2)
+
+  (extract (pull (seed 2 (-hfql {range {'* {inc inc}}}))))
+
+  #?(:clj (extract (pull (seed *ns* (-hfql {ns-publics {'* val}})))))
+  #?(:clj (extract (pull (seed *ns* (-hfql {ns-publics {'* {val symbol}}})))))
+  #?(:clj (extract (pull (seed *ns* (-hfql {ns-publics {vals {'* symbol}} })))))
+
+  )
+
+(tests
+  (snd (extract (seed {:a 1} (-hfql '*))))
+  := {:a 1}
+
+  (snd (extract (seed {:a 1} (-hfql :a))))
+  := 1
+
+  (snd (extract (seed {:a 1} (-hfql identity))))
+  := {:a 1}
+
+  (snd (extract (seed {identity 'identity} (-hfql identity))))
+  := 'identity
+
+  )
+
+(tests
+  (-values (seed {:a 1, :b 2, :c 3} (-hfql [:a :b])))
+  := '({:a 1, :b 2} 1 2)
+  )
+
+
+(tests
+  (values (pull (seed {:a 1, :b 2, :c 3} (-hfql :a))))
+  := '(1)
+
+  (values (pull (seed {:a 1, :b 2, :c 3} (-hfql [:a :b]))))
+  := '({:a 1, :b 2} 1 2)
+  )
+
+(tests
+  (values (pull (seed 1 (-hfql {identity identity}))))
+  := [{identity 1} 1]
+
+  (values (pull (seed 1 (-hfql {identity inc}))))
+  := [{identity 2} 2]
+
+  (values (pull (seed 1 (-hfql {inc inc}))))
+  :=
+  [{inc 3}
+   3]
+
+  (values (pull (seed 1 (-hfql {inc {inc {inc inc}}}))))
+  := [{inc {inc {inc 5}}}
+      {inc {inc 5}}
+      {inc 5}
+      5]
+
+  (-values (seed {:a 1, :b 2} (-hfql {identity [:a]})))
+  := '({:a 1, :b 2} {:a 1} 1)
+
+  (values (pull (seed {:a 1, :b 2} (-hfql {identity [:a]}))))
+  := [{identity {:a 1}} {:a 1} 1]
+  )
+
+(tests
+  (-values (seed 3 (-hfql {range {'* inc}})))
+  := '((0 1 2) 1 2 3)
+
+  (values (pull (seed 3 (-hfql {range {'* inc}}))))
+  := [{range '(1 2 3)} 1 2 3]
+
+ )
 
 (defn reseed
   "See `seed` for a high-level overview. Given an injected Cofree node `w` and a
   new environment `env'`, re-hydrates the corresponding subtree."
   ([w] (partial reseed w))
   ([w env']
-   (if-let [t (::param (meta w))]
-     (seed t env')
+   (if-let [t (::param (metas (extract w)))]
+     (seed env' t)
      (throw (ex-info "No ::param backref on node; cannot reseed" {})))))
+
+(tests
+  "reseeding"
+  (let [w (seed 1 (-hfql {inc {inc {inc inc}}}) )]
+    (snd (extract w)) := 2
+    (let [w2 (first (unwrap w))]
+      [(-values w2)
+       (-values (reseed w2 10))])
+
+    := '[(3 4 5) (11 12 13)]
+    ))
+
+(tests
+  (-values (reseed (seed {:a 1} (-hfql [:a])) {:a 10}))
+  := '({:a 10} 10))
+
+
 
 
 (defn- unfoldT ; for future improvements
@@ -274,213 +432,3 @@
     aseq))
 
 
-;;;;;;;;;;;
-;; TESTS ;;
-;;;;;;;;;;;
-
-(tests
-  ;; coiterT with branching that depends on env (Reader)
-  (defn psi-branch [n]
-    (reader (fn [_] (when (pos? n) [(dec n) (dec n)]))))  ; ignore env here
-  (def tT (coiterT psi-branch 2))
-  (def t  (seed tT :env))
-  (map extract (mapcat unwrap (unwrap t)))  ;; => '(0 0 0 0)
-
-  )
-
-(tests
-  ;; unfoldT where label depends on env
-  (defn psi-plus [n] (reader (fn [e] [(+ n e) []])))
-  (extract (seed (unfoldT psi-plus 10) 5))
-  := 15
-  )
-
-(tests
-  ;; Simple HFQL-style case {identity [:a :b]} via unfoldT
-  (defn psi-pull [spec]
-    (reader
-      (fn [m]
-        (cond
-          (= spec identity) [m []]
-          (ident? spec)     [(spec m) []]
-          (vector? spec)    [(select-keys m spec) (seq spec)]
-          :else             [nil []]))))
-  (values (seed (unfoldT psi-pull identity ) {:a 1 :b 2}))
-  := '({:a 1, :b 2})
-
-  (values (seed (unfoldT psi-pull [:a]) {:a 1 :b 2}))
-  := '({:a 1} 1)
-
-  )
-
-
-(tests
-  (values (seed (hfqlT inc) 1))
-  := '(2)
-
-  (values (seed (hfqlT :a) {:a 1}))
-  := '(1)
-
-  (values (seed (hfqlT [:a]) {:a 1, :b 2}))
-  := '({:a 1} 1)
-
-  (values (seed (hfqlT [:a '*]) {:a 1, :b 2}))
-  := '({:a 1, :b 2} 1 2)
-
-  (values (seed (hfqlT {:a inc}) {:a 1, :b 3}))
-  := '(1 2)
-
-  (values (seed (hfqlT [{:a inc}]) {:a 1, :b 3}))
-  := '({:a 1} 1 2)
-
-  (values (seed (hfqlT {inc inc}) 1))
-  := '(2 3)
-
-  (values (seed (hfqlT {inc {inc {inc inc}}}) 1))
-  := '(2 3 4 5)
-
-  (let [fork (fn [x] (list x x))]
-    (values (seed (hfqlT {identity {fork {fork fork}}}) '.)))
-  := '(              .
-                   (. .)
-               ((. .) (. .))
-       (((. .) (. .)) ((. .) (. .))))  ; 8 elements
-
-  (let [fork (fn [x] (list x x))]
-    (values (seed (hfqlT {identity {fork {'* {fork {'* fork}}}}}) '.)))
-  := '(. (. .) (. .) (. .) (. .) (. .) (. .) (. .)) ; 8 elements
-  ;; * doesn't flatten, it fans-out, `values` is responsible for the apparent flattening. Values arbitrarily traverses in pre-order.
-
-  )
-
-(tests
-  "calling fn in pull"
-  (values (seed (hfqlT [identity :a]) {:a 1, :b 2}))
-  := [{identity {:a 1, :b 2}, :a 1} {:a 1, :b 2} 1]
-  )
-
-(tests
-  "traversal in pull"
-  (values (seed (hfqlT ['* {:a inc}]) {:a 1, :b "b"}))
-  := '({:a 1, :b "b"} 1 2 "b")
-  )
-
-(tests
-  (extract (pull (seed (hfqlT identity) 1)))
-  := 1
-
-  (extract (pull (seed (hfqlT :a) {:a 1})))
-  := 1
-
-  (extract (pull (seed (hfqlT [:a]) {:a 1, :b 2})))
-  := {:a 1}
-
-  (extract (pull (seed (hfqlT [:a :b]) {:a 1})))
-  := {:a 1, :b nil}
-
-  (extract (pull (seed (hfqlT [:a :b]) {:a 1, :b 2})))
-  := {:a 1, :b 2}
-
-  (extract (pull (seed (hfqlT [:a identity]) {:a 1})))
-  := {:a 1, identity {:a 1}}
-
-  (extract (pull (seed (hfqlT [{:a inc}]) {:a 1})))
-  := {:a 2}
-
-  (extract (pull (seed (hfqlT [{:a {inc inc}}]) {:a 1})))
-  := {:a {inc 3}}
-
-  (extract (pull (seed (hfqlT {identity :a}) {:a 1})))
-  := {identity 1}
-
-  (extract (pull (seed (hfqlT {identity [:a]}) {:a 1})))
-  := {identity {:a 1}}
-
-  (extract (pull (seed (hfqlT range) 3)))
-  := '(0 1 2)
-
-  (extract (pull (seed (hfqlT {range {'* {inc inc}}}) 3)))
-
-  #?(:clj (extract (pull (seed (hfqlT {ns-publics {'* val}}) *ns*))))
-
-  )
-
-
-(tests
-  (extract (seed (hfqlT '*) {:a 1}))
-  := {:a 1}
-
-  (extract (seed (hfqlT :a) {:a 1}))
-  := 1
-
-  (extract (seed (hfqlT identity) {:a 1}))
-  := {:a 1}
-
-  (extract (seed (hfqlT identity) {identity 'identity}))
-  := 'identity
-
-  )
-
-(tests
-  (values (seed (hfqlT [:a :b]) {:a 1, :b 2, :c 3}))
-  := '({:a 1, :b 2} 1 2)
-  )
-
-
-(tests
-  (values (pull (seed (hfqlT :a) {:a 1, :b 2, :c 3})))
-  := '(1)
-
-  (values (pull (seed (hfqlT [:a :b]) {:a 1, :b 2, :c 3})))
-  := '({:a 1, :b 2} 1 2)
-
-  )
-
-(tests
-  (values (pull (seed (hfqlT {identity identity}) 1)))
-  := [{identity 1} 1]
-
-  (values (pull (seed (hfqlT {identity inc}) 1)))
-  := [{identity 2} 2]
-
-  (values (pull (seed (hfqlT {inc inc}) 1)))
-  :=
-  [{inc 3}
-   3]
-
-  (values (pull (seed (hfqlT {inc {inc {inc inc}}}) 1)))
-  := [{inc {inc {inc 5}}}
-      {inc {inc 5}}
-      {inc 5}
-      5]
-
-  (values (seed (hfqlT {identity [:a]}) {:a 1, :b 2}))
-  := '({:a 1, :b 2} {:a 1} 1)
-
-  (values (pull (seed (hfqlT {identity [:a]}) {:a 1, :b 2})))
-  := [{identity {:a 1}} {:a 1} 1]
-  )
-
-(tests
-  (values (seed (hfqlT {range {'* inc}}) 3))
-  := '((0 1 2) 1 2 3)
-
-  (values (pull (seed (hfqlT {range {'* inc}}) 3)))
-  := [{range '(1 2 3)} 1 2 3]
-
- )
-
-(tests
-  "reseeding"
-  (let [w (seed (hfqlT {inc {inc {inc inc}}}) 1)]
-    (extract w) := 2
-    (let [w2 (first (unwrap w))]
-      [(values w2)
-       (values (reseed w2 10))])
-
-    := '[(3 4 5) (11 12 13)]
-    ))
-
-(tests
-  (values (reseed (seed (hfqlT [:a]) {:a 1}) {:a 10}))
-  := '({:a 10} 10))
