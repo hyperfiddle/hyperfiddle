@@ -1,10 +1,13 @@
 (ns hyperfiddle.hfql1.function
-  "https://hackage.haskell.org/package/base-4.11.0.0/docs/Data-Function.html")
+  "https://hackage.haskell.org/package/base-4.11.0.0/docs/Data-Function.html"
+  (:require [hyperfiddle.rcf :refer [tests]]))
 
 (def id "id :: a -> a" identity)
 
 (defn flip
-  ([f] (fn [a b] (f b a)))
+  ([f] (fn flip
+         ([a] (partial flip a))
+         ([a b] (f b a))))
   ([f a] (fn [b] (f b a))))
 
 (defn const "const :: a -> b -> a"
@@ -27,7 +30,7 @@
   (letfn [(g [& args] (apply (f g) args))]
     g))
 
-(comment
+(tests
   (def factorial
     (fix (fn [rec]
            (fn [n] (if (zero? n) 1 (* n (rec (dec n))))))))

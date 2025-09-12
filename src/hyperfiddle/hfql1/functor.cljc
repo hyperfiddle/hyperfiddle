@@ -9,6 +9,8 @@
   "Optional. Implement if you need to overload <$."
   (-<$ [fb a] "Discard right. <$ :: Functor f => a -> f b -> f a"))
 
+(defn functor? [f] (satisfies? Functor f))
+
 (defn fmap "fmap :: (a -> b) -> f a -> f b"
   ([a->b] (partial fmap a->b))
   ([a->b fa] (-fmap fa a->b)))

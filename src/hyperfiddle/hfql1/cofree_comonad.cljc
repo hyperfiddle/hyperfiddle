@@ -19,7 +19,7 @@
   (-extract [_] (force a))
   (-extend [Wa wa->b]
     (vary-meta
-      (Cofree. (delay (wa->b Wa))
+      (Cofree. #_(delay) (wa->b Wa)
         (map (extend wa->b) (unwrap Wa)))
       #(merge (meta Wa) %)))
   (-duplicate [Wa] (extend identity Wa))
@@ -49,10 +49,11 @@
   ([coalgebra seed]
    (let [[a fb :as step] (coalgebra seed)]
      (vary-meta
-       (->Cofree (lazy a)
+       (->Cofree a
          (map (unfold coalgebra)
            (cond
              (map? fb)   (vals fb) ; not sure about this one, we may need it for traversals?
+             (map-entry? fb) (val fb)
              ;; (nil? fb)   nil
              :else       fb)))
        merge (meta step)))))
@@ -357,7 +358,9 @@
 
 ;;; CofreeT
 
-(defrecord CofreeT [step])
+(defrecord CofreeT [step]
+  Functor
+  (-fmap [t f] (CofreeT. (f step))))
 
 (defn cofreeT
   "cofreeT :: (Reader [a CofreeT*]) -> (CofreeT (Reader [a CofreeT*])) – stepR is a Reader that yields [a, seq of child CofreeT]."

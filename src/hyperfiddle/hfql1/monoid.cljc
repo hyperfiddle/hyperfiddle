@@ -9,7 +9,9 @@
   "Optional: implement if you want to overload mconcat"
   (-mconcat [_ as] "mconcat :: [a] -> a. Fold a list using the monoid. First argument is the `first` of the collection `as`, used for dispatch and is ignored."))
 
-(defn mappend "mappend :: a -> a -> a" [a b] (<> a b))
+(defn mappend "mappend :: a -> a -> a" 
+  ([a] (partial mappend a))
+  ([a b] (<> a b)))
 
 (defn mconcat "mconcat :: [a] -> a. Fold a list using the monoid." [as]
   (if (satisfies? MonoidConcat (first as))

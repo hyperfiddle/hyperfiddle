@@ -27,7 +27,9 @@
   (-local [ma r->r] (Reader. (fn [r] (runReader ma (r->r r)))))
   (-reader [_ r->a] (Reader. r->a)))
 
-(defn local "local :: (r -> r) -> Reader r a -> Reader r a" [r->r Ra] (-local Ra r->r))
+(defn local "local :: (r -> r) -> Reader r a -> Reader r a" 
+  ([r->r] (partial local r->r))
+  ([r->r Ra] (-local Ra r->r)))
 (defn reader [r->a] (-reader (->Reader id) r->a))
 (defn ask "ask :: Reader r r" [] (reader id))
 
