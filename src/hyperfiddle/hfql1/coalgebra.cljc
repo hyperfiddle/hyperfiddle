@@ -9,7 +9,9 @@
    [hyperfiddle.hfql1.monoid :refer [mappend]]
    [hyperfiddle.hfql1.comonad :refer [extract duplicate extend]]
    [hyperfiddle.hfql1.cofree :as coco :refer [values synthesize unwrap cofreeT cofree unwrapT]]
+   [hyperfiddle.hfql1.store :refer [store seek seeks pos]]
    [hyperfiddle.hfql1.monad-reader :refer [asks reader local runReader]]
+   [hyperfiddle.hfql1.rose-tree :refer [rose-tree]]
    [hyperfiddle.rcf :refer [tests]]
    [hyperfiddle.hfql1.analyzer :as ana :refer []]))
 
@@ -26,22 +28,22 @@
 (def star? (comp #(= ::ana/star %) ::ana/type metas))
 (def star-traversal? (comp #(= ::ana/star %) ::ana/kind metas))
 
-(defn- getter [key] (asks (fn [%] (*navigate* (force %) key (get (force %) key)))))
+(defn- getter [key] (fn [%] (*navigate* % key (get % key))))
 (defn- get-or-call [ifn]
-  (asks (fn [%]
-          (let [% (force %)]
-            (if (try (contains? % ifn) ; FIXME find a better check
-                     (catch #?(:clj Throwable, :cljs :default) _
-                       #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
-                       false))
-              (runReader (getter ifn) %)
-              (apply ifn % ()) ; FIXME provide args
-              )))))
+  (fn [%]
+    (let [% (force %)]
+      (if (try (contains? % ifn) ; FIXME find a better check
+               (catch #?(:clj Throwable, :cljs :default) _
+                 #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+                 false))
+        ((getter ifn) %)
+        (apply ifn % ()) ; FIXME provide args
+        ))))
 
 (defn- touch [object] (if (seqable? object) (doall object) object))
-(defn- star [_] (asks (fn [env] (touch env))))
+(defn- star [_] (fn [env] (touch env)))
 
-(defn leaf [reader] (fmap (fn [v] (pair v ())) reader))
+(defn leaf [f] (fn [%] (pair (f %) ())))
 
 (defn- pull-peek-at-immediate-kids! [env kidsT]
   ;; Unless I'm mistaken, this is only a test convenience utility.
@@ -52,14 +54,17 @@
   ;; need to build a map here, unless there's a use case to render
   ;; the raw value at point (unpulled), e.g. for an EDN <pre>,
   ;; which may be no different from of test utility?
-  (->> kidsT
-    (fmap unwrapT)
-    (fmap (fmap #(runReader % env)))
-    (fmap (comp fst snd))
-    (map pair (fmap (comp symbolic-edge unwrapT) kidsT))
-    (into {})))
+  (let [realized-kids (->> kidsT
+                        ;; (fmap unwrapT)
+                        (fmap #(% (store identity env)) ;;#(runReader % env)
+                          )
+                        (fmap extract))]
+    (into {} (map pair (fmap symbolic-edge realized-kids)
+               (fmap snd realized-kids)))))
 
 (declare unchunk-seq)
+
+(declare unfoldT2)
 
 (defn hfqlT  ; TODO if possible, express in term of Ψ and unfoldT/coiterT. I.e. separate ψ from unfold, ensuring no recursivity.
   "A coalgebra turning a statically analyzed HFQL Cofree tree into lazy,
@@ -75,40 +80,73 @@
   (let [content  (extract hfql)
         children (unwrap hfql)]
     (case (projection-type content)
-      ::ana/ident (cofreeT (fmap (fmap leaf getter) content))
-      ::ana/fn    (cofreeT (fmap (fmap leaf get-or-call) content))
-      ::ana/star  (cofreeT (fmap (fmap leaf star) content))
+      ::ana/ident (fmap leaf (fmap getter content))
+      ::ana/fn    (fmap leaf (fmap get-or-call content))
+      ::ana/star  (fmap leaf (fmap star content))
       ::ana/pull
-      (cofreeT
-        (fmap (fn [_]
-                (asks (fn [env]
-                        (let [[[star?] kids] (group-by-pred (comp star? extract) children)
-                              dynamic-keys   (when star? (keys (runReader (star nil) env)))
-                              star-kidsT     (let [static-keys         (set (map (comp symbolic-edge extract) kids))
-                                                   remaining-star-keys (remove static-keys dynamic-keys)]
-                                               (map hfqlT (fmap (fmap swap) (unwrap (ana/analyze {} (vec remaining-star-keys))))))
-                              kidsT          (map hfqlT kids)]
-                          (pair (delay (mappend (pull-peek-at-immediate-kids! env kidsT) (pull-peek-at-immediate-kids! env star-kidsT)))
-                            (mappend kidsT star-kidsT))))))
-          content))
+      (fmap (fn [_]
+              (fn [env]
+                (let [[[star?] kids] (group-by-pred (comp star? extract) children)
+                      dynamic-keys   (when star? (keys ((star nil) env)))
+                      star-kids     (let [static-keys         (set (map (comp symbolic-edge extract) kids))
+                                           remaining-star-keys (remove static-keys dynamic-keys)]
+                                       (fmap (fmap swap) (unwrap (ana/analyze {} (vec remaining-star-keys)))))]
+                  (pair (delay (mappend
+                                 (pull-peek-at-immediate-kids! env (map (unfoldT2 hfqlT) kids))
+                                 (pull-peek-at-immediate-kids! env (map (unfoldT2 hfqlT) star-kids))))
+                    (mappend kids star-kids)))))
+        content)
       ::ana/traversal
-      (cofreeT
-        (fmap (fn [_]
-                (asks (fn [env]
-                        (let [edge (fst (snd content))
-                              new-context (edge env)
-                              [fan-out? childT] (let [direct-child (first children) ; we know traversals have only one child.
-                                                      fan-out?     (star-traversal? (extract direct-child))]
-                                                  [fan-out? (hfqlT (if (star-traversal? (extract direct-child))
-                                                                     (first (unwrap direct-child))
-                                                                     direct-child))])
-                              build-child (fn [new-context] (fmap (bimap #(assoc % ::param-base childT) (local (constantly new-context)))
-                                                              childT))]
-                          (pair new-context
-                            (if fan-out?
-                              (map build-child (unchunk-seq new-context))
-                              [(build-child new-context)]))))))
-          content)))))
+      (fmap (fn [_]
+              (fn [env]
+                (let [edge (fst (snd content))
+                      new-context (edge env)
+                      child (let [direct-child (first children)] ; we know traversals have only one child.
+                              (if (star-traversal? (extract direct-child))
+                                (first (unwrap direct-child))
+                                direct-child))]
+                  (pair new-context
+                    [child]))))
+        content))))
+
+#_(defn- unfoldT ; for future improvements
+  "unfoldT :: (b -> Reader env [a, f b]) -> b -> CofreeT f Reader a
+   `coalgebra b` produces a Reader that, when run, yields (value, next seeds)."
+  ([coalgebra] (partial unfoldT coalgebra))
+  ([coalgebra seed]
+   (cofreeT
+     (reader
+       (fn [env]
+         (let [t (coalgebra seed)
+               [metas [value children]] (fmap #(runReader % env) t)]
+           (rose-tree (pair (assoc metas ::env env, ::param (::param-base meta t))
+                        value)
+             (if (= ::ana/many (::ana/multiplicity metas))
+               (map (fn [child-value]
+                      (fmap (local (constantly child-value))
+                        (unfoldT coalgebra (first children))))
+                 value)
+               (map #(fmap (local (constantly value)) (unfoldT coalgebra %)) children)))
+           ))))))
+
+(defn- unfoldT2 ; for future improvements
+  "unfoldT :: (b -> Reader env [a, f b]) -> b -> CofreeT f Reader a
+   `coalgebra b` produces a Reader that, when run, yields (value, next seeds)."
+  ([coalgebra] (partial unfoldT2 coalgebra))
+  ([coalgebra seed]
+   (fn [store]
+     (let [[metas step :as t] (coalgebra seed)
+           [value children] (extract (seeks step store))
+           next-store (case (projection-type t)
+                        ::ana/pull store
+                        (hyperfiddle.hfql1.store/store identity value))]
+       (rose-tree (pair (assoc metas ::store store, ::seed seed)
+                    value)
+         (if (= ::ana/many (::ana/multiplicity metas))
+           (map (fn [value]
+                  ((unfoldT2 coalgebra (first children)) (hyperfiddle.hfql1.store/store identity value)))
+             value)
+           (fmap #((unfoldT2 coalgebra %) next-store) children)))))))
 
 (defn seed
   "Turns an HFQL program into a fully lazily navigable structure by providing an
@@ -151,14 +189,17 @@
   value} structure.
   "
   ([env] (partial seed env))
-  ([env t]
-   (let [[meta [value kidsT]] (fmap #(runReader % env) (unwrapT t))]
+  ([env thunk]
+   (thunk (store identity env))
+   #_(runReader (unwrapT t) env)
+   #_(let [[meta [value kidsT]] (fmap #(runReader % env) (unwrapT t))]
      (cofree (map (seed env) (unchunk-seq kidsT))
        (pair (assoc meta ::env env, ::param (::param-base meta t))
          value)))))
 
 (defn- -analyze [hfql] (fmap swap (ana/analyze {} hfql)))
-(defn- -hfql [hfql] (extract (extend hfqlT (-analyze hfql))))
+(defn- -hfql [hfql] #_(extract (extend hfqlT (-analyze hfql)))
+  (unfoldT2 hfqlT (-analyze hfql)))
 (defn- -values [W] (map force (fmap snd (sequence (values W)))))
 
 
@@ -203,7 +244,7 @@
 
 (tests
   "calling fn in pull"
-  (-values (seed {:a 1, :b 2} (-hfql [identity :a]))) ; FAIL label
+  (-values (seed {:a 1, :b 2} (-hfql [identity :a])))
   := [{(list 'quote identity) {:a 1, :b 2}, :a 1} {:a 1, :b 2} 1]
   )
 
@@ -358,8 +399,9 @@
   new environment `env'`, re-hydrates the corresponding subtree."
   ([w] (partial reseed w))
   ([w env']
-   (if-let [t (::param (metas (extract w)))]
-     (seed env' t)
+   (if-let [original-seed (::seed (metas (extract w)))]
+     (seed env' (unfoldT2 hfqlT original-seed))
+     #_(extract (seeks step (store identity env')))
      (throw (ex-info "No ::param backref on node; cannot reseed" {})))))
 
 (tests
@@ -378,17 +420,6 @@
   := '({:a 10} 10))
 
 
-
-
-(defn- unfoldT ; for future improvements
-  "unfoldT :: (b -> Reader env [a, f b]) -> b -> CofreeT f Reader a
-   `coalgebra b` produces a Reader that, when run, yields (value, next seeds)."
-  [coalgebra seed]
-  (cofreeT
-    (reader
-      (fn [env]
-        (let [[a bs] (runReader (coalgebra seed) env)]
-          [a (map #(unfoldT coalgebra %) bs)])))))
 
 (defn- coiterT ; for future improvements
   "coiterT :: (a -> Reader env (f a)) -> a -> CofreeT f Reader a

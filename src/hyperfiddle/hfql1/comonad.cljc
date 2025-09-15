@@ -1,6 +1,7 @@
 (ns hyperfiddle.hfql1.comonad
   (:refer-clojure :exclude [extend])
-  (:require [hyperfiddle.hfql1.functor :refer [->Identity runIdentity fmap #?(:cljs Identity)]])
+  (:require [hyperfiddle.hfql1.functor :refer [->Identity runIdentity fmap #?(:cljs Identity)]]
+            [hyperfiddle.rcf :refer [tests]])
   #?(:clj (:import [hyperfiddle.hfql1.functor Identity])))
 
 (defprotocol Comonad
@@ -46,4 +47,31 @@
   (-duplicate [D] (delay D))
   (-extend [D f] (delay (f D))))
 
+
+(defn comonad-law-1 "extend extract = id" [W]
+  (= (extract (extend extract W))
+    (extract W)))
+
+(tests
+  (comonad-law-1 (->Identity 1))
+  := true)
+
+(defn comonad-law-2  "extract . extend f = f" [f W]
+  (= (extract (extend f W))
+    (f W)))
+
+(tests
+  (comonad-law-2 (comp inc extract) (->Identity 1))
+  := true
+  )
+
+(defn comonad-law-3 "extend f . extend g = extend (f . extend g)" [f g W]
+  (let [left (extend f (extend g W)) ; extend f . extend g
+        right (extend (comp f (extend g)) W)] ; extend (f . extend g)
+    (= (extract left) (extract right))))
+
+(tests
+  (comonad-law-3 (comp str extract) (comp inc extract) (->Identity 1))
+  := true
+  )
 

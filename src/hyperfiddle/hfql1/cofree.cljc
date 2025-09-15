@@ -6,7 +6,7 @@
   (:require [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.hfql1.functor :refer [Functor fmap]]
             [hyperfiddle.hfql1.bifunctor :refer [pair? snd]]
-            [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend liftW]]))
+            [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend liftW comonad-law-1 comonad-law-2 comonad-law-3]]))
 
 (defprotocol ComonadCofree
   (-unwrap [Wa] "unwrap :: Functor f => w a -> f (w a)"))
@@ -89,28 +89,15 @@
   := true
   )
 
-(defn- comonad-law-1 "extend extract = id" [W]
-  (= (extract (extend extract W))
-    (extract W)))
-
 (tests
   (comonad-law-1 ((lift :a) {:a 1}))
   := true
   )
 
-(defn- comonad-law-2  "extract . extend f = f" [f W]
-  (= (extract (extend f W))
-    (f W)))
-
 (tests
   (comonad-law-2 (comp inc extract) ((lift :a) {:a 1}))
   := true
   )
-
-(defn- comonad-law-3 "extend f . extend g = extend (f . extend g)" [f g W]
-  (let [left (extend f (extend g W)) ; extend f . extend g
-        right (extend (comp f (extend g)) W)] ; extend (f . extend g)
-    (= (extract left) (extract right))))
 
 (tests
   (comonad-law-3 (comp str extract) (comp inc extract) ((lift :a) {:a 1}))
@@ -364,7 +351,7 @@
 (defn unwrapT
   "runCofreeT: Reader env [a, children]"
   [^CofreeT t]
-  (.-step t))
+  (:step t))
 
 
 
