@@ -73,7 +73,7 @@
   (-fmap [fa _a->b] fa)
 
   #?(:clj clojure.lang.Cons :cljs Cons)
-  (-fmap [fa a->b] (cons (a->b (first fa)) (fmap a->b (next fa))))
+  (-fmap [fa a->b] (cons (a->b (first fa)) (lazy-seq (fmap a->b (rest fa)))))
 
   ;; Vector
   #?(:clj clojure.lang.IPersistentVector, :cljs PersistentVector)

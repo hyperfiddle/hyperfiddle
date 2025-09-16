@@ -5,7 +5,7 @@
   (:refer-clojure :exclude [extend])
   (:require [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.hfql1.functor :refer [Functor fmap]]
-            [hyperfiddle.hfql1.bifunctor :refer [pair? snd]]
+            [hyperfiddle.hfql1.bifunctor :refer [pair pair? snd bimap]]
             [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend liftW comonad-law-1 comonad-law-2 comonad-law-3]]))
 
 (defprotocol ComonadCofree
@@ -340,18 +340,33 @@
 
 ;;; CofreeT
 
+(declare runCofreeT)
 (defrecord CofreeT [step]
   Functor
-  (-fmap [fa f] (CofreeT. (f step))))
+  (-fmap [fa f] (CofreeT. (f step)))
+  Comonad
+  (-extract [wa] (extract (runCofreeT wa)))
+  (-duplicate [wa]
+    (CofreeT. (extend (fn [wa]
+                        (let [bifunctor (extract wa)]
+                          (bimap (constantly (CofreeT. wa))
+                            (fmap duplicate)
+                            bifunctor)))
+                (runCofreeT wa))))
+  (-extend [wa k]
+    (CofreeT.
+      (extend (fn [wa]
+                (let [bifunctor (extract wa)]
+                  (bimap (constantly (k (CofreeT. wa)))
+                    (fmap #(extend % k))
+                    bifunctor)))
+        (runCofreeT wa)))))
 
 (defn cofreeT
   "cofreeT :: (Reader [a CofreeT*]) -> (CofreeT (Reader [a CofreeT*])) – stepR is a Reader that yields [a, seq of child CofreeT]."
   [step] (->CofreeT step))
 
-(defn unwrapT
-  "runCofreeT: Reader env [a, children]"
-  [^CofreeT t]
-  (:step t))
+(defn runCofreeT [^CofreeT t] (:step t))
 
 
 

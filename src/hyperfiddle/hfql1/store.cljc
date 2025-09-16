@@ -29,7 +29,11 @@
   [f wa]
   (peek (f (pos wa)) wa))
 
-(defn seek "seek :: s -> w a -> w a. Set the stored value." [s wa] (extend (fn [w] (peek s w)) wa))
+(defn seek "seek :: s -> w a -> w a. Set the stored value." [s wa]
+  (if (instance? Store wa)
+    (store (:accessor wa) s)
+    (extend (fn [w] (peek s w)) wa)))
+
 (defn seeks "seeks :: (s -> s) -> w a -> w a. Modify the stored value."
   ([f] (partial seeks f))
   ([f wa] (seek (f (pos wa)) wa)))

@@ -1,9 +1,10 @@
 (ns hyperfiddle.hfql1.rose-tree
   (:refer-clojure :exclude [extend])
   (:require [hyperfiddle.hfql1.functor :refer [Functor fmap]]
+            [hyperfiddle.hfql1.bifunctor :refer [Bifunctor bimap]]
             ;; [hyperfiddle.hfql1.applicative :as ap :refer [Applicative fapply pure]]
             [hyperfiddle.hfql1.comonad :refer [Comonad duplicate]]
-            [hyperfiddle.hfql1.cofree :refer [ComonadCofree]]
+            [hyperfiddle.hfql1.cofree2 :refer [ComonadCofree]]
             ))
 
 (defrecord RoseTree [a children]
@@ -19,12 +20,15 @@
   ;;                          (fmap #(fapply % Fa) children))))))
   ;; Note this can be made an applicative or monad but it's not necessarily useful.
   ;; fapply and bind is "grafting" onto the tree and produces uncommon shapes (think cartesian products).
+  Bifunctor
+  (-bimap [_ f g] (RoseTree. (f a) (g children)))
   Comonad
   (-extract [_] a)
   (-duplicate [Wa] (RoseTree. Wa (fmap duplicate children)))
   (-extend [Wa f] (fmap f (duplicate Wa)))
   ComonadCofree
-  (-unwrap [_] children))
+  (-unwrap [fa] children)
+  )
 
 (defn rose-tree
   ([a] (partial rose-tree a))
