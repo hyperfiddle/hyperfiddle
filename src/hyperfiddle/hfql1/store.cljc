@@ -26,8 +26,9 @@
 (defn peek "peek :: s -> w a -> a. Peek at what the current focus would be for a different stored value" [s wa] (-peek wa s))
 (defn peeks "peeks :: (s -> s) -> w a -> a.
   Peek at what the current focus would be if the stored value was modified by some function."
-  [f wa]
-  (peek (f (pos wa)) wa))
+  ([f] (partial peeks f))
+  ([f wa]
+   (peek (f (pos wa)) wa)))
 
 (defn seek "seek :: s -> w a -> w a. Set the stored value." [s wa]
   (if (instance? Store wa)

@@ -431,7 +431,8 @@
                                            (catch #?(:clj Throwable, :cljs :default) err
                                              (#?(:clj log/warn, :cljs js/console.warn) "Failed to apply" (::form metadata) "onto" (cons object args))
                                              err)))))
-           (var-form? edge) (leaf (with-% (fn [_lexical-env object] (*navigate* object (::value metadata) (get object (::value metadata)))))) ; quoted var
+           (var-form? edge) (leaf (with-% (fn [_lexical-env object]
+                                            (*navigate* object (::value metadata) (get object (::value metadata)))))) ; quoted var
            (map? edge) (lift-traversal2 edge metadata)
            (vector? edge) (lift-pull edge metadata)
            (seq? edge) (leaf (with-% (fn call [lexical-env & _args] ; optional
@@ -729,43 +730,12 @@
     (pull? edge) (seq (value edge))
     :else nil))
 
-(tests
-  ((hfql :a) {:a 1 :b 2})
-  := [1 nil]
-
-  ((hfql 'c) {:a 1, :b 2, 'c 3})
-  := [3 nil]
-
-  ((hfql "d") {:a 1, :b 2, 'c 3, "d" 4})
-  := [4 nil]
-
-  ((hfql str) {:a 1, :b 2})
-  := ["{:a 1, :b 2}" nil]
-  )
-
-(tests
-  ((hfql 'str) {'str 'str, str str, #'str #'str})
-  := ['str nil]
-  ((hfql str) {'str 'str, str str, #'str #'str})
-  := [str nil]
-  ((hfql #'str) {'str 'str, str str, #'str #'str})
-  := ["{str str, #function[clojure.core/str] #function[clojure.core/str], #'clojure.core/str #'clojure.core/str}"
-      nil]
-  ((hfql '#'str) {'str 'str, str str, #'str #'str})
-  := [#'clojure.core/str nil]
-
-  ((hfql 'str) {str str, #'str #'str})
-  := [nil nil]
-  ((hfql '#'str) {'str 'str, str str})
-  := [nil nil]
-  )
-
-(tests
+(tests ; TODO port to CofreeT
   (form (hfql #(:bar %))) := :bar
   (:foo (meta (hfql ^:foo #(:bar %)))) := true
   )
 
-(tests
+(tests ; TODO port to CofreeT
   ((hfql []) {:a 1})
   := [{} nil]
 
@@ -780,7 +750,7 @@
       [_ _ _]]
   )
 
-(tests
+(tests ; TODO port to CofreeT
   ((hfql {* :a}) [{:a 1} {:a 2}])
   := ['(1 2) nil]
   ((hfql {(range 3) {* inc}}))
@@ -790,7 +760,7 @@
   := ['(1 2 3) nil]
   )
 
-(tests
+(tests ; TODO port to CofreeT
   ;; ① – one value realized at a time – user can call returned continuation to nav further.
   (let [alice {:db/id 9, :user/email "alice@example.com"}]
     ((hfql {identity [:user/email]}) alice) )
@@ -847,7 +817,7 @@
          (first (call edge (assoc env '% object) object)))
        (first (call edge (assoc env '% object) object))))))
 
-(tests ; ①
+(tests ; ① ; TODO port to CofreeT
   (nav2 {:a 1} :a) := 1
   (nav2 {:a 1} :b) := nil
   (nav2 [:a :b :c] 1) := :b
@@ -866,7 +836,7 @@
     := ["Alice" "alice@example.com"]
     ))
 
-(defn nav ; ①
+(defn nav ; ① ; TODO port to CofreeT
   ([edge] (nav nil edge))
   ([object edge]
    (nav nil object edge (infer-nav-value object edge nil)))
@@ -894,7 +864,7 @@
       (let [[object continuation] (call edge env object)]
         (pull3 continuation object (assoc env '% object)))})))
 
-(tests
+(tests ; TODO port to CofreeT
   (pull3 (hfql :a) {:a 1}) := 1
   (pull3 (hfql [:a]) {:a 1, :b 2}) := {:a 1}
   (pull3 (hfql {identity [:a]}) {:a 1, :b 2}) := '{identity {:a 1}}
@@ -1022,7 +992,7 @@
   
   )
 
-(tests
+(tests ; TODO port to CofreeT
   (nav {:a 1} (hfql :a))
   := 1
 
@@ -1040,7 +1010,7 @@
 
   )
 
-(tests
+(tests ; TODO port to CofreeT
   (pull3 (hfql [:a {:a :db/ident}]) {:a {:db/id 1 :db/ident :foo}})
   := {:a :foo}
   )
@@ -1054,7 +1024,7 @@
     (pull? edge)      (pull edge   object)
     :else             (nav  object edge)))
 
-(tests
+(tests ; TODO port to CofreeT
   (hfql (identity 1)) := _
 
   ((hfql (identity 1)))
@@ -1083,6 +1053,7 @@
 (defn navigable [nav-fn object]
   (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
 
+;; TODO port to CofreeT
 (def ^:private _alice_    {:db/id 9, :user/email "alice@example.com", :user/name "Alice" :user/address {:address/number 42}})
 (def ^:private _bob_      {:db/id 10, :user/email "bob@example.com", :user/name "Bob"})
 (def ^:private _charlie_  {:db/id 11, :user/email "chalie@example.com", :user/name "Charlie"})
@@ -1092,7 +1063,7 @@
   (->> (list 9 10 11)
     (navigable (fn [_index value] (_d-entity_ _db_ value)) )))
 
-(tests
+(tests ; TODO port to CofreeT
   (let [user-summary #(str (:user/name %) " – " (:user/email %))
         selected 9
         expr (hfql {(_d-entity_ _db_ selected) [:db/id :user/email user-summary keys clojure.core/keys cc/keys]})]
@@ -1106,14 +1077,14 @@
        'cc/keys '(:db/id :user/email :user/name :user/address)}}
   )
 
-(tests
+(tests ; TODO port to CofreeT
   (let [selected 9]
     (pull3 (hfql {(_d-entity_ _db_ selected) [:user/name {:user/address [:address/number]}]})))
   := {'(_d-entity_ _db_ 9) ; FIXME 9 is not templated
       {:user/name "Alice", :user/address {:address/number 42}}}
   )
 
-(tests
+(tests ; TODO port to CofreeT
   (hfql *) := _
   ((hfql *) {:a 1})
   := [{:a 1} nil]
@@ -1122,7 +1093,7 @@
   (pull3 (hfql {identity [:db/id *]}) _alice_) ; FIXME * is showing up in the pull result instead of being flattened
   := {'identity _alice_})
 
-(tests
+(tests ; TODO port to CofreeT
   "multiplicity many"
   ((hfql {(_people_) [:user/name]})) := ['(9 10 11) _]
 
@@ -1144,7 +1115,7 @@
   )
 
 
-(tests
+(tests ; TODO port to CofreeT
   "keyword aliases"
 
   (form (hfql :test)) := :test

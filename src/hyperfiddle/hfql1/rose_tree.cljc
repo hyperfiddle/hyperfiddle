@@ -4,7 +4,7 @@
             [hyperfiddle.hfql1.bifunctor :refer [Bifunctor bimap]]
             ;; [hyperfiddle.hfql1.applicative :as ap :refer [Applicative fapply pure]]
             [hyperfiddle.hfql1.comonad :refer [Comonad duplicate]]
-            [hyperfiddle.hfql1.cofree2 :refer [ComonadCofree]]
+            [hyperfiddle.hfql1.cofree :refer [ComonadCofree]]
             ))
 
 (defrecord RoseTree [a children]
