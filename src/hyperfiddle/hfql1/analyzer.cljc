@@ -30,6 +30,8 @@
 (defn projection-type [form]
   (cond
     (= '* form)           ::star
+    (or (= '... form)
+      (number? form))     ::recur
     (symbol? form)        ::symbol
     (keyword? form)       ::keyword
     (string? form)        ::string
@@ -53,6 +55,7 @@
     ::traversals (if (= 1 (count hfql))
                    (first hfql)
                    (into [] hfql))
+    (::traversal ::star ::recur ::symbol ::keyword ::string ::fn ::var)
     hfql))
 
 (tests
@@ -115,7 +118,8 @@
       ::form        (#'quote form)
       ::lexical-env (lexical-bindings-map env)}
      (case (projection-type form)
-       ::star      {} ; '* has no edge, and no value on purpose. It's purely syntactic
+       ::star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
+       ::recur     {::recursion-limit (if (number? form) form ##Inf)}
        ::keyword   {::symbolic-edge form}
        ::string    {::symbolic-edge form}
        ::symbol    {::symbolic-edge (#'quote form) ; potentially aliased
@@ -143,27 +147,30 @@
                       ::lexical-env (merge (lexical-bindings-map env)
                                       (zipmap (map #'quote (filter symbol? params))
                                         (filter symbol? params)))})
-       ::traversal (let [base {}
-                         edge (φ env (fst form))]
-                     (case (::type edge)
-                       ::star (assoc base ::kind ::star)
-                       (let [base         (assoc base ::edge edge, ::lexical-env (::lexical-env edge))
-                             continuation (φ env (snd form))]
-                         (if (= ::star (::kind continuation))
-                           (assoc base ::multiplicity ::many)
-                           base))))))))
+       ::traversal (let [edge (φ env (fst form))
+                         base (case (::type edge)
+                                ::star {::kind ::star}
+                                {::edge edge, ::lexical-env (::lexical-env edge)})
+                         continuation (φ env (snd form))]
+                     (merge base
+                       (when (= ::star (::kind continuation)) {::multiplicity ::many})
+                       (when (= ::recur (::type continuation)) {::recursion-point true
+                                                                ::recursion-limit (::recursion-limit continuation)})
+                       ))))))
 
 ;; #_(let [% 1]
 ;;   (hfql (inc %)))
 ;; (hfql (inc %))
 
 (defn- ψ ; psi
-  "A coalgebra describe how to unfold an HFQL expression into a tree. For any HFQL form, return a pair (form, children)."
+  "A coalgebra describe how to unfold an HFQL expression into a tree. For any HFQL form, return its children."
   [hfql]
   (case (projection-type hfql)
     ::pull      hfql
     ::traversal [(snd hfql)]
     (::star ::keyword ::symbol ::var ::string ::fn ::call ::lambda)
+    ()
+    ::recur ; we don't produce an infinite AST to ease debugging.
     ()))
 
 (defn- unfold [φ ψ seed] (fmap φ (coiter ψ seed)))
@@ -227,5 +234,6 @@
 
   (hfql (fn _inc [%] (inc %)))
 
+  (hfql {:a ...})
   )
 

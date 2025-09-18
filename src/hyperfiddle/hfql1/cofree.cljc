@@ -142,7 +142,7 @@
 
 
 
-(defn- hoistCofreeT ; unused used
+(defn hoistCofreeT
   "φ :: ∀x. w x -> w' x  (ideally a comonad morphism)"
   [phi t]
   (->CofreeT
