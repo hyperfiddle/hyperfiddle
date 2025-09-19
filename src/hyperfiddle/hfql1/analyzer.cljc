@@ -89,6 +89,20 @@
   (and (qualified-symbol? sym)
     (str/starts-with? (name sym) ".")))
 
+#?(:clj
+   (defn- supports-direct-method-syntax? []
+     (>= 1.12 (parse-double (re-find #"^[0-9]+\.[0-9]+" (clojure-version))))))
+
+#?(:clj
+   (defn- escape-method-call [form]
+     (cond
+       (indirect-method-call? form) `#(~form %)
+
+       (and (direct-method-call? form) (not (supports-direct-method-syntax?)))
+       , (escape-method-call (symbol (name form)))
+
+       :else form)))
+
 (defn- var-resolver [env form]
   (cond
     (lexical? env form)          nil
@@ -186,7 +200,7 @@
                     ::form-short (#'quote (aliased-form form))}
        ::string    {::symbolic-edge form}
        ::symbol    {::symbolic-edge (#'quote form) ; potentially aliased
-                    ::value form, ; macroexpand will auto-resolve
+                    ::value (escape-method-call form), ; macroexpand will auto-resolve
                     ::var (var-resolver env form) ; nil if symbol is lexicaly bound
                     ::form-resolved (#'quote (resolver env form)) ; resolve via eventual ns alias
                     ::form-short (#'quote (aliased-form form))}

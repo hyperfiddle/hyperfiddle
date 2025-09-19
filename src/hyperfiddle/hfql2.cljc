@@ -8,7 +8,8 @@
    [hyperfiddle.hfql1.comonad :refer [extract]]
    [hyperfiddle.hfql1.cofree :refer [tree-seqT unwrap runCofreeT]]
    [hyperfiddle.hfql1.analyzer :as ana]
-   [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]]))
+   [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]])
+  #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql]])))
 
 
 (def seed co/seed)
@@ -295,3 +296,11 @@
 (comment
   (pull (hfql {(all-ns) {* ns-name}}))
   )
+
+#?(:clj
+   (tests
+     "Clojure 1.12 method functions"
+
+     (values (seed {'% "  "} (hfql [String/.isBlank java.lang.String/.isEmpty .length])))
+     := '({String/.isBlank true, java.lang.String/.isEmpty false, .length 2} true false 2)
+     ))
