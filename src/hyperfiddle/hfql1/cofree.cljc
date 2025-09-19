@@ -47,7 +47,7 @@
   (-extend [wa f] ; (CofreeT f w a -> b) -> CofreeT f w a -> CofreeT f w b
     (CofreeT.
       (extend (fn [w]
-                (->CofreeF (f (->CofreeT w))
+                (->CofreeF (f (CofreeT. w))
                   (fmap (extend f) (tailF (extract w)))))
         (runCofreeT wa))))
   ComonadCofree
@@ -82,7 +82,7 @@
 
 
 (defn memoize-1 [f]
-  (let [state (object-array [(Object.) nil])]
+  (let [state (object-array [#?(:clj (Object.), :cljs (js-obj)) nil])]
     (fn [& args]
       (let [prev-args (aget state 0)
             prev-ret (aget state 1)]

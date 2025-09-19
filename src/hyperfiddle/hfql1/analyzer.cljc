@@ -89,19 +89,19 @@
   (and (qualified-symbol? sym)
     (str/starts-with? (name sym) ".")))
 
-#?(:clj
-   (defn- supports-direct-method-syntax? []
-     (>= 1.12 (parse-double (re-find #"^[0-9]+\.[0-9]+" (clojure-version))))))
+(defn- supports-direct-method-syntax? []
+  #?(:clj (>= 1.12 (parse-double (re-find #"^[0-9]+\.[0-9]+" (clojure-version))))
+     :cljs false ; TODO I actually don't know. Maybe cljs does support it.
+     ))
 
-#?(:clj
-   (defn- escape-method-call [form]
-     (cond
-       (indirect-method-call? form) `#(~form %)
+(defn- escape-method-call [form]
+  (cond
+    (indirect-method-call? form) `#(~form %)
 
-       (and (direct-method-call? form) (not (supports-direct-method-syntax?)))
-       , (escape-method-call (symbol (name form)))
+    (and (direct-method-call? form) (not (supports-direct-method-syntax?)))
+    , (escape-method-call (symbol (name form)))
 
-       :else form)))
+    :else form))
 
 (defn- var-resolver [env form]
   (cond
@@ -197,13 +197,13 @@
        ::literal   {::symbolic-edge form}
        ::keyword   {::symbolic-edge form
                     ::form-resolved form ; keyword auto-resolve at read-time.
-                    ::form-short (#'quote (aliased-form form))}
+                    ::form-short (#'quote #?(:clj (aliased-form form), :cljs form))}
        ::string    {::symbolic-edge form}
        ::symbol    {::symbolic-edge (#'quote form) ; potentially aliased
                     ::value (escape-method-call form), ; macroexpand will auto-resolve
                     ::var (var-resolver env form) ; nil if symbol is lexicaly bound
                     ::form-resolved (#'quote (resolver env form)) ; resolve via eventual ns alias
-                    ::form-short (#'quote (aliased-form form))}
+                    ::form-short (#'quote #?(:clj (aliased-form form), :cljs form))}
        ::var       {::symbolic-edge form ; the var object itself
                     ::value form ; also the var object itself
                     ::parameters (#'quote '(%))
