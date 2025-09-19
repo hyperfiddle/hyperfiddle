@@ -4,6 +4,7 @@
    [clojure.core.protocols :as ccp]
    [contrib.data :refer [group-by-pred]]
    [clojure.datafy :as datafy]
+   #?(:clj [clojure.tools.logging :as log])
    [hyperfiddle.hfql1.function :refer [flip]]
    [hyperfiddle.hfql1.functor :refer [Functor fmap]]
    [hyperfiddle.hfql1.bifunctor :as bf :refer [Bifunctor IPair fst snd pair swap bimap &&&]]
@@ -121,6 +122,7 @@
   (mem-reader
     (fn [args]
       (delay ; % in args already forced
+        #?(:clj (log/info "IO! calling" (::ana/symbolic-edge metas)))
         (apply (::ana/value metas) (force args))))))
 
 (defn- touch [object] (delay (let [object (force object)] (if (seqable? object) (doall object) object))))
@@ -271,7 +273,8 @@
                        (comp (flip seed (unfoldT coalgebra (first children)))
                          (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
                          (fn [value_i] (*navigate* (force value) nil value_i)))
-                       (force value) ; ⚠ will force all effects up to the root to compute children multiplicity
+                       (do #?(:clj (log/info "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge metas) metas))))
+                         (force value)) ; ⚠ will force all effects up to the root to compute children multiplicity
                        ))))))
            (::ana/lexical-env metas)))))))
 
