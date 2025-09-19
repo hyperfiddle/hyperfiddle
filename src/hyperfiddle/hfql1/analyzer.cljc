@@ -7,7 +7,8 @@
             [hyperfiddle.hfql1.comonad :refer [extract]]
             [hyperfiddle.hfql1.cofree :refer [unwrap]]
             [hyperfiddle.hfql1.rose-tree :refer [rose-tree coiter]]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  #?(:cljs (:require-macros [hyperfiddle.hfql1.analyzer :refer [hfql]])))
 
 (defn- var-form? [form]
   (and (seq? form)
@@ -27,6 +28,13 @@
 (defn- quoted? [form]
   (and (seq? form) (= 'quote (first form))))
 
+(defn unquote* [form]
+  (if (and (seq? form) (= 'quote (first form)))
+    (second form)
+    form))
+
+(defn- quoted-var-form? [form] (and (quoted? form) (var-form? (unquote* form))))
+
 (defn projection-type [form]
   (cond
     (= '* form)           ::star
@@ -42,6 +50,8 @@
     (map? form)           ::traversals
     (vector? form)        ::pull
     (lambda? form)        ::lambda
+    (quoted-var-form? form) ::quoted-var
+    (quoted? form)        ::literal
     ;; TODO kw-fn
     ;; TODO ifn? – maybe
     ;; TODO method sym
@@ -52,6 +62,8 @@
     ::pull (into [] (mapcat (fn [hfql] (if (= ::traversals (projection-type hfql)) (seq hfql) [hfql]))) hfql)
     ::call (reduced hfql)
     ::lambda (reduced hfql)
+    ::literal (reduced hfql)
+    ::quoted-var (reduced hfql)
     ::traversals (if (= 1 (count hfql))
                    (first hfql)
                    (into [] hfql))
@@ -109,6 +121,54 @@
   (zipmap (map #(#'quote %) (keys lexical-env))
     (keys lexical-env)))
 
+#?(:clj
+   (defn aliased-form
+     ([ident] (aliased-form (ns-name *ns*) ident))
+     ([ns-sym ident]
+      (if-not (qualified-ident? ident)
+        ident
+        (if (= (namespace ident) (name ns-sym))
+          (if (keyword? ident)
+            (str "::" (name ident))
+            (symbol (name ident)))
+          (let [ns (find-ns ns-sym)
+                aliases (ns-aliases ns)
+                ns->alias (zipmap (vals aliases) (keys aliases))
+                ns-str->alias-str (-> ns->alias
+                                    (update-keys (comp str ns-name))
+                                    (update-vals str))
+                alias-str (get ns-str->alias-str (namespace ident))
+                aliased? (some? alias-str)
+                alias (or alias-str (namespace ident))]
+            (if (keyword? ident)
+              (if aliased?
+                (str "::" alias "/" (name ident))
+                ident)
+              (symbol alias (name ident)))))))))
+
+;; #?(:clj
+;;    (defn- shorten-form "return aliased form for an ident or nil if form is not an ident or cannot be shortened"
+;;      [form]
+;;      (when (qualified-ident? form)
+;;        (let [short-form (aliased-form (ns-name *ns*) form)]
+;;          (when-not (= form short-form)
+;;            short-form)))))
+
+(tests
+  (aliased-form (ns-name *ns*) ::test) := "::test"
+  (aliased-form (ns-name *ns*) :hyperfiddle.hfql1.analyzer/test) := "::test"
+  (aliased-form (ns-name *ns*) :clojure.core/test) := "::cc/test"
+  (aliased-form (ns-name *ns*) ::cc/test) := "::cc/test"
+  (aliased-form (ns-name *ns*) `asdf) := 'asdf
+  (aliased-form (ns-name *ns*) 'hyperfiddle.hfql1.analyzer/asdf) := 'asdf
+
+  ;; (shorten-form 'clojure.core/str) := 'cc/str
+  ;; (shorten-form `cc/str) := 'cc/str
+  ;; (shorten-form :clojure.core/test) := "::cc/test"
+  ;; (shorten-form ::cc/test) := "::cc/test"
+  ;; (shorten-form ::test)  := "::test"
+  )
+
 (defn- φ ; phi
   "An algebra collecting static knowledge about an HFQL expression."
   ([env] (partial φ env))
@@ -120,14 +180,25 @@
      (case (projection-type form)
        ::star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
        ::recur     {::recursion-limit (if (number? form) form ##Inf)}
-       ::keyword   {::symbolic-edge form}
+       ::literal   {::symbolic-edge form}
+       ::keyword   {::symbolic-edge form
+                    ::form-resolved form ; keyword auto-resolve at read-time.
+                    ::form-short (#'quote (aliased-form form))}
        ::string    {::symbolic-edge form}
        ::symbol    {::symbolic-edge (#'quote form) ; potentially aliased
                     ::value form, ; macroexpand will auto-resolve
                     ::var (var-resolver env form) ; nil if symbol is lexicaly bound
-                    ::form-resolved (#'quote (resolver env form))} ; resolve via eventual ns alias
+                    ::form-resolved (#'quote (resolver env form)) ; resolve via eventual ns alias
+                    ::form-short (#'quote (aliased-form form))}
        ::var       {::symbolic-edge form ; the var object itself
-                    ::value form} ; also the var object itself
+                    ::value form ; also the var object itself
+                    ::parameters (#'quote '(%))
+                    ;; TODO add aliased form
+                    }
+       ::quoted-var {::form (unquote* form)
+                     ::symbolic-edge form
+                     ;; TODO add aliased form
+                     }
        ::pull      {::symbolic-edges (#'quote form)}
        ::fn        {::symbolic-edge (#'quote form) ; e.g. '#function[clojure.core/identity] – useful for tests
                     ::value form} ; already resolved
@@ -149,7 +220,7 @@
                                         (filter symbol? params)))})
        ::traversal (let [edge (φ env (fst form))
                          base (case (::type edge)
-                                ::star {::kind ::star}
+                                ::star {::kind ::star, ::multiplicity ::many}
                                 {::edge edge, ::lexical-env (::lexical-env edge)})
                          continuation (φ env (snd form))]
                      (merge base
@@ -168,7 +239,7 @@
   (case (projection-type hfql)
     ::pull      hfql
     ::traversal [(snd hfql)]
-    (::star ::keyword ::symbol ::var ::string ::fn ::call ::lambda)
+    (::star ::keyword ::symbol ::var ::string ::fn ::call ::lambda ::literal ::quoted-var)
     ()
     ::recur ; we don't produce an infinite AST to ease debugging.
     ()))
@@ -204,11 +275,6 @@
     {::form (emit* form)
      ::meta meta
      ::children (mapv emit (unwrap W))}))
-
-(defn- unquote* [form]
-  (if (and (seq? form) (= 'quote (first form)))
-    (second form)
-    form))
 
 (defn hydrate [{::keys [form meta children]}] (rose-tree (pair (unquote* form) meta) (mapv hydrate children)))
 

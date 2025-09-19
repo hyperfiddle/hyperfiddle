@@ -282,26 +282,6 @@
     (with-%)
     (with-meta {:type ::traversal})))
 
-(tests
-  ;; (sequence (eduction (map inc) (range 3)))
-  (let [[result continuation] ((hfql {(range 3) {* inc}}))]
-    (continuation result)) := ['(1 2 3) nil]
-
-  (let [[result continuation] ((hfql {(range 3) {* {inc {* inc}}}}))]
-    (let [[result continuation] (continuation result)]
-      (continuation result))) := ['(2 3 4) nil]
-  )
-
-;; (declare hfql)
-(tests
-  (let [attribute {:db/id 42, :db/ident :attribute/name}
-        object (with-meta {:a 42} {`ccp/nav (fn [o k v] (if (= :a k) attribute (get o k v)))})]
-    ((hfql :a) object)
-    := [attribute nil])
-
-  #_( (hfql {:a :db/ident}))
-  ;; := :attribute/name
-  )
 
 (defn safe-ccp-nav [object key value]
   (if (satisfies? ccp/Navigable object)
@@ -564,37 +544,6 @@
     obj
     (apply vary-meta obj f args)))
 
-#?(:clj
-   (defn aliased-form [ns-sym ident]
-     (if-not (qualified-ident? ident)
-       ident
-       (if (= (namespace ident) (name ns-sym))
-         (if (keyword? ident)
-           (str "::" (name ident))
-           (symbol (name ident)))
-         (let [ns (find-ns ns-sym)
-               aliases (ns-aliases ns)
-               ns->alias (zipmap (vals aliases) (keys aliases))
-               ns-str->alias-str (-> ns->alias
-                                   (update-keys (comp str ns-name))
-                                   (update-vals str))
-               alias-str (get ns-str->alias-str (namespace ident))
-               aliased? (some? alias-str)
-               alias (or alias-str (namespace ident))]
-           (if (keyword? ident)
-             (if aliased?
-               (str "::" alias "/" (name ident))
-               ident)
-             (symbol alias (name ident))))))))
-
-#?(:clj
-   (defn- attempt-shorten-form "return aliased form for an ident or nil if form is not an ident or cannot be shortened"
-     [form]
-     (when (qualified-ident? form)
-       (let [short-form (aliased-form (ns-name *ns*) form)]
-         (when-not (= form short-form)
-           short-form)))))
-
 (defn- indirect-method-call? [sym]
   (and (simple-symbol? sym)
     (str/starts-with? (name sym) ".")))
@@ -678,20 +627,7 @@
       `(lift2 ~symbolic-form ~metadata)
       `(lift2 ~symbolic-form))))
 
-(tests
-  (aliased-form (ns-name *ns*) ::test) := "::test"
-  (aliased-form (ns-name *ns*) :hyperfiddle.hfql1/test) := "::test"
-  (aliased-form (ns-name *ns*) :clojure.core/test) := "::cc/test"
-  (aliased-form (ns-name *ns*) ::cc/test) := "::cc/test"
-  (aliased-form (ns-name *ns*) `asdf) := 'asdf
-  (aliased-form (ns-name *ns*) 'hyperfiddle.hfql1/asdf) := 'asdf
 
-  (short-form (hfql clojure.core/str)) := 'cc/str
-  (short-form (hfql cc/str)) := 'cc/str
-  (short-form (hfql :clojure.core/test)) := "::cc/test"
-  (short-form (hfql ::cc/test)) := "::cc/test"
-  (short-form (hfql ::test))  := "::test"
-  )
 
 (defmacro hfql [pull-expr & [metadata]]
   (cond
@@ -735,37 +671,9 @@
   (:foo (meta (hfql ^:foo #(:bar %)))) := true
   )
 
-(tests ; TODO port to CofreeT
-  ((hfql []) {:a 1})
-  := [{} nil]
 
-  ((hfql [:a]) {:a 1, :b 2}) 
-  := [{:a 1} [_]]
 
-  ((hfql [:a :c]) {:a 1, :b 2})
-  := [{:a 1, :c nil} [_ _]]
 
-  ((hfql [:a :c str]) {:a 1, :b 2})
-  := [{:a 1, :c nil, 'str "{:a 1, :b 2}"}
-      [_ _ _]]
-  )
-
-(tests ; TODO port to CofreeT
-  ((hfql {* :a}) [{:a 1} {:a 2}])
-  := ['(1 2) nil]
-  ((hfql {(range 3) {* inc}}))
-  := ['(0 1 2) _]
-  (let [[result continuation] ((hfql {(range 3) {* inc}}))]
-    (continuation result))
-  := ['(1 2 3) nil]
-  )
-
-(tests ; TODO port to CofreeT
-  ;; ① – one value realized at a time – user can call returned continuation to nav further.
-  (let [alice {:db/id 9, :user/email "alice@example.com"}]
-    ((hfql {identity [:user/email]}) alice) )
-  := [{:db/id 9, :user/email "alice@example.com"} _]
-  )
 
 (defn- call [f & args] (apply f args))
 
@@ -817,26 +725,9 @@
          (first (call edge (assoc env '% object) object)))
        (first (call edge (assoc env '% object) object))))))
 
-(tests ; ① ; TODO port to CofreeT
-  (nav2 {:a 1} :a) := 1
-  (nav2 {:a 1} :b) := nil
-  (nav2 [:a :b :c] 1) := :b
-  (nav2 [:a :b :c] 3) := nil
 
-  (let [alice {:db/id 9, :user/name "Alice" :user/email "alice@example.com"}
-        pull-expression (hfql {identity [:user/name :user/email]})]
 
-    (nav2 alice pull-expression)
-    := alice
-
-    (nav2 alice (next3 pull-expression))
-    := {:user/name "Alice", :user/email "alice@example.com"}
-
-    (map (partial nav2 alice) (next (first (next pull-expression))))
-    := ["Alice" "alice@example.com"]
-    ))
-
-(defn nav ; ① ; TODO port to CofreeT
+(defn nav
   ([edge] (nav nil edge))
   ([object edge]
    (nav nil object edge (infer-nav-value object edge nil)))
@@ -864,23 +755,7 @@
       (let [[object continuation] (call edge env object)]
         (pull3 continuation object (assoc env '% object)))})))
 
-(tests ; TODO port to CofreeT
-  (pull3 (hfql :a) {:a 1}) := 1
-  (pull3 (hfql [:a]) {:a 1, :b 2}) := {:a 1}
-  (pull3 (hfql {identity [:a]}) {:a 1, :b 2}) := '{identity {:a 1}}
-  (pull3 (hfql {* [:a]}) [{:a 1, :b 2} {:a 3, :c 4}])
-  := [{:a 1} {:a 3}]
-  (pull3 (hfql {identity {* [:a]}}) [{:a 1, :b 2} {:a 3, :c 4}])
-  := '{identity ({:a 1} {:a 3})}
-  (pull3 (hfql {* {identity [:a]}}) [{:a 1, :b 2} {:a 3, :c 4}])
-  := '({:a 1} {:a 3})
-  (defn _ns-publics [ns] (take 2 (ns-publics ns)))
-  (pull3 (hfql {_ns-publics {* {val symbol}}}) *ns*)
-   := '{_ns-publics (hyperfiddle.hfql1/form hyperfiddle.hfql1/symbolic-call?)}
-  (pull3 (hfql {_ns-publics {* {val [symbol]}}}) *ns*)
-  := '{_ns-publics ({symbol hyperfiddle.hfql1/form} {symbol hyperfiddle.hfql1/symbolic-call?})}
-  ;; (next2 (hfql {* [:a]}))
-  )
+
 
 
 
@@ -976,45 +851,6 @@
               ))
    ))
 
-(comment
-  ((hfql {* key}) (take 1 (ns-publics *ns*)))
-  (pull (hfql {identity [key val]}) (data/map-entry :a :b))
-  (pull2 (hfql key) (data/map-entry :a :b))
-  (pull2 (hfql [key]) (data/map-entry :a :b))
-  (pull2 (hfql [{key [identity]}]) (data/map-entry :a :b))
-  (pull2 (hfql [key val]) (data/map-entry :a :b))
-  (pull2 (hfql {identity [key val]}) (data/map-entry :a :b))
-  (pull2 (hfql {identity [{key [identity]} val]}) (data/map-entry :a :b))
-  (pull (hfql {* [key]}) (ns-publics *ns*))
-  (pull2 (hfql {* [key]}) (ns-publics *ns*))
-  (pull (hfql {ns-publics {* key}}) *ns*)
-  (pull (hfql {ns-publics {* [key]}}) *ns*)
-  
-  )
-
-(tests ; TODO port to CofreeT
-  (nav {:a 1} (hfql :a))
-  := 1
-
-  (let [alice {:db/id 9, :user/email "alice@example.com"}]
-    (nav alice (hfql {identity [:user/email]}))
-    := alice)
-
-   (let [alice {:db/id 9, :user/name "Alice", :user/email "alice@example.com"}]
-     (pull (hfql {identity [:user/email]}) alice) )
-    := {'identity {:user/email "alice@example.com"}}
-
-   (let [ns-publics2 (comp vals ns-publics)]
-     (pull3 (hfql {(ns-publics2 ^::symbolic *ns*) symbol}) *ns*))
-   
-
-  )
-
-(tests ; TODO port to CofreeT
-  (pull3 (hfql [:a {:a :db/ident}]) {:a {:db/id 1 :db/ident :foo}})
-  := {:a :foo}
-  )
-
 (defn pull-leaf
   "Pull and prune intermediate traversal from pulled result.
   E.g., in {identity {:a :db/ident}}, return the value for :db/ident, skipping identity and :a."
@@ -1048,81 +884,6 @@
 
   ((let [x 2] (hfql (vector 1 x 3 'y '%))) {'y 4} 5)
   := [[1 2 3 4 5] nil]
-  )
-
-(defn navigable [nav-fn object]
-  (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
-
-;; TODO port to CofreeT
-(def ^:private _alice_    {:db/id 9, :user/email "alice@example.com", :user/name "Alice" :user/address {:address/number 42}})
-(def ^:private _bob_      {:db/id 10, :user/email "bob@example.com", :user/name "Bob"})
-(def ^:private _charlie_  {:db/id 11, :user/email "chalie@example.com", :user/name "Charlie"})
-(def ^:private _db_       ^::symbolic {9 _alice_, 10 _bob_, 11 _charlie_})
-(def ^:private _d-entity_ (fn [db eid] (get db eid)))
-(defn- _people_ []
-  (->> (list 9 10 11)
-    (navigable (fn [_index value] (_d-entity_ _db_ value)) )))
-
-(tests ; TODO port to CofreeT
-  (let [user-summary #(str (:user/name %) " – " (:user/email %))
-        selected 9
-        expr (hfql {(_d-entity_ _db_ selected) [:db/id :user/email user-summary keys clojure.core/keys cc/keys]})]
-    (pull3 expr))
-  := {'(_d-entity_ _db_ 9) ; FIXME 9 is not templated
-      {:db/id 9,
-       :user/email "alice@example.com",
-       'user-summary "Alice – alice@example.com",
-       'keys '(:db/id :user/email :user/name :user/address),
-       'clojure.core/keys '(:db/id :user/email :user/name :user/address)
-       'cc/keys '(:db/id :user/email :user/name :user/address)}}
-  )
-
-(tests ; TODO port to CofreeT
-  (let [selected 9]
-    (pull3 (hfql {(_d-entity_ _db_ selected) [:user/name {:user/address [:address/number]}]})))
-  := {'(_d-entity_ _db_ 9) ; FIXME 9 is not templated
-      {:user/name "Alice", :user/address {:address/number 42}}}
-  )
-
-(tests ; TODO port to CofreeT
-  (hfql *) := _
-  ((hfql *) {:a 1})
-  := [{:a 1} nil]
-  (pull3 (hfql *) _alice_)
-   := _alice_
-  (pull3 (hfql {identity [:db/id *]}) _alice_) ; FIXME * is showing up in the pull result instead of being flattened
-  := {'identity _alice_})
-
-(tests ; TODO port to CofreeT
-  "multiplicity many"
-  ((hfql {(_people_) [:user/name]})) := ['(9 10 11) _]
-
-  (let [pull-expr (hfql {(_people_) [:user/name]})
-        people (nav pull-expr)]
-    people := (list 9 10 11)
-    (for [person-id people
-          next-pull-expr (next pull-expr)]
-      (let [person (nav people nil person-id)] ; hydrate
-        (nav person next-pull-expr))))
-  := [{:user/name "Alice"}
-      {:user/name "Bob"}
-      {:user/name "Charlie"}]
-
-  (pull3 (hfql {(_people_) {* [:user/name]}})) ; FIXME impl misses call to ccp/nav before traversing on *
-  := {'(_people_) [{:user/name "Alice"}
-                   {:user/name "Bob"}
-                   {:user/name "Charlie"}]}
-  )
-
-
-(tests ; TODO port to CofreeT
-  "keyword aliases"
-
-  (form (hfql :test)) := :test
-  (form (hfql ::test)) := :hyperfiddle.hfql1/test
-  (form (hfql ::ccp/test)) := :clojure.core.protocols/test
-  (aliased-form (ns-name *ns*) ::ccp/test) := "::ccp/test"
-  (aliased-form (ns-name *ns*) `ccp/test) := 'ccp/test
   )
 
 
@@ -1358,16 +1119,3 @@ identifier, though it might not be serializable."
      (-resolve object (dissoc opts ::hierarchy)))))
 
 
-(comment
-  (hfql {(all-ns) [symbol]})
-  ((hfql {(all-ns) [symbol]}))
-
-  (def _expr (hfql {ns-publics *}))
-  (_expr *ns*)
-  ((first (next _expr)) (ns-publics *ns*))
-  ((hfql {ns-publics *}) *ns*)
-  (pull (hfql {ns-publics [*]}) *ns*) 
-  (pull (hfql {ns-publics {* [val]}}) *ns*)
-  (pull (hfql {ns-publics {* {val [symbol]}}}) *ns*)
-  (pull (hfql {* {val [symbol]}}) (seq (ns-publics *ns*)))
-  )

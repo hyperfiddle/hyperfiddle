@@ -1,5 +1,5 @@
 (ns hyperfiddle.hfql1.coalgebra
-  (:refer-clojure :exclude [extend resolve])
+  (:refer-clojure :exclude [extend resolve meta])
   (:require
    [clojure.core.protocols :as ccp]
    [contrib.data :refer [group-by-pred]]
@@ -24,9 +24,20 @@
 
 (def ^:dynamic *navigate* safe-ccp-nav) ; default is to navigate objects, except in UIs where, at leaves, where we want to see the symbolic values
 
+
+(defn- has-meta? [object]
+  #?(:clj (instance? clojure.lang.IObj object)
+     :cljs (satisfies? IMeta object)))
+
+(defn- meta [object]
+  (when (has-meta? object)
+    (clojure.core/meta object)))
+
 (def metas fst)
 (def star? (comp #(= ::ana/star %) ::ana/type metas))
 (def star-traversal? (comp #(= ::ana/star %) ::ana/kind metas))
+(def multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity metas))
+
 
 (defn projection-type [point]
   (let [metas (metas point)]
@@ -36,25 +47,51 @@
                      ::ana/symbol)
       (::ana/type metas))))
 
-(defn symbolic-edge [point]
-  (case (projection-type point)
-    ::ana/traversal (::ana/symbolic-edge (::ana/edge (metas point)))
-    (::ana/symbolic-edge (metas point))))
-
 (defn- resolve
   "Lookup `symbol` into `env` and return associated value. Throw if symbol cannot be found in `env`."
   ([symbol] (partial resolve symbol))
   ([symbol env]
    (if-let [[_symbol value] (find env symbol)]
      value
-     (if (symbol? symbol)
-       (throw (ex-info (str "Unable to resolve `" symbol "` from environment.") {:symbol symbol, :env env}))
-       symbol))))
+     (throw (ex-info (str "Unable to resolve `" symbol "` from environment.") {:symbol symbol, :env env}))))
+  ([symbol env not-found]
+   (try (resolve symbol env)
+        (catch #?(:clj Throwable, :cljs :default) ex
+          not-found))))
 
-(def focus-% (local (resolve '%)))
+(def focus-% (local (fn focus-% [env] (delay (force (resolve '% env))))))
 
-(defn focus-arguments [metas]
-  (local (fn [env] (map #(resolve % env) (::ana/parameters metas)))))
+(defn resolve-arguments
+  ([metas] (partial resolve-arguments metas))
+  ([metas env]
+   (map (fn [parameter argument]
+          (if (symbol? parameter)
+            (let [resolved (resolve parameter env)]
+              (if (= '% parameter)
+                (force resolved)
+                resolved))
+            (if (= ::unbound argument)
+              (throw (ex-info "Unbound function argument" {:parameter parameter}))
+              argument)))
+     (::ana/parameters metas) (concat (::ana/arguments metas) (repeat ::unbound)))))
+
+(defn focus-arguments [metas] (local (fn [env] (delay (resolve-arguments metas (force env))))))
+
+(defn template-symbolic-edge [env metas]
+  (let [{::ana/keys [form parameters]} metas]
+    (case (::ana/type metas)
+      ::ana/call (cons (first form)
+                   (map (fn [parameter argument]
+                          (if (or (:symbolic (meta parameter)) (:symbolic (meta argument)))
+                            parameter
+                            argument))
+                     parameters (resolve-arguments metas env)))
+      form)))
+
+(defn symbolic-edge [point]
+  (case (projection-type point)
+    ::ana/traversal (template-symbolic-edge (::scope (metas point)) (::ana/edge (metas point)))
+    (::ana/symbolic-edge (metas point))))
 
 (def mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
 
@@ -62,28 +99,31 @@
   (let [key (get metas ::ana/form)]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
-      (fn [%] (*navigate* % key (get % key))))))
+      (fn [%] (delay (*navigate* (force %) key (get (force %) key)))))))
 
 (def ^:private dup-first ":: (a, b) -> (a, a)" (&&& fst fst))
 
 (defn- get-or-call [metas]
   (mem-reader ; explicit reader for clarity
     (fn [%]
-      (let [ifn (::ana/value metas)]
-        (if (try (contains? % ifn) ; FIXME find a better check
-                 (catch #?(:clj Throwable, :cljs :default) _
-                   #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
-                   false))
-          (*navigate* % ifn (get % ifn))
-          (apply ifn [%])
-          )))))
+      (delay
+        (let [% (force %)
+              ifn (::ana/value metas)]
+          (if (try (contains? % ifn) ; FIXME find a better check
+                   (catch #?(:clj Throwable, :cljs :default) _
+                     #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+                     false))
+            (*navigate* % ifn (get % ifn))
+            (apply ifn [%])
+            ))))))
 
 (defn- call [metas]
   (mem-reader
     (fn [args]
-      (apply (::ana/value metas) args))))
+      (delay ; % in args already forced
+        (apply (::ana/value metas) (force args))))))
 
-(defn- touch [object] (if (seqable? object) (doall object) object))
+(defn- touch [object] (delay (let [object (force object)] (if (seqable? object) (doall object) object))))
 (def ^:private star (mem-reader touch))
 
 (defn leaf [f] (fmap (fn [v] (pair v ())) f))
@@ -105,7 +145,7 @@
                           (fmap headF)   ; inner layer
                           )]
     (into {} (map pair (fmap symbolic-edge realized-kids)
-               (fmap snd realized-kids)))))
+               (fmap (comp force snd) realized-kids)))))
 
 (declare unfoldT)
 
@@ -135,8 +175,10 @@
           ::ana/symbol  (comp leaf focus-% getter)
           ::ana/keyword (comp leaf focus-% getter)
           ::ana/string  (comp leaf focus-% getter)
-          ::ana/var     (comp leaf focus-% getter)
+          ::ana/literal (comp leaf focus-% getter)
           ::ana/fn      (comp leaf focus-% get-or-call)
+          ::ana/var     (comp leaf (focus-arguments (metas point)) call)
+          ::ana/quoted-var (comp leaf focus-% getter)
           ::ana/call    (comp leaf (focus-arguments (metas point)) call)
           ::ana/lambda  (comp leaf (focus-arguments (metas point)) call)
           ::ana/star    (comp leaf focus-% (constantly star))
@@ -145,7 +187,7 @@
             (mem-reader
               (fn [env]
                 (let [[[star?] kids] (group-by-pred (comp star? extract) children)
-                      dynamic-keys (when star? (keys (runReader star (get env '%))))
+                      dynamic-keys (when star? (keys (force (runReader star (get env '%)))))
                       star-kids (let [static-keys (set (map (comp symbolic-edge extract) kids))
                                       remaining-star-keys (remove static-keys dynamic-keys)]
                                   (fmap (fmap swap) (unwrap (ana/analyze {} (vec remaining-star-keys)))))]
@@ -154,22 +196,23 @@
                                  (pull-peek-at-immediate-kids! env (map (unfoldT hfqlT) star-kids))))
                     (mappend kids star-kids))))))
           ::ana/traversal
-          (let [edgeT (unfoldT hfqlT (fmap swap (ana/hydrate {::ana/form (::ana/form (::ana/edge (metas point))) ; FIXME wart, should be handled by the analyzer
-                                                              ::ana/meta (::ana/edge (metas point))})))]
+          (let [edgeT (unfoldT hfqlT (fmap swap (if (star-traversal? point)
+                                                  (ana/hfql identity)
+                                                  (ana/hydrate {::ana/form (::ana/form (::ana/edge (metas point))) ; FIXME wart, should be handled by the analyzer
+                                                                ::ana/meta (::ana/edge (metas point))}))))]
             (constantly
               (mem-reader
                 (fn [env]
-                  (let [[_metas new-context] (extract (seed env edgeT))]
-                    (pair new-context
-                      (let [direct-child (first children)]
-                        (if (recursion-point? hfql)
-                          (let [limit (or (::ana/recursion-limit (metas (extract direct-child))) (::ana/recursion-limit (metas (extract root))))]
-                            (if (> limit 1)
-                              [(fmap (bf/first #(assoc % ::ana/recursion-limit (dec limit) )) root)]
-                              []))
-                          (if (star-traversal? (extract direct-child))
-                            [(first (unwrap direct-child))]
-                            [direct-child]))))))))))]
+                  (pair (snd (extract (seed (force env) edgeT)))
+                    (let [direct-child (first children)]
+                      (if (recursion-point? hfql)
+                        (let [limit (or (::ana/recursion-limit (metas (extract direct-child))) (::ana/recursion-limit (metas (extract root))))]
+                          (if (> limit 1)
+                            [(fmap (bf/first #(assoc % ::ana/recursion-limit (dec limit) )) root)]
+                            []))
+                        (if (star-traversal? (extract direct-child))
+                          [(first (unwrap direct-child))]
+                          [direct-child])))))))))]
     (fmap transform point)))
 
 (defprotocol SetScope
@@ -200,17 +243,20 @@
   SetScope
   (set-scope-value [w scope] (seek scope w)))
 
-(defn- unfoldT
+(defn- wrap-with-static-metadata [metas t] (->CofreeT (->EnvW metas (runCofreeT t))))
+
+(defn unfoldT
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra AST]
    (let [[metas step :as t] (coalgebra AST)]
-     (hoistCofreeT (fn [w] (->EnvW metas w))
+     ;; (hoistCofreeT (fn [w] (->EnvW metas w)))
+     (wrap-with-static-metadata metas
        (->CofreeT
          (store
            (fn peek [scope]
              (let [[value children] (runReader step scope)]
                (->CofreeF (pair (assoc metas ::scope scope) value)
-                 (if-not (= ::ana/many (::ana/multiplicity metas)) ; if multiplicity one
+                 (if-not (multiplicity-many? t) ; if multiplicity one
                    ;; don't use fmap under here - we want to enforce lazy children.
                    (map ; for each child, unfold it and seed it with next scope.
                      (comp (seed (case (projection-type t) ; decide what's next scope.
@@ -223,8 +269,10 @@
                      (map ; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
                                         ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
                        (comp (flip seed (unfoldT coalgebra (first children)))
-                         (partial assoc scope '%)) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
-                       value))))))
+                         (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
+                         (fn [value_i] (*navigate* (force value) nil value_i)))
+                       (force value) ; ⚠ will force all effects up to the root to compute children multiplicity
+                       ))))))
            (::ana/lexical-env metas)))))))
 
 (defn seed
@@ -343,22 +391,24 @@
   (let [point (extract W)]
     (case (projection-type point)
       ::ana/pull (fmap (fn [_]
-                         (into {}
-                           (map (fn [point value]
-                                  (case (projection-type point)
-                                    ::ana/traversal value
-                                    (pair (symbolic-edge point) value)))
-                             (map extract (unwrap W))
-                             (map snd children))))
+                         (delay
+                           (into {}
+                             (map (fn [point value]
+                                    (case (projection-type point)
+                                      ::ana/traversal (force value)
+                                      (pair (symbolic-edge point) (force value))))
+                               (map extract (unwrap W))
+                               (map snd children)))))
                    point)
       ::ana/traversal
-      (fmap (fn [_] {(symbolic-edge point)
+      (fmap (fn [_] 
+              (delay {(symbolic-edge point)
                      (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
-                       (if (= ::ana/many (::ana/multiplicity (metas point)))
-                         (map snd children)
-                         (snd (first children)))
+                       (if (multiplicity-many? point)
+                         (map (comp force snd) children)
+                         (force (snd (first children))))
                        ;; bounded recursion case, no more children, return value as-is.
-                       (snd point))})
+                       (force (snd point)))}))
         point)
       point)))
 
@@ -391,37 +441,37 @@
       #_(fst (extract p)))))
 
 (tests
-  (snd (extract (pull (seed {'% 1} (-hfql identity)))))
+  (force (snd (extract (pull (seed {'% 1} (-hfql identity))))))
   := 1
 
-  (snd (extract (pull (seed {'% {:a 1}} (-hfql :a)))))
+  (force (snd (extract (pull (seed {'% {:a 1}} (-hfql :a))))))
   := 1
 
-  (snd (extract (pull (seed {'% {:a 1, :b 2}} (-hfql [:a])))))
+  (force (snd (extract (pull (seed {'% {:a 1, :b 2}} (-hfql [:a]))))))
   := {:a 1}
 
-  (snd (extract (pull (seed {'% {:a 1}} (-hfql [:a :b])))))
+  (force (snd (extract (pull (seed {'% {:a 1}} (-hfql [:a :b]))))))
   := {:a 1, :b nil}
 
-  (snd (extract (pull (seed {'% {:a 1, :b 2}} (-hfql [:a :b])))))
+  (force (snd (extract (pull (seed {'% {:a 1, :b 2}} (-hfql [:a :b]))))))
   := {:a 1, :b 2}
 
-  (snd (extract (pull (seed {'% {:a 1}} (-hfql [:a identity])))))
+  (force (snd (extract (pull (seed {'% {:a 1}} (-hfql [:a identity]))))))
   := {:a 1, 'identity {:a 1}}
 
-  (snd (extract (pull (seed {'% {:a 1}} (-hfql [{:a inc}])))))
+  (force (snd (extract (pull (seed {'% {:a 1}} (-hfql [{:a inc}]))))))
   := {:a 2}
 
-  (snd (extract (pull (seed {'% {:a 1}} (-hfql [{:a {inc inc}}])))))
+  (force (snd (extract (pull (seed {'% {:a 1}} (-hfql [{:a {inc inc}}]))))))
   := {:a {'inc 3}}
 
-  (snd (extract (pull (seed {'% {:a 1}} (-hfql {identity :a})))))
+  (force (snd (extract (pull (seed {'% {:a 1}} (-hfql {identity :a}))))))
   := {'identity 1}
 
-  (snd (extract (pull (seed {'% {:a 1}} (-hfql {identity [:a]})))))
+  (force (snd (extract (pull (seed {'% {:a 1}} (-hfql {identity [:a]}))))))
   := {'identity {:a 1}}
 
-  (snd (extract (pull (-hfql (range 3)))))
+  (force (snd (extract (pull (-hfql (range 3))))))
   := '(0 1 2)
 
   (-values (-hfql {(range 2) identity}))
@@ -430,37 +480,46 @@
   (-values (-hfql {(range 2) {* identity}}))
   := '((0 1) 0 1)
 
-  (snd (extract (pull (-hfql {(range 2) {* inc}}))))
+  (force (snd (extract (pull (-hfql {(range 2) {* inc}})))))
   := '{(range 2) (1 2)}
 
-  (snd (extract (pull (-hfql {(range 2) {* {inc inc}}}))))
+  (force (snd (extract (pull (-hfql {(range 2) {* {inc inc}}})))))
   := '{(range 2) ({inc 2} {inc 3})})
 
 #?(:clj
    (tests
-     (snd (extract (pull (-hfql {(ns-publics *ns*) {* val}}))))
+     (force (snd (extract (pull (-hfql {(ns-publics *ns*) {* val}})))))
+     := {(list 'ns-publics *ns*) (vals (ns-publics *ns*))}
+     ))
+
+#?(:clj
+   (tests
+     (force (snd (extract (pull (-hfql {(ns-publics *ns*) {* {val symbol}}})))))
+     := {(list 'ns-publics *ns*) (map #(hash-map 'val %) (map symbol (vals (ns-publics *ns*))))}
+     ))
+
+#?(:clj
+   (tests
+     (force (snd (extract (pull (-hfql {(ns-publics *ns*) {vals {* symbol}}})))))
+     := {(list 'ns-publics *ns*) {'vals (map symbol (vals (ns-publics *ns*)))}}
+     ))
+
+#?(:clj
+   (tests
+     "Arguements tagged ^:symbolic do not template in resulting pull keys."
+     (force (snd (extract (pull (-hfql {(ns-publics ^:symbolic *ns*) {* val}})))))
      := {'(ns-publics *ns*) (vals (ns-publics *ns*))}
      ))
 
-#?(:clj
-   (tests
-     (snd (extract (pull (-hfql {(ns-publics *ns*) {* {val symbol}}}))))
-     := {'(ns-publics *ns*) (map #(hash-map 'val %) (map symbol (vals (ns-publics *ns*))))}
-     ))
 
 #?(:clj
    (tests
-     (snd (extract (pull (-hfql {(ns-publics *ns*) {vals {* symbol}}}))))
-     := {'(ns-publics *ns*) {'vals (map symbol (vals (ns-publics *ns*)))}}
-     ))
-
-#?(:clj
-   (tests
-     ;; Laziness
+     "Multiplicity many traversals stays lazy, even through pull."
      (->> (-hfql {(ns-publics *ns*) {* (fn [%] (tap "IO!") (val %))}})
        pull ; CofreeT
        extract ; [metas, pulled value]
        snd ; pulled value {ns-publics (...)}
+       force
        first ; map entry
        val ; (...)
        (take 2)
@@ -473,18 +532,17 @@
    )
 
 (tests
-  (snd (extract (seed {'% {:a 1}} (-hfql *))))
+  (force (snd (extract (seed {'% {:a 1}} (-hfql *)))))
   := {:a 1}
 
-  (snd (extract (seed {'% {:a 1}} (-hfql :a))))
+  (force (snd (extract (seed {'% {:a 1}} (-hfql :a)))))
   := 1
 
-  (snd (extract (seed {'% {:a 1}} (-hfql identity))))
+  (force (snd (extract (seed {'% {:a 1}} (-hfql identity)))))
   := {:a 1}
 
-  (snd (extract (seed {'% {identity 'identity}} (-hfql identity))))
+  (force (snd (extract (seed {'% {identity 'identity}} (-hfql identity)))))
   := 'identity
-
   )
 
 (tests
@@ -548,19 +606,19 @@
 
 (tests
   "recursive pull" ; datomic pull does detect cycles and return only :db/id at leaves.
-  (snd (extract (pull (seed '{% 1} (-hfql {inc [str {identity 2}]})))))
+  (force (snd (extract (pull (seed '{% 1} (-hfql {inc [str {identity 2}]}))))))
   := '{inc {str "2", identity {inc {str "3", identity 3}}}})
 
 #?(:clj
    (tests
      "Unbounded pull will overflow"
-     (snd (extract (pull (seed {'% nil} (-hfql {identity ...})))))
+     (force (snd (extract (pull (seed {'% nil} (-hfql {identity ...}))))))
      :throws java.lang.StackOverflowError
      ))
 
 (tests
   "recursive pull across star traversal"
-  (snd (extract (pull (seed {'% (range 3)} (-hfql {identity {* 2}})))))
+  (force (snd (extract (pull (seed {'% (range 3)} (-hfql {identity {* 2}}))))))
   := '{identity ({identity 0} {identity 1} {identity 2})}
   )
 
@@ -579,7 +637,7 @@
 (tests
   "reseeding"
   (let [w (seed {'% 1} (-hfql {inc {inc {inc inc}}}) )]
-    (snd (extract w)) := 2
+    (force (snd (extract w))) := 2
     (let [w2 (first (unwrap w))]
       [(-values w2)
        (-values (seed {'% 10} w2))])
@@ -592,48 +650,6 @@
   := '({:a 10} 10))
 
 
-
-
-;;; Extra tests
-
-
-(tests
-  (-values (seed {'% {:a 1, :b 2}} (-hfql :a)))
-  := '(1)
-
-  ;; (-values (seed {'% {:a 1, :b 2, 'c 3}} (-hfql 'c))) ; FAIL at analyze phase due to extra quote
-  ;; := '(3)
-
-  (-values (seed {'% {:a 1, :b 2, 'c 3, "d" 4}} (-hfql "d")))
-  := '(4)
-
-  (-values (seed {'% {:a 1, :b 2}} (-hfql str)))
-  := '("{:a 1, :b 2}")
-  )
-
-#_ ; TODO port to CofreeT API
-(tests
-  ((hfql 'str) {'str 'str, str str, #'str #'str})
-  := ['str nil]
-  ((hfql str) {'str 'str, str str, #'str #'str})
-  := [str nil]
-  ((hfql #'str) {'str 'str, str str, #'str #'str})
-  := ["{str str, #function[clojure.core/str] #function[clojure.core/str], #'clojure.core/str #'clojure.core/str}"
-      nil]
-  ((hfql '#'str) {'str 'str, str str, #'str #'str})
-  := [#'clojure.core/str nil]
-
-  ((hfql 'str) {str str, #'str #'str})
-  := [nil nil]
-  ((hfql '#'str) {'str 'str, str str})
-  := [nil nil]
-  )
-
-
-
-
-
-
 ;;; Misc
 
 (defn- unchunk-seq ; keeping around for reference
