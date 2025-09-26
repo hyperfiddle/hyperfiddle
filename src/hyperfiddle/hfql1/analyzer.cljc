@@ -125,7 +125,7 @@
     (string? obj)
     (keyword? obj)))
 
-(defn- quote "Quote a form. Invoke it as `(#'quote x)` to avoid conflict with the 'quote special form."
+(defn quote "Quote a form. Invoke it as `(#'quote x)` to avoid conflict with the 'quote special form."
   [form]
   (if (or (literal? form) (quoted? form))
     form
@@ -239,9 +239,14 @@
                          continuation (φ env (snd form))]
                      (merge base
                        (when (= ::star (::kind continuation)) {::multiplicity ::many})
-                       (when (= ::recur (::type continuation)) {::recursion-point true
-                                                                ::recursion-limit (::recursion-limit continuation)})
+                       (when (or (= ::recur (::type continuation)) (::recursion-point continuation))
+                         {::recursion-point true
+                          ::recursion-limit (::recursion-limit continuation)})
                        ))))))
+
+(comment
+  (analyze {} '[{clojure.java.io/file [File/.getName {File/.listFiles {* ...}}]}])
+  )
 
 ;; #_(let [% 1]
 ;;   (hfql (inc %)))
@@ -306,14 +311,33 @@
   (hfql [:a *])
   (hfql {:a inc})
   (let [fork (fn [x] (list x x))]
-    (hfql {identity {fork {fork fork}}})) 
+    (hfql {identity {fork {fork fork}}}))
 
-  (hfql (ns-publics *ns*) ) 
+  (hfql (ns-publics *ns*) )
   (hfql (ns-publics %) )
-  
+
 
   (hfql (fn _inc [%] (inc %)))
 
   (hfql {:a ...})
   )
 
+(defn filter-pull [pred rose-pull]
+  (let [[_form {::keys [type lexical-env _form _symbolic-edges]}] (extract rose-pull)
+        children (filter (comp pred snd extract) (unwrap rose-pull))
+        filtered-form (mapv unquote* (map (comp ::form snd extract) children))]
+    (rose-tree
+      (pair filtered-form         ; TODO drop pair at this level. It seems useless.
+        {::type type
+         ::lexical-env lexical-env
+         ::form filtered-form
+         ::symbolic-edges filtered-form})
+      (vec children))))
+
+
+(tests
+  (filter-pull (fn [child] (#{:a :c} (::form child)))
+    (hfql [:a :b :c]))
+  := (hfql [:a :c])
+
+  )

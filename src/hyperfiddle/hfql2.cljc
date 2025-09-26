@@ -3,10 +3,13 @@
    [clojure.core :as cc]
    [clojure.core.protocols :as ccp]
    [hyperfiddle.rcf :refer [tests]]
+   [hyperfiddle.hfql1.monoid :refer [mappend]]
    [hyperfiddle.hfql1.functor :refer [fmap]]
-   [hyperfiddle.hfql1.bifunctor :refer [fst snd swap]]
+   [hyperfiddle.hfql1.bifunctor :as bf :refer [pair fst snd swap]]
    [hyperfiddle.hfql1.comonad :refer [extract]]
    [hyperfiddle.hfql1.cofree :refer [tree-seqT unwrap runCofreeT]]
+   [hyperfiddle.hfql1.rose-tree :refer [rose-tree]]
+   [hyperfiddle.hfql1.store :refer [pos peeks]]
    [hyperfiddle.hfql1.analyzer :as ana]
    [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]])
   #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql]])))
@@ -20,13 +23,17 @@
 (def next-steps unwrap)
 (def values (comp (fmap (comp force nav)) tree-seqT))
 
+(defn scope [hfqlT] (pos (snd (runCofreeT hfqlT))))
+(defn value-at-point [hfqlT] (get (scope hfqlT) '%))
+
 (def metas (comp fst runCofreeT))
 
 (defn navigable [nav-fn object]
   (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
 
 (defn unfold [ast] (unfoldT (partial hfqlT ast) ast))
-(defmacro hfql [hfql-form] `(unfold (fmap swap (ana/hfql ~hfql-form))))
+(defn hfql* [analyzed-hfql] (seed {} (unfold (fmap swap analyzed-hfql))))
+(defmacro hfql [hfql-form] `(hfql* (ana/hfql ~hfql-form)))
 
 
 
@@ -164,7 +171,8 @@
     := ["Alice" "alice@example.com"]
     ))
 
-(tests ; TODO port to CofreeT
+
+(tests
   (pull (seed {'% {:a 1}} (hfql :a)))
   := 1
   (pull (seed {'% {:a 1, :b 2}} (hfql [:a])))
@@ -182,11 +190,11 @@
 
   (defn _ns-publics [ns] (take 2 (ns-publics ns)))
   (pull  (hfql {(_ns-publics 'clojure.core) {* {val symbol}}}))
-   := '{(_ns-publics clojure.core) ({val clojure.core/primitives-classnames} {val clojure.core/+'})}
+  := '{(_ns-publics clojure.core) ({val clojure.core/primitives-classnames} {val clojure.core/+'})}
 
-   (pull (hfql {(_ns-publics 'clojure.core) {* {val [symbol]}}}))
-   := '{(_ns-publics clojure.core) ({val {symbol clojure.core/primitives-classnames}}
-                                    {val {symbol clojure.core/+'}})}
+  (pull (hfql {(_ns-publics 'clojure.core) {* {val [symbol]}}}))
+  := '{(_ns-publics clojure.core) ({val {symbol clojure.core/primitives-classnames}}
+                                   {val {symbol clojure.core/+'}})}
 
   )
 
@@ -304,3 +312,226 @@
      (values (seed {'% "  "} (hfql [String/.isBlank java.lang.String/.isEmpty .length])))
      := '({String/.isBlank true, java.lang.String/.isEmpty false, .length 2} true false 2)
      ))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Sitemap / Dynamic HFQL expression manipulation ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn- merge-pull-metas [metas-a metas-b]
+  (let [form-a (ana/unquote* (::ana/form metas-a))
+        merged-form (vec (distinct (into form-a (ana/unquote* (::ana/form metas-b)))))]
+    (assoc metas-a
+      ::ana/lexical-env {}
+      ::ana/form (#'ana/quote merged-form)
+      ::ana/symbolic-edges (#'ana/quote merged-form))))
+
+(tests
+  (merge-pull-metas
+    (snd
+      (extract
+        (ana/analyze {'% 1} [:a :b])))
+    (snd
+      (extract
+        (ana/analyze {'% 2} [:a :c]))))
+  := {:hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
+      :hyperfiddle.hfql1.analyzer/form '(quote [:a :b :c]),
+      :hyperfiddle.hfql1.analyzer/lexical-env '{},
+      :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c])}
+  )
+
+(defn- merge-pull-children [children-A children-B]
+  (let [keyf (comp ::ana/symbolic-edge snd extract)
+        a-edges (into #{} (map keyf children-A))]
+    (into children-A (remove (comp a-edges keyf) children-B))))
+
+(defn- combine-pull [rose-a rose-b]
+  (let [metas (merge-pull-metas (snd (extract rose-a)) (snd (extract rose-b)))]
+    (fmap (fmap (fn [kv] (assoc kv ::ana/lexical-env (::ana/lexical-env metas))))
+      (rose-tree
+        (pair (ana/unquote* (::ana/form metas)) metas)
+        (merge-pull-children
+          (unwrap rose-a) (unwrap rose-b))))))
+
+(defn combine
+  ([hfqlT] hfqlT)
+  ([hfqlT-a hfqlT-b]
+   (if (nil? hfqlT-b)
+     hfqlT-a
+     (do
+       (assert (= (::ana/type (metas hfqlT-a)) (::ana/type (metas hfqlT-b))))
+       (let [envW-a (runCofreeT hfqlT-a)
+             envW-b (runCofreeT hfqlT-b)]
+         (seed (merge (pos (snd envW-a)) (pos (snd envW-b)))
+           (unfold (fmap swap
+                     (case (::ana/type (metas hfqlT-a))
+                       ::ana/pull (combine-pull (fmap swap (::co/AST (metas hfqlT-a))) (fmap swap (::co/AST (metas hfqlT-b))))
+                       ::ana/traversal (throw (ex-info "TODO" {}))
+                       (throw (ex-info "Can't combine." (::ana/type (metas hfqlT-a))))))))))))
+  ([hfqlT-a hfqlT-b & hfqlTs]
+   (reduce combine (combine hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
+
+(tests
+  (->
+    (combine
+      (let [a 1]
+        (hfql [:a :b]))
+      (let [b 2]
+        (hfql [:a :c])))
+    (metas)
+    (dissoc ::co/AST))
+  := {:hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
+      :hyperfiddle.hfql1.analyzer/form '(quote [:a :b :c]),
+      :hyperfiddle.hfql1.analyzer/lexical-env {},
+      :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c]),
+      :hyperfiddle.hfql1.coalgebra/scope {'a 1, 'b 2}})
+
+(defn filter-pull [pred pullT]
+  (assert (= ::ana/pull (::ana/type (metas pullT))))
+  (let [children-forms (into #{} (map ::ana/form (map metas (filter pred (unwrap pullT)))))]
+    (seed (scope pullT)
+      (hfql* (ana/filter-pull #(children-forms (::ana/form %)) (fmap swap (::co/AST (metas pullT))))))))
+
+(tests
+  (filter-pull #(#{:a :c} (::ana/form (metas %)))
+    (seed {'% 1} (hfql [:a :b :c])))
+  := (seed {'% 1} (hfql [:a :c]))
+  )
+
+
+(defn select-children "Like select-keys but select children of a pull expression."
+  [pullT childrenT-seq]
+  (let [child-matches? (into #{} (map (comp ::ana/form metas)) childrenT-seq)]
+    (filter-pull (fn [%](child-matches? (::ana/form (metas %)))) pullT)))
+
+
+(tests
+  (select-children (seed {} (hfql [:a :b :c]))
+    (unwrap (hfql [:a :c])))
+  := (seed {} (hfql [:a :c]))
+  )
+
+(defn symbolic-edge [hfqlT]
+  (when hfqlT
+    (let [metas (metas hfqlT)]
+      (::ana/symbolic-edge
+       (case (::ana/type metas)
+         ::ana/traversal (::ana/edge metas)
+         metas)))))
+
+(defn- normalize-edge [edge]
+  (cond (ident? edge) `(~edge ~'%)
+        :else edge))
+
+(declare identify)
+(defn symbolic-edge-computed [hfqlT]
+  (or (seq
+        (map (fn [part] (or (identify part) part))
+          (normalize-edge
+            (co/symbolic-edge (extract hfqlT) ::co/point-free false))))
+    (identify (value-at-point hfqlT))))
+
+(defn- call-matches? [edgeA edgeB]
+  (when (and (seq? edgeA) (seq? edgeB)) ; call form
+    (and (= (first edgeA) (first edgeB)) ; same fn
+      (= (count edgeA) (count edgeB)) ; same argc
+      )))
+
+(defn- child-matches? [symbolic-edge childT]
+  (let [child-edge (hyperfiddle.hfql2/symbolic-edge childT)]
+    (or (= symbolic-edge child-edge) ; direct match
+      (call-matches? symbolic-edge child-edge)
+      (call-matches? symbolic-edge (normalize-edge child-edge))
+      )))
+
+(defn find-child-by [pred hfqlT] (first (filter pred (unwrap hfqlT))))
+(defn find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
+
+(defn focus-subtree [hfqlT] (seed (scope hfqlT) (hfql* (fmap swap (::co/AST (metas hfqlT))))))
+
+(defn find-sitemap-entry [symbolic-edge hfqlT]
+  (case (::ana/type (metas hfqlT))
+    ::ana/pull (some-> (find-child symbolic-edge hfqlT) focus-subtree)
+    (if (child-matches? symbolic-edge hfqlT)
+      hfqlT
+      nil)))
+
+;;;;;;;;;;;;;;;
+;; Protocols ;;
+;;;;;;;;;;;;;;;
+
+(defprotocol Identifiable :extend-via-metadata true
+  (-identify [o])) ; local-symbolize
+
+(extend-protocol Identifiable
+  #?(:clj Object, :cljs default) (-identify [_])
+  nil (-identify [_]))
+
+(defn identifiable [identify-fn object]
+  (vary-meta object assoc `-identify (#?(:clj bound-fn*, :cljs identity) identify-fn))) ; #?(:clj bound-fn* :cljs identity)
+
+(defn identify
+"Produces a symbolic identity for `obj`, or nil if `obj` does not explicitly
+implement `Identifiable`. Serializable and uniquely resolvable symbolic
+identities should be favored.
+All values being self-identical, `(or (identify x) x)` always yields a valid
+identifier, though it might not be serializable."
+  [obj]
+  (-identify obj))
+
+#?(:clj
+   (tests
+     (identify (Object.)) := nil
+     (identify nil) := nil
+     (identify (identifiable (constantly `hash-map) {})) := `hash-map)
+
+   :cljs
+   (tests
+     (identify (js-obj)) := nil
+     (identify nil) := nil
+     (identify (identifiable (constantly `hash-map) {})) := `hash-map)
+   )
+
+(defn identifiable? [object]
+  #_(extends? Identifiable (type object))
+  #?(:clj (extends? Identifiable object)
+     :cljs (and (not (nil? object))
+             (object? object)
+             (satisfies? Identifiable object))))
+
+(defprotocol Suggestable :extend-via-metadata true
+             (-suggest [o]))
+
+(extend-protocol Suggestable
+  #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
+  (-suggest [m] (hfql* (ana/analyze {} (vec (keys m)))))
+  #?(:clj Object, :cljs default)
+  (-suggest [_] (hfql [identity identify type]))
+  nil (-suggest [_]))
+
+#?(:clj (extend-type Class
+          Suggestable (-suggest [_] (hfql [Class/.getCanonicalName Class/.getMethods Class/.getFields]))))
+
+
+(defmulti suggest type)
+(defmethod suggest :default [object] (-suggest object))
+(defmethod suggest #?(:clj clojure.lang.IRecord, :cljs IRecord) [record]
+  (hfql*
+    (ana/analyze {} (vec
+                      (map keyword
+                        #?(:clj
+                           (-> (type record)
+                             (.getMethod "getBasis" nil)
+                             (.invoke nil nil))
+                           :cljs
+                           (.getBasis (type record))))))))
+
+(defn suggest-at-point! [hfqlT]
+  (co/vary-static-meta
+    (fmap (bf/first #(assoc % ::suggested true))
+      (suggest (force (value-at-point hfqlT))))
+    #(assoc % ::suggested true)))
+
+(defn augment-with-suggestions! [hfqlT] (combine hfqlT (suggest-at-point! hfqlT)))
+
+
+

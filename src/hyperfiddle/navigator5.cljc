@@ -2,7 +2,7 @@
   {:clj-kondo/config {:lint-as '{hyperfiddle.electric3/defn clojure.core/defn}}}
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
-            [hyperfiddle.hfql1 :as hfql]
+            [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.entrypoint2 :refer [Index]]
             [hyperfiddle.router5 :as router]
             [hyperfiddle.electric-dom3 :as dom]

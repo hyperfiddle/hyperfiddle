@@ -2,27 +2,28 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router5 :as r]
-            [hyperfiddle.hfql1 :as hfql]))
+            [hyperfiddle.hfql2 :as hfql]))
 
 (e/declare apps)
 
 #?(:clj
    (defn build-nav-links [sitemap defaults]
-     (->> (hfql/context-free-edges sitemap)
-       (map hfql/resolved-form)
-       (sort-by hfql/edge-name)
-       (concat defaults)
-       (distinct)
-       )))
+     ;; (->> (hfql/context-free-edges sitemap)
+     ;;   (map hfql/resolved-form)
+     ;;   (sort-by hfql/edge-name)
+     ;;   (concat defaults)
+     ;;   (distinct))
+     defaults
+     ))
 
-(e/defn Index [sitemap defaults]
+(e/defn Index [sitemapT defaults]
   (dom/nav
     (dom/props {:class "Index hyperfiddle-entrypoint-Index"})
     (dom/text "Nav:")
-    (e/for [symbolic-edge  (e/diff-by {} (e/server (build-nav-links sitemap defaults)))]
+    (e/for [symbolic-edge  (e/diff-by {} (e/server (build-nav-links sitemapT defaults)))]
       (dom/text " ") (r/link ['. [symbolic-edge]]
                        (dom/props {:title (pr-str symbolic-edge)})
-                       (dom/text (name (hfql/edge-name symbolic-edge)))))))
+                       (dom/text symbolic-edge #_(name (hfql/edge-name symbolic-edge)))))))
 
 (e/defn IndexPage []
   (dom/h1 (dom/text "Hyperfiddle"))

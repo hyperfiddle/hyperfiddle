@@ -7,7 +7,9 @@
             [hyperfiddle.hfql1.functor :refer [Functor fmap ->Identity runIdentity]]
             [hyperfiddle.hfql1.bifunctor :refer [Bifunctor pair pair? fst snd bimap]]
             [hyperfiddle.hfql1.monoid :refer [mappend mempty]]
-            [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend liftW comonad-law-1 comonad-law-2 comonad-law-3]]))
+            [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend liftW comonad-law-1 comonad-law-2 comonad-law-3]]
+            #?(:clj [clojure.tools.logging])
+            ))
 
 (defprotocol CofreeFunctor
   "This is the base functor of the cofree comonad transformer.
@@ -89,7 +91,8 @@
         (aset state 0 args)
         (if (= args prev-args)
           prev-ret
-          (aset state 1 (apply f args)))))))
+          (do #?(:clj (clojure.tools.logging/debug 'memoize-1 '≠ {:prev-args prev-args, :next-args args}))
+              (aset state 1 (apply f args))))))))
 
 
 

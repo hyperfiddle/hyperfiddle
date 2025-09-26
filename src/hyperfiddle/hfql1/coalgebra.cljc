@@ -11,7 +11,7 @@
    [hyperfiddle.hfql1.monoid :refer [mappend]]
    [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend -extract]]
    [hyperfiddle.hfql1.cofree :refer [synthesize unwrap runCofreeT ->CofreeF ->CofreeT headF tree-seqT memoize-1 hoistCofreeT]]
-   [hyperfiddle.hfql1.store :refer [store seek seeks peeks #?(:cljs Store)]]
+   [hyperfiddle.hfql1.store :refer [store seek seeks peeks pos #?(:cljs Store)]]
    [hyperfiddle.hfql1.monad-reader :refer [reader local runReader]]
    [hyperfiddle.rcf :refer [tests tap %]]
    [hyperfiddle.hfql1.analyzer :as ana])
@@ -60,7 +60,24 @@
         (catch #?(:clj Throwable, :cljs :default) ex
           not-found))))
 
-(def focus-% (local (fn focus-% [env] (delay (force (resolve '% env))))))
+(defn delayed "delayed :: (a -> b) -> a -> Delay b"
+  ([f] (fn delayed-f [a] (delayed f a)))
+  ([f a] (delay (force (f (force a))))))
+
+(tests
+
+  ;; force ∘ delayed f = f
+  (delayed inc 1)
+  (delay? *1 ) := true
+  (force *2) := 2
+
+  ;; delayed ∘ delayed = delayed
+  ((delayed (delayed inc)) 1)
+  (delay? *1) := true
+  (force *2) := 2
+  )
+
+(def focus-% (local (delayed (resolve '%))))
 
 (defn resolve-arguments
   ([metas] (partial resolve-arguments metas))
@@ -76,9 +93,9 @@
               argument)))
      (::ana/parameters metas) (concat (::ana/arguments metas) (repeat ::unbound)))))
 
-(defn focus-arguments [metas] (local (fn [env] (delay (resolve-arguments metas (force env))))))
+(def focus-arguments (comp local delayed resolve-arguments))
 
-(defn template-symbolic-edge [env metas]
+(defn template-symbolic-edge [env metas & [point-free?]]
   (let [{::ana/keys [form parameters]} metas]
     (case (::ana/type metas)
       ::ana/call (cons (first form)
@@ -87,12 +104,23 @@
                             parameter
                             argument))
                      parameters (resolve-arguments metas env)))
+      ::ana/symbol (if point-free?
+                     form
+                     (list form (force (resolve '% env '%))) ; introduce a point
+                     )
       form)))
 
-(defn symbolic-edge [point]
+(defn symbolic-edge-static [point]
+  (let [metas (metas point)]
+    (::ana/symbolic-edge
+     (case (::ana/type metas)
+       ::ana/traversal (::ana/edge metas)
+       metas))))
+
+(defn symbolic-edge [point & {::keys [point-free] :or {point-free true}}]
   (case (projection-type point)
-    ::ana/traversal (template-symbolic-edge (::scope (metas point)) (::ana/edge (metas point)))
-    (::ana/symbolic-edge (metas point))))
+    ::ana/traversal (template-symbolic-edge (::scope (metas point)) (::ana/edge (metas point)) point-free)
+    (symbolic-edge-static point)))
 
 (def mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
 
@@ -100,33 +128,38 @@
   (let [key (get metas ::ana/form)]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
-      (fn [%] (delay (*navigate* (force %) key (get (force %) key)))))))
+      (delayed
+        (fn [%]
+          #?(:clj (log/info "[IO]" `getter key))
+          (*navigate* % key (get % key)))))))
 
 (def ^:private dup-first ":: (a, b) -> (a, a)" (&&& fst fst))
 
 (defn- get-or-call [metas]
   (mem-reader ; explicit reader for clarity
-    (fn [%]
-      (delay
-        (let [% (force %)
-              ifn (::ana/value metas)]
+    (delayed
+      (fn [%]
+        ;; (prn (dissoc metas ::AST))
+        ;; (prn "get-or-call" (hash %) %)
+        (let [ifn (::ana/value metas)]
           (if (try (contains? % ifn) ; FIXME find a better check
                    (catch #?(:clj Throwable, :cljs :default) _
                      #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
                      false))
-            (*navigate* % ifn (get % ifn))
-            (apply ifn [%])
-            ))))))
+            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form metas)))
+                (*navigate* % ifn (get % ifn)))
+            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ana/form metas)))
+                (apply ifn [%]))))))))
 
 (defn- call [metas]
   (mem-reader
-    (fn [args]
-      (delay ; % in args already forced
-        #?(:clj (log/info "IO! calling" (::ana/symbolic-edge metas)))
-        (apply (::ana/value metas) (force args))))))
+    (delayed
+      (fn [args]
+        #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge metas)))
+        (apply (::ana/value metas) args)))))
 
-(defn- touch [object] (delay (let [object (force object)] (if (seqable? object) (doall object) object))))
-(def ^:private star (mem-reader touch))
+(defn- touch [object] (if (seqable? object) (doall object) object))
+(def ^:private star (mem-reader (delayed touch)))
 
 (defn leaf [f] (fmap (fn [v] (pair v ())) f))
 
@@ -156,6 +189,17 @@
     (let [child (first (unwrap hfql))]
       (and (star-traversal? (extract child))
         (recursion-point? child)))))
+
+(defn- star-keys
+  "Attempt to get dynamic pull keys for `[*]` on a supposedly map-like object.
+Does not call into datafy as we want datafy calls to be explicit from userland.
+Pulling on non-maps (non associative) is perfectly fine.
+  E.g.: in [File/.getName *], file is not a map so star will produce no keys.
+  The alternative would be to throw. We prefer to let the user datafy beforehand and then call `*`.
+  "
+  [object]
+  (try (keys (force (runReader star object))) ; expects an IPersistentMap or a sequences of MapEntries
+       (catch #?(:clj Throwable, :cljs :default) _ ())))
 
 (defn hfqlT
   "Docstring is outdated TODO revise
@@ -189,7 +233,7 @@
             (mem-reader
               (fn [env]
                 (let [[[star?] kids] (group-by-pred (comp star? extract) children)
-                      dynamic-keys (when star? (keys (force (runReader star (get env '%)))))
+                      dynamic-keys (when star? (star-keys (get env '%)))
                       star-kids (let [static-keys (set (map (comp symbolic-edge extract) kids))
                                       remaining-star-keys (remove static-keys dynamic-keys)]
                                   (fmap (fmap swap) (unwrap (ana/analyze {} (vec remaining-star-keys)))))]
@@ -198,8 +242,9 @@
                                  (pull-peek-at-immediate-kids! env (map (unfoldT hfqlT) star-kids))))
                     (mappend kids star-kids))))))
           ::ana/traversal
-          (let [edgeT (unfoldT hfqlT (fmap swap (if (star-traversal? point)
-                                                  (ana/hfql identity)
+          (let [edgeT (unfoldT hfqlT (fmap swap (cond (star-traversal? point) (ana/hfql identity)
+                                                      (::ana/bypass (metas point)) (ana/hfql force)
+                                                      :else
                                                   (ana/hydrate {::ana/form (::ana/form (::ana/edge (metas point))) ; FIXME wart, should be handled by the analyzer
                                                                 ::ana/meta (::ana/edge (metas point))}))))]
             (constantly
@@ -222,7 +267,8 @@
 
 (declare env-w)
 
-(defrecord EnvW [meta w]
+(declare env-w-equals)
+(deftype EnvW [meta w] ; not a defrecord because we want custom equality
   Functor
   (-fmap [_fa f] (env-w meta (fmap f w)))
   Bifunctor
@@ -235,7 +281,33 @@
   (-duplicate [_wa] (env-w meta (fmap #(env-w meta %) (duplicate w))))
   (-extend [wa f] (fmap f (duplicate wa)))
   SetScope
-  (set-scope-value [_ scope] (env-w (assoc meta ::scope scope) (set-scope-value w scope))))
+  (set-scope-value [_ scope] (env-w (assoc meta ::scope scope) (set-scope-value w scope)))
+
+  ;; Custom equality because we want two CofreeT instances to be comparable by =.
+  ;; CofreeT, Store, MapEntry, etc... compare by record fields equality.
+  ;; But Store contains [function, env] and equality on functions is not defined besides reference equality.
+  ;; Therefore we consider two (CofreeT (EnvW metas (Store f env))) equal if:
+  ;;  - both metas are equal
+  ;;  - both env are equal
+  ;; because metas contains the original AST, and so the Store's function got derived from the same AST.
+  ;; therefore both Store functions are equal.
+  #?(:clj Object)
+  #?(:clj (equals [this other] (env-w-equals this other)))
+  #?(:clj (hashCode [_] (hash [meta (if (instance? hyperfiddle.hfql1.store.Store w) (pos w) w)])))
+
+  #?(:cljs cljs.core/IEquiv)
+  #?(:cljs (-equiv [this other] (env-w-equals this other)))
+  #?(:cljs cljs.core/IHash)
+  #?(:cljs (-hash [_] (hash [meta (if (instance? Store w) (pos w) w)]))))
+
+(defn- env-w-equals [this other]
+  (assert (instance? EnvW this))
+  (and (instance? EnvW other)
+    (= (fst this) (fst other))
+    (if (instance? hyperfiddle.hfql1.store.Store (snd this))
+      (and (instance? hyperfiddle.hfql1.store.Store (snd other))
+        (= (pos (snd this)) (pos (snd other))))
+      true)))
 
 (defn env-w [meta w]
   (assert (satisfies? Comonad w))
@@ -246,13 +318,14 @@
   (set-scope-value [w scope] (seek scope w)))
 
 (defn- wrap-with-static-metadata [metas t] (->CofreeT (->EnvW metas (runCofreeT t))))
+(defn vary-static-meta [t f] (->CofreeT (bf/first f (runCofreeT t))))
 
 (defn unfoldT
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra AST]
    (let [[metas step :as t] (coalgebra AST)]
      ;; (hoistCofreeT (fn [w] (->EnvW metas w)))
-     (wrap-with-static-metadata metas
+     (wrap-with-static-metadata (assoc metas ::AST AST)
        (->CofreeT
          (store
            (fn peek [scope]
@@ -273,7 +346,7 @@
                        (comp (flip seed (unfoldT coalgebra (first children)))
                          (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
                          (fn [value_i] (*navigate* (force value) nil value_i)))
-                       (do #?(:clj (log/info "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge metas) metas))))
+                       (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge metas) metas))))
                          (force value)) ; ⚠ will force all effects up to the root to compute children multiplicity
                        ))))))
            (::ana/lexical-env metas)))))))
@@ -399,13 +472,13 @@
                              (map (fn [point value]
                                     (case (projection-type point)
                                       ::ana/traversal (force value)
-                                      (pair (symbolic-edge point) (force value))))
+                                      (pair (symbolic-edge point ::point-free true) (force value))))
                                (map extract (unwrap W))
                                (map snd children)))))
                    point)
       ::ana/traversal
       (fmap (fn [_] 
-              (delay {(symbolic-edge point)
+              (delay {(symbolic-edge point ::point-free true)
                      (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
                        (if (multiplicity-many? point)
                          (map (comp force snd) children)
@@ -674,6 +747,8 @@
   - (type (range)) := clojure.lang.Iterate – not chucked, fully lazy
   - (type (range 1)) or (range 1 10 1) := LongRange – chunked
   - (type (range 1 1)) := PersistentList$EmptyList
+
+  Also see `realize`.
   "
   [aseq]
   (if (chunked-seq? aseq)
@@ -683,3 +758,15 @@
           (cons (first s) (unchunk-seq (rest s)))))
       (meta aseq))
     aseq))
+
+(defn- realize ; keeping around for reference
+  "Realize a lazy-seq to a plain list. Values that are not lazy-seqs passes
+  through. Differs from `doall` in that `(str (doall seq))` will print an opaque
+  object address, whereas `(str (realize seq))` will print as a plain list. Will
+  hang forever on infinite seqs. Also see `unchunk-seq`."
+  [supposedly-lazy-seq]
+  (if (seq? supposedly-lazy-seq)
+    (with-meta
+      (list* supposedly-lazy-seq)
+      (meta supposedly-lazy-seq))
+    supposedly-lazy-seq))
