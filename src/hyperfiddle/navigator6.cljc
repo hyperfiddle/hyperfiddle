@@ -249,7 +249,11 @@
   ;;     - Electric produces an extra roundtrip on e/fn call.
   (case (router/Navigate! ['. (conj (into [] (take *depth) router/route)
                                 (assoc (nth router/route *depth {}) ::selection
-                                  (e/server (hfql/identify (hfql/value-at-point (Getter))))))])
+                                  (e/server
+                                    (let [stepT (Getter)]
+                                      ;; (def _stepT_navigate stepT)
+                                      ;; (hfql/symbolic-edge _stepT_navigate)
+                                      (list (hfql/identify (hfql/value-at-point stepT)) (hfql/symbolic-edge stepT))))))])
     [::forms/ok]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -371,13 +375,13 @@
     (hfql/wrap-in-pull stepT)
     #_(throw (ex-info "No pull child" {:type (::ana/type (hfql/metas stepT))}))))
 
-(defn- resolve-selected-object-BIG-O-N [saved-selection bindings childrenT]
+(defn- resolve-selected-object-BIG-O-N [[row column] bindings childrenT]
   #?(:clj
      (debug-exceptions `resolve-selected-object
        (with-bindings bindings
          (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
-           (hfql/find-child-by #(= saved-selection (hfql/identify (hfql/value-at-point %))) childrenT)
-           (hfql/find-child saved-selection (select-pull-step childrenT)))))))
+           (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
+           (hfql/find-child column (select-pull-step childrenT)))))))
 
 (defn toggle-column-sort [sort-spec for-col]
   (when-some [[col asc?] (first sort-spec)]
@@ -611,26 +615,6 @@
                   (dom/text (str form))))))))
       (RenderVerticalMatrixBody row-height columnsT rowsT selected-rowT))))
 
-
-
-(e/defn With-Selection [route-state resolve-fn Body]
-  (e/client
-    (let [{saved-selection ::selection} route-state
-          !selected (e/server (atom nil))
-          selected  (e/server (e/watch !selected))
-          selected  (e/server (#(or selected (reset! !selected (resolve-fn saved-selection)))))]
-      (->> (Body selected)
-        (forms/Parse (e/fn [[op & args :as command]]
-                       (e/Reconcile
-                         (case op
-                           `Select! (e/server (let [[Get-selected] args]
-                                                (reset! !selected (Get-selected))
-                                                (e/amb)
-                                                #_[`Select! (hfql/identify (hfql/value-at-point (Get-selected)))] ; TODO move
-                                                ))
-                           (e/amb)))
-                       command))))))
-
 (e/defn With-Search [pred rows columns Body]
   (e/client
     (let [search        *search
@@ -655,6 +639,8 @@
                       (get-rows-container (first (unwrap stepT))))
     stepT))
 
+(e/declare *selection)
+
 (e/defn RenderStepVertical [stepT route-state]
   (dom/fieldset
     (dom/props {:class "entity-children hyperfiddle-navigator6__block"})
@@ -666,16 +652,13 @@
       (With-Search (e/server (eager-pull-search-sort-BIG-O-N-SQUARE)) (e/server (unwrap stepT)) ; rowsT
         columnsT
         (e/fn [_columnsT-filtered rowsT-filtered]
-          (With-Selection route-state
-            (e/server #(resolve-selected-object-BIG-O-N % e/*bindings* stepT))
-            (e/fn [selected-rowT]
-              (in legend
-                (dom/span (dom/props {:style {:order -1}})
-                          (dom/text (format-collection-count (e/server (bounded-count COLLECTION-LIMIT rowsT-filtered)) ; 𝓞(n)
-                                      COLLECTION-LIMIT))))
-              (e/amb
-                (in legend (dom/span (dom/props {:style {:order -2}}) (Search false)))
-                (RenderVerticalMatrix 24 columnsT rowsT-filtered selected-rowT)))))))))
+          (in legend
+            (dom/span (dom/props {:style {:order -1}})
+                      (dom/text (format-collection-count (e/server (bounded-count COLLECTION-LIMIT rowsT-filtered)) ; 𝓞(n)
+                                  COLLECTION-LIMIT))))
+          (e/amb
+            (in legend (dom/span (dom/props {:style {:order -2}}) (Search false)))
+            (RenderVerticalMatrix 24 columnsT rowsT-filtered *selection)))))))
 
 
 (e/defn RenderHorizontalMatrixBody [row-height columnsT rowsT selected-columnT RenderHeaderCell]
@@ -781,8 +764,8 @@
   (dom/fieldset
     (dom/props {:class "entity hyperfiddle-navigator6__block"})
     (let [legend (dom/legend (dom/props {:style {:display :grid, :grid-template-areas "'title search count'"}})
-                   (Step-Title stepT)
-                   dom/node)
+                             (Step-Title stepT)
+                             dom/node)
           columnsT (e/server ((glitch-guard unwrap) (hfql/augment-with-suggestions! (select-pull-step stepT))))]
       (e/server (prn "numrows" (count (unwrap stepT))))
       (With-Search
@@ -794,12 +777,9 @@
             (dom/span (dom/props {:style {:grid-area "count"}})
                       (dom/text (format-collection-count (e/server (bounded-count COLLECTION-LIMIT columnsT-filtered)) ; 𝓞(n)
                                   COLLECTION-LIMIT))))
-          (With-Selection route-state
-            (e/server #(resolve-selected-object-BIG-O-N % e/*bindings* stepT))
-            (e/fn [selected-rowT]
-              (e/amb
-                (in legend (Search false))
-                (RenderHorizontalMatrix 24 columnsT-filtered rowsT-filtered selected-rowT)))))))))
+          (e/amb
+            (in legend (Search false))
+            (RenderHorizontalMatrix 24 columnsT-filtered rowsT-filtered *selection)))))))
 
 
 #_(e/defn RoundTrip [v] (identity (e/server (identity v)))) ; Awesome debug tool! Forces a roundtrip to diagnose how many roundtrips it takes to ack a value!
@@ -808,20 +788,6 @@
 ;;;;;;;;;;;;;;;;
 ;; Navigation ;;
 ;;;;;;;;;;;;;;;;
-
-(e/defn With-Selected-Item [form Body] ; TODO unify with With-Selection
-  (e/client
-    (let [!selected (e/server (atom nil))]
-      (e/amb
-        (->> form
-          (forms/Parse (e/fn [[op & args :as command]]
-                         (e/Reconcile
-                           (case op
-                             `Select! (e/server (let [[Get-selected] args]
-                                                  (reset! !selected (Get-selected))
-                                                  (e/client command)))
-                             command)))))
-        (Body (e/server (e/watch !selected)))))))
 
 ;; (defn- should-navigation-happen? [stepT]
 ;;   (let [object (hfql/nav stepT)] ; supposedly already cached given we click on it to navigate
@@ -856,6 +822,22 @@
           (hfql/seed (hfql/scope stepT)))
       (select-eventual-recursion-point stepT))))
 
+(e/defn WithSelection [route-state resolve-fn Body]
+  (e/client
+    (let [{selection ::selection} route-state
+          !selected (e/server (atom nil))
+          selected  (e/server (e/watch !selected))
+          selected  (e/server (#(or selected (reset! !selected (resolve-fn selection)))))]
+      (->> (Body selected)
+        (forms/Parse (e/fn [[op & args :as command]]
+                       (e/Reconcile
+                         (case op
+                           `Select! (e/server (let [[Get-selected] args]
+                                                (reset! !selected (Get-selected))
+                                                (e/amb)))
+                           (e/amb)))
+                       command))))))
+
 (e/defn Navigate [stepT]
   (e/server
     (rebooting stepT
@@ -864,17 +846,20 @@
           (e/client
             (InjectDependencies
               (e/fn [route-state]
-                (With-Selected-Item
-                  (let [Renderer (ResolveRenderer stepT)]
-                    (e/server (prn {:type (render-type stepT)}))
-                    (Renderer stepT route-state))
+                (WithSelection route-state
+                  (e/server #(resolve-selected-object-BIG-O-N % e/*bindings* (get-rows-container stepT)))
                   (e/fn [selected-stepT]
-                    (e/server
-                      (e/Reconcile
-                        (when-let [next-child (select-next-child *sitemap selected-stepT)]
-                          ;; Navigation prioritizes recursive children over regular children at point
-                          (Navigate next-child)))
-                      (e/amb))))))))))))
+                    (e/amb
+                      (let [Renderer (ResolveRenderer stepT)]
+                        (e/server (prn {:type (render-type stepT)}))
+                        (binding [*selection selected-stepT]
+                          (Renderer stepT route-state)))
+                      (e/server
+                        (e/Reconcile
+                          (when-let [next-child (select-next-child *sitemap selected-stepT)]
+                            ;; Navigation prioritizes recursive children over regular children at point
+                            (Navigate next-child)))
+                        (e/amb)))))))))))))
 
 ;;;;;;;;;;;;;;;;
 ;; Entrypoint ;;
