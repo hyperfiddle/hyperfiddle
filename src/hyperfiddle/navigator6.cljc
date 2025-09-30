@@ -661,7 +661,7 @@
             (RenderVerticalMatrix 24 columnsT rowsT-filtered *selection)))))))
 
 
-(e/defn RenderHorizontalMatrixBody [row-height columnsT rowsT selected-columnT RenderHeaderCell]
+(e/defn RenderHorizontalMatrixBody [row-height columnsT rowsT selection RenderHeaderCell]
   (e/client
     (let [|rowsT> (e/server (e/diff-by {} rowsT))
           fast-nth (e/server (caching-nth columnsT))]
@@ -707,7 +707,7 @@
                      (e/Reconcile
                        (when (some? columnT)
                          (dom/th (dom/props {:scope :row :style {:grid-column 1}}) (RenderHeaderCell columnT))
-                         #_(select-row-if-match-url! !selected-index column-index columnT selected-columnT) ; TODO rename / clarify
+                         (select-row-if-match-url! !selected-index column-index (hfql/symbolic-edge columnT) (second selection)) ; TODO rename / clarify
                          (e/for [rowT |rowsT>] ; row × column cartesian product
                            (Render* ((glitch-guard seed-cell) columnT rowT))))))))
                :row-height row-height
@@ -725,9 +725,9 @@
 
 (e/defn RenderHorizontalMatrix
   ;; Even though a matrix is transposable, the DOM makes it hard to transpose a table. So we split vertical from horizontal rendering for our own sanity. G didn't find a robust CSS-only solution.
-  [row-height columnsT rowsT selected-rowT]
+  [row-height columnsT rowsT selection]
   (e/client
-    (RenderHorizontalMatrixBody row-height columnsT rowsT selected-rowT
+    (RenderHorizontalMatrixBody row-height columnsT rowsT selection
       (e/fn HeaderCell [columnT]
         (e/server
           (let [form (hfql/symbolic-edge columnT)]
@@ -779,7 +779,9 @@
                                   COLLECTION-LIMIT))))
           (e/amb
             (in legend (Search false))
-            (RenderHorizontalMatrix 24 columnsT-filtered rowsT-filtered *selection)))))))
+            (RenderHorizontalMatrix 24 columnsT-filtered rowsT-filtered
+              (e/server [*selection (second (::selection route-state))]) ; FIXME don't reconstruct (row × column) pair here, just hydrate it from route.
+              )))))))
 
 
 #_(e/defn RoundTrip [v] (identity (e/server (identity v)))) ; Awesome debug tool! Forces a roundtrip to diagnose how many roundtrips it takes to ack a value!
