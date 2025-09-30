@@ -281,8 +281,6 @@
                               `Select! HandleSelect!}
             (Continuation route-state)))))))
 
-(e/defn Constantly [x] (e/fn [& _] x))
-
 (e/defn RenderMeta [stepT]
   (e/server
     (when-some [m (hfql/metas stepT)]
@@ -290,12 +288,6 @@
         (dom/props {:open true})
         (dom/summary (dom/text "Meta"))
         (dom/pre (dom/text (strx/pprint-str m)))))))
-
-(e/defn RenderValue [hfql & _]
-
-  (e/server
-    (RenderMeta hfql)
-    (dom/pre (dom/text (strx/pprint-str (snd (extract hfql)))))))
 
 (e/defn RenderFunction [hfql & _]
   (e/server
@@ -306,44 +298,31 @@
       (dom/summary (dom/text (pr-str (list (::coalgebra/key (meta hfql) '...)))))
       (dom/pre (dom/text (strx/pprint-str (extract (pull hfql))))))))
 
-(comment
-  (def _param (::coalgebra/param (meta _hfql)))
-  (deref (first (hyperfiddle.hfql1.monad-reader/ask (:step _param))))
-  )
-
 (defn render-type [hfql]
   (let [metas (hfql/metas hfql)]
     (if (= ::ana/many (::ana/multiplicity metas))
       ::star
-      (case (::ana/type metas) #_(projection-type hfql)
+      (case (::ana/type metas)
         ::ana/star ::star
         ::ana/pull ::pull
         ::ana/traversal (render-type (first (unwrap hfql)))
         ::ana/ifn ::ifn
         ::unknown))))
 
+(e/declare Navigate ResolveRenderer RenderStepVertical RenderStepHorizontal RenderAnonymousValue)
 
-(e/declare RenderStepVertical RenderStepHorizontal)
-
-(e/defn ResolveRenderer [hfql]
+(e/defn RenderValue [stepT & args]
   (e/server
-    (get {::pull RenderStepHorizontal
-          ::star RenderStepVertical
-          ::ifn RenderFunction}
-      (render-type hfql)
-      RenderValue)
+    (dom/fieldset
+      (dom/legend (dom/text "Anonymous value"))
+      (let [value (hfql/nav stepT)
+            suggestedT (hfql/suggest value)]
+        (e/Reconcile
+          (if (#(or (nil? suggestedT) (= stepT suggestedT)))
+            (do (RenderMeta stepT)
+                (dom/pre (dom/text (strx/pprint-str (snd (extract stepT))))))
+            (Navigate (hfql/seed (assoc (hfql/scope stepT) '% value) suggestedT))))))))
 
-
-    #_(if (hfql/star-traversal? hfql)
-      [RenderStepVertical (hfql/nav object edge)]
-      (list
-        (get {:object RenderOne
-              :collection RenderStepVertical
-              :set RenderStepVertical}
-          (infer-block-type object)
-          (Constantly nil))
-        object)) ; HACK glitch guard: Ensures object and its corresponding Renderer update at the same time
-    ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Internal Components ;;
@@ -379,9 +358,10 @@
   #?(:clj
      (debug-exceptions `resolve-selected-object
        (with-bindings bindings
+         (prn "resolve-selected-object-BIG-O-N" row column)
          (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
            (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
-           (hfql/find-child column (select-pull-step childrenT)))))))
+           (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT))))))))
 
 (defn toggle-column-sort [sort-spec for-col]
   (when-some [[col asc?] (first sort-spec)]
@@ -825,20 +805,42 @@
       (select-eventual-recursion-point stepT))))
 
 (e/defn WithSelection [route-state resolve-fn Body]
+  (Body (e/server (resolve-fn (::selection route-state)))))
+
+#_(e/defn WithSelection [route-state resolve-fn Body]
   (e/client
     (let [{selection ::selection} route-state
-          !selected (e/server (atom nil))
-          selected  (e/server (e/watch !selected))
-          selected  (e/server (#(or selected (reset! !selected (resolve-fn selection)))))]
+          ;; !selected (e/server (atom nil))
+          ;; selected  (e/server (e/watch !selected))
+          selected  (e/server (resolve-fn selection) #_(#(or selected (reset! !selected (resolve-fn selection)))))]
       (->> (Body selected)
-        (forms/Parse (e/fn [[op & args :as command]]
+        #_(forms/Parse (e/fn [[op & args :as command]]
                        (e/Reconcile
-                         (case op
+                         #_(case op
                            `Select! (e/server (let [[Get-selected] args]
-                                                (reset! !selected (Get-selected))
+                                                ;; (reset! !selected (Get-selected))
                                                 (e/amb)))
                            (e/amb)))
                        command))))))
+
+(e/defn ResolveRenderer [hfql]
+  (e/server
+    (get {::pull RenderStepHorizontal
+          ::star RenderStepVertical
+          ::ifn RenderFunction}
+      (render-type hfql)
+      RenderValue)
+
+    #_(if (hfql/star-traversal? hfql)
+        [RenderStepVertical (hfql/nav object edge)]
+        (list
+          (get {:object RenderOne
+                :collection RenderStepVertical
+                :set RenderStepVertical}
+            (infer-block-type object)
+            (Constantly nil))
+          object)) ; HACK glitch guard: Ensures object and its corresponding Renderer update at the same time
+    ))
 
 (e/defn Navigate [stepT]
   (e/server
@@ -851,6 +853,7 @@
                 (WithSelection route-state
                   (e/server #(resolve-selected-object-BIG-O-N % e/*bindings* (get-rows-container stepT)))
                   (e/fn [selected-stepT]
+                    (e/server (def _selected-stepT2 selected-stepT) nil)
                     (e/amb
                       (let [Renderer (ResolveRenderer stepT)]
                         (e/server (prn {:type (render-type stepT)}))
