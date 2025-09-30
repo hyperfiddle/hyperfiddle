@@ -39,7 +39,6 @@
 (def star-traversal? (comp #(= ::ana/star %) ::ana/kind metas))
 (def multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity metas))
 
-
 (defn projection-type [point]
   (let [metas (metas point)]
     (case (::ana/type metas)
@@ -120,6 +119,7 @@
 (defn symbolic-edge [point & {::keys [point-free] :or {point-free true}}]
   (case (projection-type point)
     ::ana/traversal (template-symbolic-edge (::scope (metas point)) (::ana/edge (metas point)) point-free)
+    ;; ::ana/call (template-symbolic-edge (::scope (metas point)) (metas point) point-free) ; TODO
     (symbolic-edge-static point)))
 
 (def mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
@@ -164,6 +164,7 @@
 (defn leaf [f] (fmap (fn [v] (pair v ())) f))
 
 (declare seed)
+
 (defn- pull-peek-at-immediate-kids! [env kidsT]
   ;; Unless I'm mistaken, this is only a test convenience utility.
   ;; A proper UI wouldn't ask for a pull value at point but
@@ -174,21 +175,27 @@
   ;; the raw value at point (unpulled), e.g. for an EDN <pre>,
   ;; which may be no different from of test utility?
   (let [realized-kids (->> kidsT
-                          (fmap (seed env))
-                          (fmap runCofreeT)
-                          (fmap extract) ; store
-                          (fmap headF)   ; inner layer
-                          )]
+                        (fmap (seed env))
+                        (fmap runCofreeT)
+                        (fmap extract) ; store
+                        (fmap headF)   ; inner layer
+                        )]
     (into {} (map pair (fmap symbolic-edge realized-kids)
                (fmap (comp force snd) realized-kids)))))
 
 (declare unfoldT)
 
-(defn recursion-point? [hfql]
-  (or (::ana/recursion-point (metas (extract hfql)))
-    (let [child (first (unwrap hfql))]
+(defn- recursion-point? [hfql]
+  (or (= ::ana/recur (projection-type (extract hfql)))
+    (::ana/recursion-point (metas (extract hfql)))
+    (when-let [child (first (unwrap hfql))]
       (and (star-traversal? (extract child))
         (recursion-point? child)))))
+
+(defn- direct-recursion-point? [hfql]
+  (and (recursion-point? hfql)
+    (or (= ::ana/recur (projection-type (extract hfql)))
+      (star-traversal? (extract hfql)))))
 
 (defn- star-keys
   "Attempt to get dynamic pull keys for `[*]` on a supposedly map-like object.
@@ -228,6 +235,7 @@ Pulling on non-maps (non associative) is perfectly fine.
           ::ana/call    (comp leaf (focus-arguments (metas point)) call)
           ::ana/lambda  (comp leaf (focus-arguments (metas point)) call)
           ::ana/star    (comp leaf focus-% (constantly star))
+          ::ana/recur   (constantly (mem-reader (fn [env] (pair env [root]))))
           ::ana/pull
           (constantly
             (mem-reader
@@ -236,11 +244,22 @@ Pulling on non-maps (non associative) is perfectly fine.
                       dynamic-keys (when star? (star-keys (get env '%)))
                       star-kids (let [static-keys (set (map (comp symbolic-edge extract) kids))
                                       remaining-star-keys (remove static-keys dynamic-keys)]
-                                  (fmap (fmap swap) (unwrap (ana/analyze {} (vec remaining-star-keys)))))]
-                  (pair (delay (mappend
-                                 (pull-peek-at-immediate-kids! env (map (unfoldT hfqlT) kids))
-                                 (pull-peek-at-immediate-kids! env (map (unfoldT hfqlT) star-kids))))
-                    (mappend kids star-kids))))))
+                                  (fmap (fmap swap) (unwrap (ana/analyze {} (vec remaining-star-keys)))))
+                      recur-point (first (filter direct-recursion-point? (concat kids star-kids)))
+                      kids (remove direct-recursion-point? kids)
+                      star-kids (remove direct-recursion-point? star-kids)]
+                  (pair (delay
+                          (->> (concat kids star-kids) ; star kids cannot overwrite static kids – they are already filtered at this point
+                            (map (unfoldT hfqlT))
+                            (pull-peek-at-immediate-kids! env)))
+                    (mappend kids star-kids
+                      (if recur-point
+                        (let [limit (or (::ana/recursion-limit (metas (extract recur-point))) (::ana/recursion-limit (metas (extract root))))] ; TODO deduplicate with traversal
+                          (if (> limit 1)
+                            [(-> (fmap (bf/first #(assoc % ::ana/recursion-limit (dec limit))) root)
+                               (ana/vary-meta #(assoc % ::ana/recursive-child true)))]
+                            []))
+                        [])))))))
           ::ana/traversal
           (let [edgeT (unfoldT hfqlT (fmap swap (cond (star-traversal? point) (ana/hfql identity)
                                                       (::ana/bypass (metas point)) (ana/hfql force)
@@ -253,7 +272,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                   (pair (snd (extract (seed (force env) edgeT)))
                     (let [direct-child (first children)]
                       (if (recursion-point? hfql)
-                        (let [limit (or (::ana/recursion-limit (metas (extract direct-child))) (::ana/recursion-limit (metas (extract root))))]
+                        (let [limit (or (::ana/recursion-limit (metas (extract direct-child))) (::ana/recursion-limit (metas (extract root))))] ; TODO deduplicate with pull
                           (if (> limit 1)
                             [(fmap (bf/first #(assoc % ::ana/recursion-limit (dec limit) )) root)]
                             []))
@@ -325,7 +344,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   ([coalgebra AST]
    (let [[metas step :as t] (coalgebra AST)]
      ;; (hoistCofreeT (fn [w] (->EnvW metas w)))
-     (wrap-with-static-metadata (assoc metas ::AST AST)
+     (wrap-with-static-metadata (assoc metas ::AST AST ::static-children (map (unfoldT coalgebra) (unwrap AST)))
        (->CofreeT
          (store
            (fn peek [scope]
@@ -398,7 +417,8 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (defmacro -hfql [hfql] `(let [ast# (fmap swap (ana/hfql ~hfql))]
                           (unfoldT (partial hfqlT ast#) ast#)))
-(defn- -values [T] (map force (fmap snd (map extract (tree-seqT  T)))))
+
+(defn- -values [T] (map force (fmap snd (map extract (tree-seqT T)))))
 
 
 (tests
@@ -477,7 +497,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                (map snd children)))))
                    point)
       ::ana/traversal
-      (fmap (fn [_] 
+      (fmap (fn [_]
               (delay {(symbolic-edge point ::point-free true)
                      (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
                        (if (multiplicity-many? point)
@@ -681,6 +701,12 @@ Pulling on non-maps (non associative) is perfectly fine.
   )
 
 (tests
+  "recursive nav through pull – unbounded"
+  (take 12 (-values (seed '{% 1} (-hfql {inc [str ...]}))))
+  := '(2 {str "2"} "2" 3 {str "3"} "3" 4 {str "4"} "4" 5 {str "5"} "5")
+  )
+
+(tests
   "recursive pull" ; datomic pull does detect cycles and return only :db/id at leaves.
   (force (snd (extract (pull (seed '{% 1} (-hfql {inc [str {identity 2}]}))))))
   := '{inc {str "2", identity {inc {str "3", identity 3}}}})
@@ -711,6 +737,33 @@ Pulling on non-maps (non associative) is perfectly fine.
        {identity 3}))
 
 (tests
+  "bounded recursion"
+  (-values (seed {'% 1} (-hfql {inc [str 3]})))
+  := '(2 {str "2"} "2" 3 {str "3"} "3" 4 {str "4"} "4")
+
+  "unbounded recursion"
+  (take 9 (-values (seed {'% 1} (-hfql {inc [str ...]}))))
+  := '(2 {str "2"} "2" 3 {str "3"} "3" 4 {str "4"} "4")
+
+  "bounded pull"
+  (-values (pull (seed {'% 1} (-hfql {inc [str 3]}))))
+  := '({inc {str "2", inc {str "3", inc {str "4"}}}}
+       {str "2", inc {str "3", inc {str "4"}}}
+       "2"
+       {inc {str "3", inc {str "4"}}}
+       {str "3", inc {str "4"}}
+       "3"
+       {inc {str "4"}}
+       {str "4"}
+       "4"))
+
+#?(:clj
+   (tests
+     "unbounded pull" ; crashes on first value asked – because pull is a post-order traversal.
+     (first (-values (pull (seed {'% 1} (-hfql {inc [str ...]})))))
+     :throws java.lang.StackOverflowError))
+
+(tests
   "reseeding"
   (let [w (seed {'% 1} (-hfql {inc {inc {inc inc}}}) )]
     (force (snd (extract w))) := 2
@@ -725,48 +778,3 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-values (seed {'% {:a 10}} (seed {'% {:a 1}} (-hfql [:a]))))
   := '({:a 10} 10))
 
-
-;;; Misc
-
-(defn- unchunk-seq ; keeping around for reference
-  "Turn a clojure chunked seq into a one-step-at-a-time seq. Noop on non-chunked
-  seqs. Preserves eventual metadata. Must be called on the original chunked seq.
-  Calling `unchunk-seq` on any descendent seq won't have any effect.
-  E.g. `(unchunk-seq (range 3))` – turns a chunked LongRange into a proper
-  lazy-seq. But `(unchunk-seq (map prn (range 3)))` will still print 0 1 2 because
-  `map` eagerly preprocesses the first chunk.
-
-  Use case: prevent undesired side effects while building the cofree tree. We
-  don't want to realize any child value when computing fan-out cardinality (e.g. '*).
-  Example: In {range {'* inc}}, given `range` receives 3, `range` will produce a
-  chunked LongRange. Any downstream `map`, `filter`, `for` etc. will pre-process
-  the first chunk and eventually call `inc`. This is not acceptable because in
-  the general case `inc` may not be a pure function.
-
-  Note range is a good example because: `range` may or may not return a chunked seq:
-  - (type (range)) := clojure.lang.Iterate – not chucked, fully lazy
-  - (type (range 1)) or (range 1 10 1) := LongRange – chunked
-  - (type (range 1 1)) := PersistentList$EmptyList
-
-  Also see `realize`.
-  "
-  [aseq]
-  (if (chunked-seq? aseq)
-    (with-meta
-      (lazy-seq
-        (when-let [s (seq aseq)]
-          (cons (first s) (unchunk-seq (rest s)))))
-      (meta aseq))
-    aseq))
-
-(defn- realize ; keeping around for reference
-  "Realize a lazy-seq to a plain list. Values that are not lazy-seqs passes
-  through. Differs from `doall` in that `(str (doall seq))` will print an opaque
-  object address, whereas `(str (realize seq))` will print as a plain list. Will
-  hang forever on infinite seqs. Also see `unchunk-seq`."
-  [supposedly-lazy-seq]
-  (if (seq? supposedly-lazy-seq)
-    (with-meta
-      (list* supposedly-lazy-seq)
-      (meta supposedly-lazy-seq))
-    supposedly-lazy-seq))

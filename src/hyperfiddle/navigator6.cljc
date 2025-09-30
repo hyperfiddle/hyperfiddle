@@ -18,7 +18,7 @@
             #?(:clj [clojure.tools.logging :as log])
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.hfql1.functor :refer [fmap]]
-            [hyperfiddle.hfql1.bifunctor :refer [pair fst snd]]
+            [hyperfiddle.hfql1.bifunctor :refer [pair fst snd swap]]
             [hyperfiddle.hfql1.monoid :refer [mappend]]
             [hyperfiddle.hfql1.monad :refer [join]]
             [hyperfiddle.hfql1.comonad :refer [extract]]
@@ -29,13 +29,16 @@
             )
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
+
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
 (defmacro in [dom-node & body] `(binding [dom/node ~dom-node] ~@body))
+
+(defmacro idef [sym val] `(do (def ~sym ~val) ~val))
 
 (defn run-with-bindings [bindings f & args]
   #?(:clj (with-bindings bindings (apply f args))))
 
-(e/declare *hfql *block-opts *depth *server-pretty)
+(e/declare *sitemap *block-opts *depth *server-pretty)
 (e/declare ^:dynamic *search)
 (declare css)
 
@@ -162,7 +165,7 @@
                            :else nil))
                 "\n\n")))))
 
-(defn as-coll [v] (if (coll? v) v [v])) ; TODO removeme, glitch guard
+(defn as-coll [v] (if (or (array? v) (coll? v)) v [v])) ; TODO removeme, glitch guard
 
 (e/defn RenderInlineColl [object edge value]
   (let [pretty-v (str-inline-coll (as-coll value) *server-pretty)
@@ -188,7 +191,7 @@
 (e/defn DefaultCellRenderer [object edgeT value]
   (RenderTooltip ::hfql/Tooltip object edgeT value)
   (e/Reconcile
-    (if (#(or (set? value) (sequential? value)))
+    (if (#(or (set? value) (sequential? value) (array? value)))
       (RenderInlineColl object edgeT value)
       (do (e/client (.setAttribute dom/node "data-empty" (e/server (= ::not-found value))))
           (let [pretty-v (pretty-value value *server-pretty)
@@ -202,6 +205,7 @@
 (e/declare Render)
 (e/defn RenderCell [object edgeT value]
   (dom/td                            ; custom renderer runs in context of a cell
+    (dom/props {:data-cell (e/fn [] edgeT)})
     (binding [Render DefaultCellRenderer]
       (e/Reconcile (e/call (Resolve (ana/unquote* (::hfql/Render (hfql/metas edgeT))) ; FIXME syntax wart
                              Render) object edgeT #_(vary-meta edge dissoc ::hfql/Render) value)))))
@@ -213,11 +217,18 @@
      (when (pred a)
        (apply f a as)))))
 
+(defn- get-leafT [stepT] ; TODO questionable logic
+  ;; Idea here is to display "leaf values" in the following case:
+  ;; [{fs/jfile-kind name}] => "dir" instead of `::fs/dir`.
+  (case (::ana/multiplicity (hfql/metas stepT))
+    ::ana/many stepT
+    (or (first (unwrap stepT)) stepT)))
+
 (e/defn Render [object edge value] (RenderCell object edge value))
 (e/defn Render* [stepT]
   (Render ((glitch-guard hfql/scope) stepT)
     stepT
-    ((glitch-guard hfql/nav) stepT)))
+    ((glitch-guard hfql/nav) ((glitch-guard get-leafT) stepT))))
 
 ;;;;;;;;;;;;;;;;;;;
 ;; Edit Handlers ;;
@@ -352,6 +363,14 @@
        (mappend (keep (fn [pullspec-key] (get static-map pullspec-key)) static-keys)
          (?sort-by hfql/symbolic-edge (remove (comp some? static-keyset hfql/symbolic-edge) dynamic-children))))))
 
+(defn- select-pull-step [stepT]
+  (case (::ana/type (hfql/metas stepT))
+    ::ana/pull stepT
+    ::ana/traversal (some-> (unwrap stepT) first select-pull-step)
+    ;; (some-> (unwrap stepT) first select-pull-step)
+    (hfql/wrap-in-pull stepT)
+    #_(throw (ex-info "No pull child" {:type (::ana/type (hfql/metas stepT))}))))
+
 (defn- resolve-selected-object-BIG-O-N [saved-selection bindings childrenT]
   #?(:clj
      (debug-exceptions `resolve-selected-object
@@ -359,12 +378,6 @@
          (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
            (hfql/find-child-by #(= saved-selection (hfql/identify (hfql/value-at-point %))) childrenT)
            (hfql/find-child saved-selection (select-pull-step childrenT)))))))
-
-(defn- select-pull-step [stepT]
-  (case (::ana/type (hfql/metas stepT))
-    ::ana/pull stepT
-    ::ana/traversal (select-pull-step (first (unwrap stepT)))
-    (throw (ex-info "No pull child" {:type (::ana/type (hfql/metas stepT))}))))
 
 (defn toggle-column-sort [sort-spec for-col]
   (when-some [[col asc?] (first sort-spec)]
@@ -411,19 +424,26 @@
 
 (e/defn ColumnPicker [stepT]
   (e/server
-    (let [stepT+ (hfql/augment-with-suggestions! (select-pull-step stepT))
-          static-columns (remove (comp ::hfql/suggested hfql/metas) (unwrap stepT+))
-          suggested-columns (filter (comp ::hfql/suggested hfql/metas) (unwrap stepT+))
-          pre-checked false
-          ]
-      (dom/span (dom/props {:style {:grid-area "columns"}})
+    (def _column_stepT stepT)
+    (comment
+      (unwrap _column_stepT))
+    (when-let [pull-step (select-pull-step stepT)]
+      (let [stepT+ (hfql/augment-with-suggestions! pull-step)
+            childrenT (remove (comp ::ana/recursive-child hfql/metas) (unwrap stepT+))
+            static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
+            suggested-columns (filter (comp ::hfql/suggested hfql/metas) childrenT)
+            pre-checked false]
         (let [from-spec (e/as-vec (e/for [edgeT (e/diff-by {} static-columns)]
-                                    (e/When (forms/Checkbox* true :label (e/server (str (hfql/symbolic-edge edgeT)))
-                                              :title (e/server (str (hfql/symbolic-edge edgeT))))
+                                    (e/When
+                                        (dom/span
+                                          (forms/Checkbox* true :label (e/server (str (hfql/symbolic-edge edgeT)))
+                                            :title (e/server (str (hfql/symbolic-edge edgeT)))))
                                       edgeT)))
               selected (e/as-vec (e/for [edgeT (e/diff-by {} suggested-columns)]
-                                   (e/When (forms/Checkbox* pre-checked :label (e/server (str (hfql/symbolic-edge edgeT)))
-                                             :title (e/server (str (hfql/symbolic-edge edgeT))))
+                                   (e/When
+                                       (dom/span
+                                         (forms/Checkbox* pre-checked :label (e/server (str (hfql/symbolic-edge edgeT)))
+                                           :title (e/server (str (hfql/symbolic-edge edgeT)))))
                                      edgeT)))]
           (mappend from-spec selected))))))
 
@@ -563,7 +583,10 @@
                            (reset! !selected-index selected-index)
                            (e/Reconcile
                              (if-let [selected-rowT (fast-nth selected-index nil)]
-                               [`Select! (e/server (e/fn [] (def _selected-rowT selected-rowT) selected-rowT))]
+                               [`Select! (e/server (e/fn [] (def _selected-rowT selected-rowT)
+                                                     (comment
+                                                       (unwrap _selected-rowT))
+                                                     selected-rowT))]
                                [`Noop])))))
           (forms/Interpreter {`Noop (e/fn [] [::forms/ok])}))))))
 
@@ -578,6 +601,7 @@
       (e/server
         (dom/thead
           (dom/tr
+            (e/server (def _columnsT columnsT) nil)
             (e/for [columnT (e/diff-by {} columnsT)]
               (let [form (str (hfql/symbolic-edge columnT))]
                 (dom/th
@@ -619,34 +643,38 @@
 (e/defn Step-Title [stepT]
   (dom/span
     (dom/props {:class "title"
-                :style {:grid-area "title"}
+                :style {:order -3}
                 :data-tooltip (e/server (table-title-tooltip-content ((glitch-guard hfql/symbolic-edge-computed) stepT)
                                           ((glitch-guard hfql/metas) stepT)))})
     (dom/text (e/server (pr-str ((glitch-guard hfql/symbolic-edge-computed) stepT))))))
 
+(defn get-rows-container [stepT]
+  (case (::ana/type (hfql/metas stepT))
+    ::ana/traversal (if (= ::ana/many (::ana/multiplicity (hfql/metas stepT)))
+                      stepT
+                      (get-rows-container (first (unwrap stepT))))
+    stepT))
+
 (e/defn RenderStepVertical [stepT route-state]
   (dom/fieldset
     (dom/props {:class "entity-children hyperfiddle-navigator6__block"})
-    (let [legend (dom/legend (dom/props {:style {:display :grid, :grid-template-areas "'title search count columns'"}})
+    (let [legend (dom/legend (dom/props {:style {:display :flex, :flex-wrap :wrap}})
                    (Step-Title stepT)
                    dom/node)
-          columnsT (e/server (in legend (ColumnPicker stepT)))]
+          columnsT (e/server (in legend (ColumnPicker stepT)))
+          stepT (e/server (get-rows-container stepT))]
       (With-Search (e/server (eager-pull-search-sort-BIG-O-N-SQUARE)) (e/server (unwrap stepT)) ; rowsT
         columnsT
         (e/fn [_columnsT-filtered rowsT-filtered]
-          (e/server 
-            (def _stepT stepT)
-            (def _stepTV rowsT-filtered)
-            nil)
           (With-Selection route-state
             (e/server #(resolve-selected-object-BIG-O-N % e/*bindings* stepT))
             (e/fn [selected-rowT]
               (in legend
-                (dom/span (dom/props {:style {:grid-area "count"}})
+                (dom/span (dom/props {:style {:order -1}})
                           (dom/text (format-collection-count (e/server (bounded-count COLLECTION-LIMIT rowsT-filtered)) ; 𝓞(n)
                                       COLLECTION-LIMIT))))
               (e/amb
-                (in legend (Search false))
+                (in legend (dom/span (dom/props {:style {:order -2}}) (Search false)))
                 (RenderVerticalMatrix 24 columnsT rowsT-filtered selected-rowT)))))))))
 
 
@@ -743,17 +771,23 @@
            (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t)
                   [columnsT rowsT]))))))
 
+(defn- select-horizontal-children [stepT] ; FIXME smell
+  (case (::ana/type (hfql/metas stepT))
+    ::ana/pull [stepT]
+    ::ana/traversal (unwrap stepT)
+    (throw (ex-info "Can't extract rows out of this hfql step" {:type (::ana/type (hfql/metas stepT))}))))
+
 (e/defn RenderStepHorizontal [stepT route-state]
   (dom/fieldset
     (dom/props {:class "entity hyperfiddle-navigator6__block"})
     (let [legend (dom/legend (dom/props {:style {:display :grid, :grid-template-areas "'title search count'"}})
                    (Step-Title stepT)
                    dom/node)
-          columnsT (e/server ((glitch-guard unwrap) (select-pull-step stepT)))]
+          columnsT (e/server ((glitch-guard unwrap) (hfql/augment-with-suggestions! (select-pull-step stepT))))]
       (e/server (prn "numrows" (count (unwrap stepT))))
       (With-Search
         (e/server  (eager-search-kvs-BIG-O-N-SQUARE))
-        (e/server ((glitch-guard unwrap) stepT)#_[stepT]) ; rowsT
+        (e/server ((glitch-guard select-horizontal-children) stepT)) ; rowsT – TODO review, this is a smell
         columnsT
         (e/fn [columnsT-filtered rowsT-filtered]
           (in legend
@@ -775,8 +809,6 @@
 ;; Navigation ;;
 ;;;;;;;;;;;;;;;;
 
-
-
 (e/defn With-Selected-Item [form Body] ; TODO unify with With-Selection
   (e/client
     (let [!selected (e/server (atom nil))]
@@ -791,13 +823,13 @@
                              command)))))
         (Body (e/server (e/watch !selected)))))))
 
-(defn- should-navigation-happen? [stepT]
-  (let [object (hfql/nav stepT)] ; supposedly already cached given we click on it to navigate
-    (or (sequential? object)
-      (set? object)
-      (array? object)
-      (hfql/identify object)
-      (some? (hfql/suggest object)))))
+;; (defn- should-navigation-happen? [stepT]
+;;   (let [object (hfql/nav stepT)] ; supposedly already cached given we click on it to navigate
+;;     (or (sequential? object)
+;;       (set? object)
+;;       (array? object)
+;;       (hfql/identify object)
+;;       (some? (hfql/suggest object)))))
 
 (defn- normalize-router-query [router-query]
   (cond
@@ -805,43 +837,66 @@
     (ident? router-query) (list router-query)
     :else router-query))
 
-#?(:clj
-   (defn- resolve-route [route sitemap]
-     (let [[f & args] (normalize-router-query route)]
-       (hfql/seed {'% (first args)}
-         (hfql/find-sitemap-entry route sitemap)))))
+
+(defn- select-eventual-recursion-point [stepT]
+  (when stepT
+    (if (::ana/recursion-point (hfql/metas stepT))
+      (if-let [recursive-child (first (filter (comp ::ana/recursive-child hfql/metas) (unwrap stepT)))]
+        (if (empty? (unwrap recursive-child))
+          nil
+          recursive-child)
+        stepT)
+      stepT)))
+
+(declare resolve-route)
+(defn- select-next-child [sitemap stepT]
+  (when stepT
+    (prn "hf/select: " (::hfql/select (hfql/metas stepT)))
+    (or (some->> (resolve-route (::hfql/select (hfql/metas stepT)) sitemap)
+          (hfql/seed (hfql/scope stepT)))
+      (select-eventual-recursion-point stepT))))
 
 (e/defn Navigate [stepT]
   (e/server
     (rebooting stepT
-      (e/client
-        (InjectDependencies
-          (e/fn [route-state]
-            (With-Selected-Item
-              (let [Renderer (ResolveRenderer stepT)]
-                (e/server (prn {:type (render-type stepT)}))
-                (Renderer stepT route-state))
-              (e/fn [selected-stepT]
-                (e/server
-                  (e/Reconcile
-                    (when selected-stepT
-                      (def _selected-stepT selected-stepT)
-                      (Navigate selected-stepT)))
-                  (e/amb))))))))))
+      (e/Reconcile
+        (when stepT
+          (e/client
+            (InjectDependencies
+              (e/fn [route-state]
+                (With-Selected-Item
+                  (let [Renderer (ResolveRenderer stepT)]
+                    (e/server (prn {:type (render-type stepT)}))
+                    (Renderer stepT route-state))
+                  (e/fn [selected-stepT]
+                    (e/server
+                      (e/Reconcile
+                        (when-let [next-child (select-next-child *sitemap selected-stepT)]
+                          ;; Navigation prioritizes recursive children over regular children at point
+                          (Navigate next-child)))
+                      (e/amb))))))))))))
 
 ;;;;;;;;;;;;;;;;
 ;; Entrypoint ;;
 ;;;;;;;;;;;;;;;;
 
-(e/defn HfqlRoot [stepT entrypoints]
+#?(:clj
+   (defn- resolve-route [route sitemap]
+     (let [[f & args :as query] (normalize-router-query route)]
+       (prn "route is " query)
+       (when-some [stepT (get sitemap f)]
+         (hfql/seed {'% (hfql/resolve (first args))} ; TODO move to ednish
+           stepT)))))
+
+(e/defn HfqlRoot [sitemap entrypoints]
   (e/client
     (dom/style (dom/text css tooltip/css))
-    (Index stepT entrypoints)
+    (Index sitemap entrypoints)
     (tooltip/TooltipArea
       (e/fn []
         (tooltip/Tooltip)
         (binding [*server-pretty (e/server (#(or *server-pretty {})))
-                  *hfql stepT]
+                  *sitemap sitemap]
           (binding [*depth 0]
             (dom/div
               (dom/props {:class "Browser"})
@@ -850,10 +905,10 @@
                   (router/ReplaceState! ['. [(first entrypoints)]])
                   (do
                     (let [[f & _args] (normalize-router-query query)]
-                      (set! (.-title js/document) (str (some-> f name (str " – ")) "Hyperfiddle"))
+                      (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
                       (dom/props {:class (cssx/css-slugify f)}))
                     (rebooting query
-                      (Navigate (e/server (resolve-route query stepT))))))))))))))
+                      (Navigate (e/server (idef stepT (resolve-route query sitemap)))))))))))))))
 
 ;;;;;;;;;;;;
 ;; Extras ;;
@@ -910,5 +965,7 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
+
+
 
 "))

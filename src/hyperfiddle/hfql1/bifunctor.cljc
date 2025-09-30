@@ -34,11 +34,13 @@
   ([f g p]
    (if (satisfies? Bifunctor p)
      (-bimap p f g)
-     (first f (second g p)))))
+     (if (satisfies? BifunctorFirstSecond p)
+       (first f (second g p))
+       (throw (ex-info "Object is not an instance of Bifunctor" {:object p}))))))
 
 (defprotocol IPair
   (fst [pair] "fst :: (a, b) -> a.  Extract the first component of a pair.")
-  (snd [pair] "snd :: (a, b) -> b. Extract the second component of a pair."))
+  (snd [pair] "snd :: (a, c) -> b. Extract the second component of a pair."))
 
 (defn pair [a b] (clojure.core/first {a b}))
 (defn pair? [p] (satisfies? IPair p))
@@ -70,6 +72,15 @@
   (snd [entry] (val entry))
   Bifunctor
   (-bimap [entry f g] (clojure.core/first {(f (fst entry)) (g (snd entry))})))
+
+(defrecord PairWithMeta [a b]
+  IPair
+  (fst [_] a)
+  (snd [_] b)
+  Bifunctor
+  (-bimap [pair f g] (PairWithMeta. (f (fst pair)) (g (snd pair)))))
+
+(defn pair-with-meta [a b] (->PairWithMeta a b))
 
 #_(extend-type #?(:clj clojure.lang.IPersistentVector, :cljs PersistentVector)
   IPair

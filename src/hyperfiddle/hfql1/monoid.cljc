@@ -11,7 +11,8 @@
 
 (defn mappend "mappend :: a -> a -> a"
   ([a] (partial mappend a))
-  ([a b] (<> a b)))
+  ([a b] (<> a b))
+  ([a b & cs] (reduce mappend (mappend a b) cs)))
 
 (defn mconcat "mconcat :: [a] -> a. Fold a list using the monoid." [as]
   (if (satisfies? MonoidConcat (first as))

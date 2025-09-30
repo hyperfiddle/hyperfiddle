@@ -1,14 +1,16 @@
 (ns hyperfiddle.hfql1.analyzer
+  (:refer-clojure :exclude [vary-meta])
   (:require [clojure.core :as cc]
+            [contrib.data :refer [update-existing]]
             [contrib.walk :refer [prewalk]]
             [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.hfql1.functor :refer [fmap]]
-            [hyperfiddle.hfql1.bifunctor :refer [pair pair? fst snd &&&]]
+            [hyperfiddle.hfql1.bifunctor :as bf :refer [pair pair? pair-with-meta fst snd &&&]]
             [hyperfiddle.hfql1.comonad :refer [extract]]
             [hyperfiddle.hfql1.cofree :refer [unwrap]]
             [hyperfiddle.hfql1.rose-tree :refer [rose-tree coiter]]
             [clojure.string :as str])
-  #?(:cljs (:require-macros [hyperfiddle.hfql1.analyzer :refer [hfql]])))
+  #?(:cljs (:require-macros [hyperfiddle.hfql1.analyzer :refer [hfql resolve-direct-method]])))
 
 (defn- var-form? [form]
   (and (seq? form)
@@ -59,14 +61,17 @@
 
 (defn- reshape-traversals [hfql]
   (case (projection-type hfql)
-    ::pull (into [] (mapcat (fn [hfql] (if (= ::traversals (projection-type hfql)) (seq hfql) [hfql]))) hfql)
+    ::pull (with-meta (into [] (mapcat (fn [hfql] (if (= ::traversals (projection-type hfql)) (seq hfql) [hfql]))) hfql)
+             (meta hfql))
     ::call (reduced hfql)
     ::lambda (reduced hfql)
     ::literal (reduced hfql)
     ::quoted-var (reduced hfql)
     ::traversals (if (= 1 (count hfql))
-                   (first hfql)
-                   (into [] hfql))
+                   (if-let [metas (meta hfql)]
+                     (with-meta (apply pair-with-meta (first hfql)) metas)
+                     (first hfql))
+                   (with-meta (into [] hfql) (meta hfql)))
     (::traversal ::star ::recur ::symbol ::keyword ::string ::fn ::var)
     hfql))
 
@@ -111,6 +116,10 @@
     (symbol? form)               `(var ~form)
     :else                        nil))
 
+(defmacro resolve-direct-method [sym] ; No call to resolve, respects ②
+  {:pre [(direct-method-call? sym)]}
+  `(symbol (.getName ~(symbol (namespace sym))) ~(name sym)))
+
 (defn- resolver [env form]
   (cond
     (lexical? env form)          form
@@ -125,11 +134,23 @@
     (string? obj)
     (keyword? obj)))
 
+(defn- realize ; keeping around for reference
+  "Realize a lazy-seq to a plain list. Values that are not lazy-seqs passes
+  through. Differs from `doall` in that `(str (doall seq))` will print an opaque
+  object address, whereas `(str (realize seq))` will print as a plain list. Will
+  hang forever on infinite seqs. Also see `unchunk-seq`."
+  [supposedly-lazy-seq]
+  (if (seq? supposedly-lazy-seq)
+    (with-meta
+      (or (list* supposedly-lazy-seq) ())
+      (meta supposedly-lazy-seq))
+    supposedly-lazy-seq))
+
 (defn quote "Quote a form. Invoke it as `(#'quote x)` to avoid conflict with the 'quote special form."
   [form]
   (if (or (literal? form) (quoted? form))
     form
-    (list 'quote form)))
+    (list 'quote (realize form))))
 
 (defn- lexical-bindings-map [lexical-env]
   (zipmap (map #(#'quote %) (keys lexical-env))
@@ -188,6 +209,7 @@
   ([env] (partial φ env))
   ([env form]
    (merge
+     (meta form)
      {::type        (projection-type form)
       ::form        (#'quote form)
       ::lexical-env (lexical-bindings-map env)}
@@ -197,37 +219,44 @@
        ::literal   {::symbolic-edge form}
        ::keyword   {::symbolic-edge form
                     ::form-resolved form ; keyword auto-resolve at read-time.
-                    ::form-short (#'quote #?(:clj (aliased-form form), :cljs form))}
+                    ::form-short #?(:clj (aliased-form form), :cljs form)}
        ::string    {::symbolic-edge form}
-       ::symbol    {::symbolic-edge (#'quote form) ; potentially aliased
+       ::symbol    {::symbolic-edge form ; potentially aliased
                     ::value (escape-method-call form), ; macroexpand will auto-resolve
                     ::var (var-resolver env form) ; nil if symbol is lexicaly bound
-                    ::form-resolved (#'quote (resolver env form)) ; resolve via eventual ns alias
-                    ::form-short (#'quote #?(:clj (aliased-form form), :cljs form))}
+                    ::form-resolved (resolver env form) ; resolve via eventual ns alias
+                    ::form-short #?(:clj (aliased-form form), :cljs form)}
        ::var       {::symbolic-edge form ; the var object itself
                     ::value form ; also the var object itself
-                    ::parameters (#'quote '(%))
+                    ::parameters '(%)
                     ;; TODO add aliased form
                     }
        ::quoted-var {::form (unquote* form)
                      ::symbolic-edge form
                      ;; TODO add aliased form
                      }
-       ::pull      {::symbolic-edges (#'quote form)}
-       ::fn        {::symbolic-edge (#'quote form) ; e.g. '#function[clojure.core/identity] – useful for tests
+       ::pull      (let [recursion-point (some-fn #{'...} number?)
+                         form' (vec (remove recursion-point form))]
+                     (merge
+                       {::form form'
+                        ::symbolic-edges form'}
+                       (when-some [recursion (first (filter recursion-point form))]
+                         {::recursion-point true
+                          ::recursion-limit (::recursion-limit (φ env recursion))})))
+       ::fn        {::symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
                     ::value form} ; already resolved
-       ::lambda    {::symbolic-edge (#'quote (let [[_fn ?name ?args] form]
-                                               (if (symbol? ?name)
-                                                 `(~'fn ~?name ~'…)
-                                                 '(fn anonymous …))))
-                    ::parameters (#'quote '(%))
+       ::lambda    {::symbolic-edge (let [[_fn ?name ?args] form]
+                                      (if (symbol? ?name)
+                                        `(~'fn ~?name ~'…)
+                                        '(fn anonymous …)))
+                    ::parameters '(%)
                     ::value form}
        ::call      (let [[f & params] form] ; symbolic – quoted by defmacro
-                     {::symbolic-edge (#'quote form) ; symbolic – interpreter will template later
+                     {::symbolic-edge form ; symbolic – interpreter will template later
                       ::value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
                       ::var (var-resolver env f)
-                      ::parameters (#'quote params)
-                      ::arguments (cons 'list (replace {'% ''%} params))
+                      ::parameters params
+                      ::arguments (replace {'% ''%} params)
                       ::form-resolved (resolver env f)
                       ::lexical-env (merge (lexical-bindings-map env)
                                       (zipmap (map #'quote (filter symbol? params))
@@ -239,13 +268,43 @@
                          continuation (φ env (snd form))]
                      (merge base
                        (when (= ::star (::kind continuation)) {::multiplicity ::many})
-                       (when (or (= ::recur (::type continuation)) (::recursion-point continuation))
+                       (when (or (= ::recur (::type continuation)) (and (::recursion-point continuation) (not= ::pull (::type continuation))))
                          {::recursion-point true
                           ::recursion-limit (::recursion-limit continuation)})
                        ))))))
 
+(defmulti -escape ::type)
+(defmethod -escape ::star [metas] metas)
+(defmethod -escape ::recur [metas] metas)
+(defmethod -escape ::literal [metas] metas)
+(defmethod -escape ::keyword [metas] (update metas ::form-short #'quote))
+(defmethod -escape ::string [metas] metas)
+(defmethod -escape ::symbol [metas] (-> (update metas ::symbolic-edge #'quote)
+                                      (update ::form-short #'quote)))
+(defmethod -escape ::var [metas] (update metas ::parameters #'quote))
+(defmethod -escape ::quoted-var [metas] (update metas ::form unquote*)) ; special case
+(defmethod -escape ::pull [metas] (-> (update metas ::form #'quote)
+                                    (update ::symbolic-edges #'quote)))
+(defmethod -escape ::fn [metas] (update metas ::symbolic-edge #'quote))
+(defmethod -escape ::lambda [metas] (-> (update metas ::symbolic-edge #'quote)
+                                      (update ::parameters #'quote)))
+
+(defmethod -escape ::call [metas] (-> (update metas ::symbolic-edge #'quote)
+                                    (update ::parameters #'quote)
+                                    (update ::arguments conj 'list)))
+
+(defmethod -escape ::traversal [metas] (update-existing metas ::edge -escape))
+
+(defn escape [metas]
+  ;; #dbg ; ^{:break/when (nil? (::type metas))}
+  (-escape (update metas ::form #'quote)))
+
+
 (comment
-  (analyze {} '[{clojure.java.io/file [File/.getName {File/.listFiles {* ...}}]}])
+  (analyze {} '[:a ...])
+  (analyze {} '{inc [str ...]})
+  (analyze {} '{inc [str 3]})
+  (analyze {} (with-meta [ns-name] {:hfql/select `foo}))
   )
 
 ;; #_(let [% 1]
@@ -292,7 +351,7 @@
 (defn emit [W]
   (let [[form meta] (extract W)]
     {::form (emit* form)
-     ::meta meta
+     ::meta (escape meta)
      ::children (mapv emit (unwrap W))}))
 
 (defn hydrate [{::keys [form meta children]}] (rose-tree (pair (unquote* form) meta) (mapv hydrate children)))
@@ -304,6 +363,8 @@
   )
 
 (defmacro hfql [form] `(hydrate ~(emit (analyze &env form))))
+;; (defmacro hfql [form] (emit (analyze &env form)))
+
 
 (comment
   (hfql inc)
@@ -322,22 +383,72 @@
   (hfql {:a ...})
   )
 
-(defn filter-pull [pred rose-pull]
-  (let [[_form {::keys [type lexical-env _form _symbolic-edges]}] (extract rose-pull)
-        children (filter (comp pred snd extract) (unwrap rose-pull))
-        filtered-form (mapv unquote* (map (comp ::form snd extract) children))]
-    (rose-tree
-      (pair filtered-form         ; TODO drop pair at this level. It seems useless.
-        {::type type
-         ::lexical-env lexical-env
-         ::form filtered-form
-         ::symbolic-edges filtered-form})
-      (vec children))))
+(defn- traverse-two [f W1 W2]
+  (rose-tree (f W1 W2)
+    (mapv (partial traverse-two f) (unwrap W1) (unwrap W2))))
+
+(defn wrap-in-pull [W]
+  (let [[_form metas] (extract W)
+        pullW (analyze (::lexical-env metas) [(::form metas)])]
+    (rose-tree (extract pullW)
+      [(traverse-two (fn [_W1 W2] (extract W2))
+         (first (unwrap pullW)) W)])))
 
 
-(tests
-  (filter-pull (fn [child] (#{:a :c} (::form child)))
-    (hfql [:a :b :c]))
-  := (hfql [:a :c])
 
-  )
+;; (defn filter-pull [pred rose-pull]
+;;   (let [[_form {::keys [type lexical-env _form _symbolic-edges]}] (extract rose-pull)
+;;         children (filter (comp pred snd extract) (unwrap rose-pull))
+;;         filtered-form (mapv unquote* (map (comp ::form snd extract) children))]
+;;     (rose-tree
+;;       (pair filtered-form         ; TODO drop pair at this level. It seems useless.
+;;         {::type type
+;;          ::lexical-env lexical-env
+;;          ::form filtered-form
+;;          ::symbolic-edges filtered-form})
+;;       (vec children))))
+
+
+;; (tests
+;;   (filter-pull (fn [child] (#{:a :c} (::form child)))
+;;     (hfql [:a :b :c]))
+;;   := (hfql [:a :c])
+
+;;   )
+
+
+(defn vary-meta [tree f] (rose-tree (bf/first f (extract tree)) (unwrap tree)))
+
+
+;;; Misc
+
+(defn- unchunk-seq ; keeping around for reference
+  "Turn a clojure chunked seq into a one-step-at-a-time seq. Noop on non-chunked
+  seqs. Preserves eventual metadata. Must be called on the original chunked seq.
+  Calling `unchunk-seq` on any descendent seq won't have any effect.
+  E.g. `(unchunk-seq (range 3))` – turns a chunked LongRange into a proper
+  lazy-seq. But `(unchunk-seq (map prn (range 3)))` will still print 0 1 2 because
+  `map` eagerly preprocesses the first chunk.
+
+  Use case: prevent undesired side effects while building the cofree tree. We
+  don't want to realize any child value when computing fan-out cardinality (e.g. '*).
+  Example: In {range {'* inc}}, given `range` receives 3, `range` will produce a
+  chunked LongRange. Any downstream `map`, `filter`, `for` etc. will pre-process
+  the first chunk and eventually call `inc`. This is not acceptable because in
+  the general case `inc` may not be a pure function.
+
+  Note range is a good example because: `range` may or may not return a chunked seq:
+  - (type (range)) := clojure.lang.Iterate – not chucked, fully lazy
+  - (type (range 1)) or (range 1 10 1) := LongRange – chunked
+  - (type (range 1 1)) := PersistentList$EmptyList
+
+  Also see `realize`.
+  "
+  [aseq]
+  (if (chunked-seq? aseq)
+    (with-meta
+      (lazy-seq
+        (when-let [s (seq aseq)]
+          (cons (first s) (unchunk-seq (rest s)))))
+      (meta aseq))
+    aseq))

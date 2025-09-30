@@ -1,4 +1,5 @@
 (ns hyperfiddle.hfql2
+  (:refer-clojure :exclude [resolve])
   (:require
    [clojure.core :as cc]
    [clojure.core.protocols :as ccp]
@@ -32,7 +33,7 @@
   (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
 
 (defn unfold [ast] (unfoldT (partial hfqlT ast) ast))
-(defn hfql* [analyzed-hfql] (seed {} (unfold (fmap swap analyzed-hfql))))
+(defn hfql* [analyzed-hfql] #_(seed {}) (unfold (fmap swap analyzed-hfql)))
 (defmacro hfql [hfql-form] `(hfql* (ana/hfql ~hfql-form)))
 
 
@@ -131,7 +132,7 @@
 
 (tests
   "pull syntax"
-  (values (seed {'% {:a 1}} (hfql [])))
+  (values (seed {'% {:a 1}} (hfql []) ))
   := '({})
 
   (values (seed {'% {:a 1, :b 2}} (hfql [:a])))
@@ -317,9 +318,20 @@
 ;; Sitemap / Dynamic HFQL expression manipulation ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defn wrap-in-pull [stepT]
+  (seed (scope stepT)
+    (hfql* (ana/wrap-in-pull (fmap swap (::co/AST (metas stepT)))))))
+
+(tests
+  (pull (seed {'% 1} (hfql inc)))
+  := 2
+  (pull (wrap-in-pull (seed {'% 1} (hfql inc))))
+  := '{inc 2}
+  )
+
 (defn- merge-pull-metas [metas-a metas-b]
   (let [form-a (ana/unquote* (::ana/form metas-a))
-        merged-form (vec (distinct (into form-a (ana/unquote* (::ana/form metas-b)))))]
+        merged-form (vec (distinct (into (vec form-a) (ana/unquote* (::ana/form metas-b)))))]
     (assoc metas-a
       ::ana/lexical-env {}
       ::ana/form (#'ana/quote merged-form)
@@ -339,8 +351,18 @@
       :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c])}
   )
 
+(defn symbolic-edge* [metas]
+  (::ana/symbolic-edge
+   (case (::ana/type metas)
+     ::ana/traversal (::ana/edge metas)
+     metas)))
+
+(defn symbolic-edge [hfqlT]
+  (when hfqlT
+    (symbolic-edge* (metas hfqlT))))
+
 (defn- merge-pull-children [children-A children-B]
-  (let [keyf (comp ::ana/symbolic-edge snd extract)
+  (let [keyf (comp symbolic-edge* snd extract)
         a-edges (into #{} (map keyf children-A))]
     (into children-A (remove (comp a-edges keyf) children-B))))
 
@@ -359,14 +381,12 @@
      hfqlT-a
      (do
        (assert (= (::ana/type (metas hfqlT-a)) (::ana/type (metas hfqlT-b))))
-       (let [envW-a (runCofreeT hfqlT-a)
-             envW-b (runCofreeT hfqlT-b)]
-         (seed (merge (pos (snd envW-a)) (pos (snd envW-b)))
-           (unfold (fmap swap
-                     (case (::ana/type (metas hfqlT-a))
-                       ::ana/pull (combine-pull (fmap swap (::co/AST (metas hfqlT-a))) (fmap swap (::co/AST (metas hfqlT-b))))
-                       ::ana/traversal (throw (ex-info "TODO" {}))
-                       (throw (ex-info "Can't combine." (::ana/type (metas hfqlT-a))))))))))))
+       (seed (merge (scope hfqlT-a) (scope hfqlT-b))
+         (unfold (fmap swap
+                   (case (::ana/type (metas hfqlT-a))
+                     ::ana/pull (combine-pull (fmap swap (::co/AST (metas hfqlT-a))) (fmap swap (::co/AST (metas hfqlT-b))))
+                     ::ana/traversal (throw (ex-info "TODO" {}))
+                     (throw (ex-info "Can't combine." (::ana/type (metas hfqlT-a)))))))))))
   ([hfqlT-a hfqlT-b & hfqlTs]
    (reduce combine (combine hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
 
@@ -383,40 +403,33 @@
       :hyperfiddle.hfql1.analyzer/form '(quote [:a :b :c]),
       :hyperfiddle.hfql1.analyzer/lexical-env {},
       :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c]),
-      :hyperfiddle.hfql1.coalgebra/scope {'a 1, 'b 2}})
+      :hyperfiddle.hfql1.coalgebra/static-children _
+      :hyperfiddle.hfql1.coalgebra/scope '{a 1, b 2}})
 
-(defn filter-pull [pred pullT]
-  (assert (= ::ana/pull (::ana/type (metas pullT))))
-  (let [children-forms (into #{} (map ::ana/form (map metas (filter pred (unwrap pullT)))))]
-    (seed (scope pullT)
-      (hfql* (ana/filter-pull #(children-forms (::ana/form %)) (fmap swap (::co/AST (metas pullT))))))))
+;; (defn filter-pull [pred pullT]
+;;   (assert (= ::ana/pull (::ana/type (metas pullT))))
+;;   (let [children-forms (into #{} (map ::ana/form (map metas (filter pred (unwrap pullT)))))]
+;;     (seed (scope pullT)
+;;       (hfql* (ana/filter-pull #(children-forms (::ana/form %)) (fmap swap (::co/AST (metas pullT))))))))
 
-(tests
-  (filter-pull #(#{:a :c} (::ana/form (metas %)))
-    (seed {'% 1} (hfql [:a :b :c])))
-  := (seed {'% 1} (hfql [:a :c]))
-  )
-
-
-(defn select-children "Like select-keys but select children of a pull expression."
-  [pullT childrenT-seq]
-  (let [child-matches? (into #{} (map (comp ::ana/form metas)) childrenT-seq)]
-    (filter-pull (fn [%](child-matches? (::ana/form (metas %)))) pullT)))
+;; (tests
+;;   (filter-pull #(#{:a :c} (::ana/form (metas %)))
+;;     (seed {'% 1} (hfql [:a :b :c])))
+;;   := (seed {'% 1} (hfql [:a :c]))
+;;   )
 
 
-(tests
-  (select-children (seed {} (hfql [:a :b :c]))
-    (unwrap (hfql [:a :c])))
-  := (seed {} (hfql [:a :c]))
-  )
+;; (defn select-children "Like select-keys but select children of a pull expression."
+;;   [pullT childrenT-seq]
+;;   (let [child-matches? (into #{} (map (comp ::ana/form metas)) childrenT-seq)]
+;;     (filter-pull (fn [%](child-matches? (::ana/form (metas %)))) pullT)))
 
-(defn symbolic-edge [hfqlT]
-  (when hfqlT
-    (let [metas (metas hfqlT)]
-      (::ana/symbolic-edge
-       (case (::ana/type metas)
-         ::ana/traversal (::ana/edge metas)
-         metas)))))
+
+;; (tests
+;;   (select-children (seed {} (hfql [:a :b :c]))
+;;     (unwrap (hfql [:a :c])))
+;;   := (seed {} (hfql [:a :c]))
+;;   )
 
 (defn- normalize-edge [edge]
   (cond (ident? edge) `(~edge ~'%)
@@ -446,14 +459,20 @@
 (defn find-child-by [pred hfqlT] (first (filter pred (unwrap hfqlT))))
 (defn find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
 
-(defn focus-subtree [hfqlT] (seed (scope hfqlT) (hfql* (fmap swap (::co/AST (metas hfqlT))))))
+;; (defn focus-subtree [hfqlT] (seed (scope hfqlT) (hfql* (fmap swap (::co/AST (metas hfqlT))))))
 
-(defn find-sitemap-entry [symbolic-edge hfqlT]
-  (case (::ana/type (metas hfqlT))
-    ::ana/pull (some-> (find-child symbolic-edge hfqlT) focus-subtree)
-    (if (child-matches? symbolic-edge hfqlT)
-      hfqlT
-      nil)))
+;; (defn find-sitemap-entry [symbolic-edge hfqlT]
+;;   (case (::ana/type (metas hfqlT))
+;;     ::ana/pull (some-> (find-child symbolic-edge hfqlT)
+;;                  ;; we want to refocus subtree because recursion in a UI is
+;;                  ;; different than recursion in a textual pull In a pull we want
+;;                  ;; to recur on top-level pulls In a UI we don't want to recur
+;;                  ;; on the sitemap root but rather on the selected sitemap
+;;                  ;; entry, according to the current top-level URL route.
+;;                  focus-subtree)
+;;     (if (child-matches? symbolic-edge hfqlT)
+;;       hfqlT
+;;       nil)))
 
 ;;;;;;;;;;;;;;;
 ;; Protocols ;;
@@ -526,12 +545,22 @@ identifier, though it might not be serializable."
                            (.getBasis (type record))))))))
 
 (defn suggest-at-point! [hfqlT]
-  (co/vary-static-meta
-    (fmap (bf/first #(assoc % ::suggested true))
-      (suggest (force (value-at-point hfqlT))))
-    #(assoc % ::suggested true)))
+  (if-let [suggestions (suggest (force (value-at-point hfqlT)))]
+    (co/vary-static-meta
+      (fmap (bf/first #(assoc % ::suggested true)) suggestions)
+      #(assoc % ::suggested true))
+    hfqlT))
 
-(defn augment-with-suggestions! [hfqlT] (combine hfqlT (suggest-at-point! hfqlT)))
+(defn augment-with-suggestions! [hfqlT]
+  (when hfqlT
+    (combine hfqlT (suggest-at-point! hfqlT))))
 
+(defmulti resolve-dispatch type)
+(defmethod resolve-dispatch :default [object]
+  (if (seq? object)
+    (first object)
+    object))
 
+(defmulti resolve resolve-dispatch)
+(defmethod resolve :default [object] object) ; don't know how to resolve ≡ identity
 
