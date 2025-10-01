@@ -1,0 +1,134 @@
+(ns hyperfiddle.navigator6.search
+  (:require [clojure.string :as str]
+            [dustingetz.str :as strx]
+            [geoffreygaillard.debug-tools :refer [debug-exceptions]]
+            [hyperfiddle.electric-forms5 :as forms]
+            [hyperfiddle.electric3 :as e]
+            [hyperfiddle.hfql1.bifunctor :refer [snd]]
+            [hyperfiddle.hfql2 :as hfql]
+            [hyperfiddle.navigator6.state :as state]
+            [hyperfiddle.navigator6.utils :as utils]
+            )
+  #?(:cljs (:require-macros [hyperfiddle.navigator6.search :refer [with-local-search]]))
+  )
+
+(e/declare ^:dynamic *local-search)
+
+(e/defn WithLocalSearch [state-key Body]
+  (e/client
+    (binding [*local-search (get state/*local-state state-key)]
+      (binding [e/*bindings* (e/server (assoc e/*bindings* (find-var `*local-search) *local-search))]
+        (->> (Body)
+          (utils/InterceptCommand `SetSearch! (e/fn [[_ search]] [`state/UpdateState! assoc state-key search])))))))
+
+(defmacro with-local-search [state-key & body]
+  `(WithLocalSearch ~state-key (e/fn [] ~@body)))
+
+(e/defn SearchInput! [disabled?]
+  (e/client
+    (->> (forms/Input! ::search *local-search :type :search :maxlength 100 :disabled disabled? :style {:grid-area "search"})
+      (forms/Parse (e/fn [{search ::search}] [`SetSearch! search])))))
+
+
+
+(e/defn Filtered [pred columns rows Body & {::keys [limit] :or {limit 10000}}]
+  (e/client
+    (let [rows-count (e/server (bounded-count limit rows)) ; 𝓞(n)
+          filtered (e/server (e/Reconcile (if (< rows-count limit)
+                                            (pred columns rows e/*bindings* *local-search nil #_sort-spec)
+                                            [columns (with-meta (take limit rows) (meta rows))])))]
+      (Body (e/server (first filtered)) (e/server (second filtered))))))
+
+
+
+(defmulti search-matches (fn [object _needle] (type object)))
+(defmethod search-matches :default [object needle] (strx/any-matches? [object] needle))
+
+(defn- prefix-filterer
+  "Take a filtering predicate pred :: String -> Any -> Bool and return a function f :: String -> [Any] -> [Any].
+
+  The returned function `f` will filter the given collection like regular
+  clojure.core/filter. However, given we know the filter criteria is a String,
+  we leverage the fact that if the previous search happened on a prefix of the
+  current search (e.g. \"hell\" ⊏ \"hello\"), then we only filter the last result
+  instead of the entire original resultset.
+  E.g.:
+   - (f \"\" xs)   : nothing to search on, return xs – 𝓞(1)
+   - (f \"h\" xs)  : filter xs looking for \"h\" – 𝓞(n)
+   - (f \"he\" xs) : \"h\"  ⊏ \"he\" ⇒ filter last result already filtered by \"h\" – 𝓞(∆n).
+   - (f \"he\" xs) : \"he\" ⊑ \"he\" ⇒ return already filtered result – 𝓞(1).
+   - (f \"h\" xs)  : \"h\"  ⋢ \"he\" ⇒ discard last result and filter xs looking for \"h\" – 𝓞(n).
+
+  Therefore:
+  - \"h\" ⟶ \"he\" ⟶ \"hel\" is 𝓞(n) ⟶ 𝓞(∆n) ⟶ 𝓞(∆∆n)
+  - \"hel\" ⟶ \"he\" ⟶ \"h\" is 𝓞(n) ⟶ 𝓞(n) ⟶ 𝓞(n)
+
+  "
+  [pred]
+  (let [!last-needle (volatile! "")
+        !last-filtered (volatile! ())]
+    (fn [needle pulled]
+      (let [last-needle @!last-needle
+            do-filter (partial pred needle)]
+        (vreset! !last-needle needle)
+        (cond
+          (empty? needle) (vreset! !last-filtered pulled)
+          (and (not (str/blank? last-needle))
+            (str/starts-with? needle last-needle)) (vreset! !last-filtered (filter do-filter @!last-filtered))
+          (and (not (str/blank? last-needle))
+            (= needle last-needle)) @!last-filtered
+          :else (vreset! !last-filtered (filter do-filter pulled)))))))
+
+#?(:clj
+   (defn eager-pull-search-sort-BIG-O-N-SQUARE []
+     ;; (prn `eager-pull-search-sort-BIG-O-N-SQUARE edge hfql-bindings search sort-spec)
+     (let [_do-filter (prefix-filterer (fn [needle pair] (search-matches (snd pair) needle)))]
+       (fn [columnsT rowsT _hfql-bindings search _sort-spec]
+         [columnsT
+          ;; (def _args [rowsT columnsT hfql-bindings search sort-spec])
+          (try
+            (debug-exceptions `eager-pull-search-sort-BIG-O-N-SQUARE
+              ;; (Thread/sleep 3000)
+              (if (not-empty search)
+                (dedupe
+                  (for [rowT rowsT
+                        columnT columnsT
+                        :let [cell-value (hfql/nav (hfql/seed (hfql/scope rowT) columnT))]
+                        :when (search-matches cell-value search)]
+                    rowT))
+                rowsT)
+              #_(let [pulled (sequence
+                               (eduction
+                                 (map (join pair)) ; duplicate arg and apply both to ->Pair
+                                 (map (fmap pull)) ; pull right side of pair
+                                 (map (fmap extract)) ; extract right side of pair
+                                 rowsT))
+                      filtered (if (not-empty search)
+                                 (do-filter search pulled)
+                                 pulled)
+                      sorted (if-some [sorter (and (not-empty sort-spec) (->sort-comparator sort-spec))]
+                               (try (sort-by snd sorter filtered) (catch Throwable _ filtered))
+                               filtered)]
+                  (with-meta (map fst sorted) (meta (extract rowsT)))))
+            (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) []))]))))
+
+
+
+#?(:clj
+   (defn eager-search-kvs-BIG-O-N-SQUARE []
+     (let [_do-filter (prefix-filterer (fn [needle pair] (search-matches (snd pair) needle)))]
+       (fn [columnsT rowsT _hfql-bindings search _sort-spec]
+         (try
+           (debug-exceptions `eager-search-kvs-BIG-O-N-SQUARE
+             (if (not-empty search)
+               (let [kvs (for [rowT rowsT
+                               columnT columnsT
+                               :let [cell-value (delay (hfql/nav (hfql/seed (hfql/scope rowT) columnT)))]
+                               :when (or (search-matches (hfql/symbolic-edge columnT) search)
+                                       (search-matches (force cell-value) search))]
+                           [rowT columnT])]
+                 [(distinct (map second kvs))
+                  (dedupe (map first kvs))])
+               [columnsT rowsT]))
+           (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t)
+                  [columnsT rowsT]))))))
