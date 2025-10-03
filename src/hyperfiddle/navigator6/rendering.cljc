@@ -8,8 +8,9 @@
             [hyperfiddle.hfql1.analyzer :as ana :refer [unquote*]]
             [hyperfiddle.hfql1.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
-            [hyperfiddle.router5 :as router]
-            [hyperfiddle.navigator6.utils :refer [glitch-guard]]))
+            [hyperfiddle.navigator6.extensions :as extensions]
+            [hyperfiddle.navigator6.utils :refer [glitch-guard]]
+            [hyperfiddle.router5 :as router]))
 
 (e/declare *server-pretty)
 
@@ -132,17 +133,21 @@
 
 
 
-#?(:clj (defn- table-title-tooltip-content [query query-meta]
+#?(:clj (defn- table-title-tooltip-content [stepT]
           {:post [(or (string? %) (nil? %))]}
-          (-> "" #_(find-documentation query)
-            (str (format-query-meta query-meta))
-            (str/trim)
-            (strx/blank->nil))))
+          (when stepT
+            (-> (hfql/describe-formatted stepT)
+              (str "\n\n" (format-query-meta (hfql/metas stepT)))
+              (str/trim)
+              (strx/blank->nil)))))
 
 (e/defn Step-Title [stepT]
   (dom/span
     (dom/props {:class "title"
                 :style {:order -3}
-                :data-tooltip (e/server (table-title-tooltip-content ((glitch-guard hfql/symbolic-edge-computed) stepT)
-                                          ((glitch-guard hfql/metas) stepT)))})
+                :data-tooltip (e/server (table-title-tooltip-content stepT))})
     (dom/text (e/server (pr-str ((glitch-guard hfql/symbolic-edge-computed) stepT))))))
+
+(comment
+  (hfql/describe-column (get dustingetz.namespace-explorer/sitemap `all-ns))
+  )

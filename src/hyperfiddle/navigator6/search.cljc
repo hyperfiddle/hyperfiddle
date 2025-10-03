@@ -81,36 +81,20 @@
 
 #?(:clj
    (defn eager-pull-search-sort-BIG-O-N-SQUARE []
-     ;; (prn `eager-pull-search-sort-BIG-O-N-SQUARE edge hfql-bindings search sort-spec)
-     (let [_do-filter (prefix-filterer (fn [needle pair] (search-matches (snd pair) needle)))]
-       (fn [columnsT rowsT _hfql-bindings search _sort-spec]
-         [columnsT
-          ;; (def _args [rowsT columnsT hfql-bindings search sort-spec])
-          (try
-            (debug-exceptions `eager-pull-search-sort-BIG-O-N-SQUARE
-              ;; (Thread/sleep 3000)
-              (if (not-empty search)
-                (dedupe
-                  (for [rowT rowsT
-                        columnT columnsT
+     (fn [columnsT rowsT _hfql-bindings search _sort-spec]
+       [columnsT
+        (try
+          (debug-exceptions `eager-pull-search-sort-BIG-O-N-SQUARE
+            (if (not-empty search)
+              (sequence (comp (map first) ; short-circuit on first cell match per row.
+                          (remove nil?))
+                (for [rowT rowsT]
+                  (for [columnT columnsT
                         :let [cell-value (hfql/nav (hfql/seed (hfql/scope rowT) columnT))]
                         :when (search-matches cell-value search)]
-                    rowT))
-                rowsT)
-              #_(let [pulled (sequence
-                               (eduction
-                                 (map (join pair)) ; duplicate arg and apply both to ->Pair
-                                 (map (fmap pull)) ; pull right side of pair
-                                 (map (fmap extract)) ; extract right side of pair
-                                 rowsT))
-                      filtered (if (not-empty search)
-                                 (do-filter search pulled)
-                                 pulled)
-                      sorted (if-some [sorter (and (not-empty sort-spec) (->sort-comparator sort-spec))]
-                               (try (sort-by snd sorter filtered) (catch Throwable _ filtered))
-                               filtered)]
-                  (with-meta (map fst sorted) (meta (extract rowsT)))))
-            (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) []))]))))
+                    rowT)))
+              rowsT))
+          (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) []))])))
 
 
 

@@ -1,8 +1,9 @@
 (ns hyperfiddle.hfql2
-  (:refer-clojure :exclude [resolve])
+  (:refer-clojure :exclude [resolve format])
   (:require
    [clojure.core :as cc]
    [clojure.core.protocols :as ccp]
+   [clojure.pprint :refer [cl-format]]
    [hyperfiddle.rcf :refer [tests]]
    [hyperfiddle.hfql1.monoid :refer [mappend]]
    [hyperfiddle.hfql1.functor :refer [fmap]]
@@ -12,7 +13,9 @@
    [hyperfiddle.hfql1.rose-tree :refer [rose-tree]]
    [hyperfiddle.hfql1.store :refer [pos peeks]]
    [hyperfiddle.hfql1.analyzer :as ana]
-   [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]])
+   [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]]
+   #?(:cljs [goog.string :as gstring])
+   #?(:cljs [goog.string.format]))
   #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql]])))
 
 
@@ -563,4 +566,42 @@ identifier, though it might not be serializable."
 
 (defmulti resolve resolve-dispatch)
 (defmethod resolve :default [object] object) ; don't know how to resolve ≡ identity
+
+(defn- describe-dispatch-fn [object]
+  (cond (satisfies? hyperfiddle.hfql1.cofree/ComonadCofree object)
+        (::ana/type (metas object))
+        (map? object) (or (::ana/type object) (type object))
+        :else (type object)))
+
+(defmulti describe describe-dispatch-fn)
+(defmethod describe :default [_] nil)
+(defmethod describe ::ana/symbol [stepT] (metas stepT))
+(defn- describe-call [metas] (assoc metas ::symbolic-edge (symbolic-edge* metas)))
+(defmethod describe ::ana/call   [stepT] (describe-call (metas stepT)))
+(defmethod describe ::ana/traversal [stepT] (describe-call (::ana/edge (metas stepT))))
+
+(comment
+  (describe nil)
+  (describe "")
+  (describe (hfql ns-name))
+  )
+
+(defn- format [fmt & args]
+  #?(:clj (apply clojure.core/format fmt args)
+     :cljs (apply gstring/format fmt args)))
+
+(defmulti describe-formatted describe-dispatch-fn)
+(defmethod describe-formatted :default [_] "")
+
+(defmethod describe-formatted ::ana/symbol [hfqlT]
+  (let [{::ana/keys [form form-resolved var]} (describe hfqlT)]
+    (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" (or form-resolved form) (some-> var meta :arglists) (some-> var meta :doc))))
+
+(defmethod describe-formatted ::ana/traversal [hfqlT]
+  (let [{::keys [symbolic-edge] ::ana/keys [var]} (describe hfqlT)]
+    (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" symbolic-edge (some-> var meta :arglists) (some-> var meta :doc))))
+
+(comment
+  (describe (get dustingetz.namespace-explorer/sitemap `all-ns))
+  (describe-formatted (get dustingetz.namespace-explorer/sitemap `all-ns)))
 

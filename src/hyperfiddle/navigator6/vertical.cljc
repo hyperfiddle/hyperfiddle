@@ -9,6 +9,7 @@
             [hyperfiddle.navigator6.rendering :as rendering]
             [hyperfiddle.navigator6.search :as search]
             [hyperfiddle.navigator6.selection :as selection]
+            [hyperfiddle.navigator6.sorting :as sort]
             [hyperfiddle.navigator6.utils :as utils :refer [in glitch-guard caching-nth]]))
 
 (def ^:private COLLECTION-LIMIT 10000)
@@ -21,18 +22,18 @@
             static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
             suggested-columns (filter (comp ::hfql/suggested hfql/metas) childrenT)
             pre-checked false ;; TODO
-            from-spec (e/as-vec (e/for [edgeT (e/diff-by hfql/symbolic-edge static-columns)]
+            from-spec (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge static-columns)]
                                   (e/When
                                       (dom/span
-                                        (forms/Checkbox* true :label (e/server (str (hfql/symbolic-edge edgeT)))
-                                          :title (e/server (str (hfql/symbolic-edge edgeT)))))
-                                    edgeT)))
-            selected (e/as-vec (e/for [edgeT (e/diff-by hfql/symbolic-edge suggested-columns)]
+                                        (forms/Checkbox* true :label (e/server (str (hfql/symbolic-edge columnT)))
+                                          :title (e/server (hfql/describe-formatted columnT))))
+                                    columnT)))
+            selected (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge suggested-columns)]
                                  (e/When
                                      (dom/span
-                                       (forms/Checkbox* pre-checked :label (e/server (str (hfql/symbolic-edge edgeT)))
-                                         :title (e/server (str (hfql/symbolic-edge edgeT)))))
-                                   edgeT)))]
+                                       (forms/Checkbox* pre-checked :label (e/server (str (hfql/symbolic-edge columnT)))
+                                         :title (e/server (hfql/describe-formatted columnT))))
+                                   columnT)))]
         (mappend from-spec selected)))))
 
 (defn- seed-cell [rowT columnT]
@@ -78,7 +79,7 @@
           (dom/tr
             (e/for [columnT (e/diff-by hfql/symbolic-edge columnsT)]
               (let [form (str (hfql/symbolic-edge columnT))]
-                (dom/th (dom/props {:scope :col :title form})
+                (dom/th (dom/props {:scope :col :title (e/server (hfql/describe-formatted columnT))})
                   (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)
                   ;; (e/client (dom/On "click" #(swap! !sort-spec toggle-column-sort form) nil))
                   (dom/text form)))))))

@@ -1,4 +1,15 @@
-(ns hyperfiddle.navigator6.sorting)
+(ns hyperfiddle.navigator6.sorting
+  (:require #?(:clj [clojure.tools.logging :as log])
+            [contrib.data]
+            [hyperfiddle.rcf :refer [tests]]
+            [geoffreygaillard.debug-tools :refer [debug-exceptions]]
+            [hyperfiddle.hfql1.analyzer :as ana]
+            [hyperfiddle.hfql1.bifunctor :refer [snd]]
+            [hyperfiddle.hfql1.comonad :refer [extract]]
+            [hyperfiddle.hfql1.cofree :refer [unwrap]]
+            [hyperfiddle.hfql1.monoid :refer [mappend]]
+            [hyperfiddle.hfql2 :as hfql]
+            ))
 
 (defmulti comparable type)
 (defmethod comparable :default [x] x)
@@ -6,25 +17,58 @@
 (defmethod comparable #?(:clj clojure.lang.Symbol :cljs cljs.core.Symbol) [sym] (str sym))
 (defmethod comparable #?(:clj clojure.lang.Keyword :cljs cljs.core.Keyword) [kw] (str (namespace kw) "/" (name kw))) ; drop ":"
 
+(defn- seed-cell [columnT rowT]
+  (hfql/seed (hfql/scope rowT) columnT))
+
+(defn- force-cell-value!
+  [columnT rowT]
+  (let [cellT (hfql/seed (hfql/scope rowT) columnT)
+        thunk (snd (extract cellT))]
+    (when-not (realized? thunk)
+      #?(:clj (log/trace "Running IO for sort over " (hfql/symbolic-edge cellT))))
+    (force thunk)))
+
 #?(:clj
-   (defn- ->sort-comparator [sort-spec]
+   (defn- ->sort-comparator [columnT-specs]
      (debug-exceptions `->sort-comparator
-       (let [[[k asc?]] sort-spec
-             order (if asc? neg? pos?)   ; TODO support multi-sort
+       (let [[[columnT asc?]] columnT-specs ; only sort by first ; TODO support multi-sort
+             order (if asc? neg? pos?)
              compare-fn (fn [a b]
                           (cond
                             (nil? a) false
                             (nil? b) true
-                            :else (order (compare a b))))]
-         (when k
-           (fn [a b]
+                            :else (order (compare a b))))
+             force-cell-value! (memoize force-cell-value!)]
+         (when columnT
+           (fn [rowT-a rowT-b]
              (debug-exceptions `->sort-comparator-inner
-               (compare-fn (comparable (get a k)) (comparable (get b k))))))))))
+               (compare-fn
+                 (comparable (force-cell-value! columnT rowT-a))
+                 (comparable (force-cell-value! columnT rowT-b))))))))))
 
-(comment
-  (sort (->sort-comparator [[:k true]]) [{:k 1} {:k 0} {:k 2}])
-  (sort (->sort-comparator [[:k false]]) [{:k 1} {:k 0} {:k 2}])
+(tests
+  (def _treeT (hfql/seed {'% [{:name "Alice", :age 30}
+                              {:name "Bob", :age 32}
+                              {:name "Charlie", :age 31}]}
+                (hfql/hfql {* [:name :age]})))
+  (def _rowsT (-> _treeT unwrap))
+  (def _ageT (-> _rowsT first unwrap second))
+  (def _sorted-rowsT-asc (sort (->sort-comparator [[_ageT true]]) _rowsT))
+  (map hfql/nav _sorted-rowsT-asc)
+  := '({:name "Alice", :age 30} {:name "Charlie", :age 31} {:name "Bob", :age 32})
+
+  #_(def _sorted-rowsT-desc (sort (->sort-comparator [[_ageT false]]) _rowsT))
+  #_(map hfql/nav _sorted-rowsT-desc)
+  #_#_:= '({:name "Bob", :age 32} {:name "Charlie", :age 31} {:name "Alice", :age 30})
+
   )
+
+(defn sort-rows-by-columns [columnT-specs rowsT]
+  (if-some [sorter (and (not-empty columnT-specs) (->sort-comparator columnT-specs))]
+    (try (sort sorter rowsT) (catch #?(:clj Throwable, :cljs :default) ex
+                              (println " Failed to sort" (ex-message ex) #_ex)
+                              rowsT))
+    rowsT))
 
 (defn -fsym [sexpr]
   (when (seq? sexpr)
