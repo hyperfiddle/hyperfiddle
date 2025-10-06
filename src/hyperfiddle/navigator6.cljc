@@ -9,8 +9,7 @@
             [hyperfiddle.navigator6.state :as state :refer [with-local-state]]
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
-            [hyperfiddle.navigator6.vertical :refer [RenderStepVertical]]
-            [hyperfiddle.navigator6.horizontal :refer [RenderStepHorizontal]]
+            [hyperfiddle.navigator6.matrix :refer [RenderStep]]
             [hyperfiddle.navigator6.utils :refer [rebooting]]
             [contrib.css :as cssx]
             [dustingetz.str :as strx]
@@ -68,8 +67,8 @@
 (e/declare RenderValue)
 (e/defn ResolveRenderer [sitemap hfql]
   (e/server
-    (get {::pull RenderStepHorizontal
-          ::star RenderStepVertical}
+    (get {::pull (e/fn [stepT] (RenderStep stepT true))
+          ::star RenderStep}
       (render-type hfql)
       (e/Partial RenderValue sitemap))))
 
@@ -136,14 +135,14 @@
 
 (def table-block-css
 "
-.hyperfiddle-navigator6__block table { display: grid; grid-template-columns: repeat(var(--column-count), 1fr);  grid-template-rows: var(--row-height);}
+.hyperfiddle-navigator6__block table { display: grid; grid-template-columns: auto repeat(var(--column-count), 1fr);  grid-template-rows: var(--row-height);}
 
 .hyperfiddle-navigator6__block table thead { display: contents; }
 .hyperfiddle-navigator6__block table thead tr { display: grid; grid-row: 1; grid-column: 1 / -1; grid-template-columns: subgrid;}
 .hyperfiddle-navigator6__block table thead tr th { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
-.hyperfiddle-navigator6__block .hyperfiddle-electric-forms5__table-picker { grid-column: 1 / -1; grid-template-columns: subgrid; }
-.hyperfiddle-navigator6__block thead + .hyperfiddle-electric-forms5__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; }
+.hyperfiddle-navigator6__block .hyperfiddle-electric-forms5__table-picker { grid-column: 1 / -1; grid-template-columns: subgrid; contain: size;}
+.hyperfiddle-navigator6__block thead + .hyperfiddle-electric-forms5__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; contain: size; }
 "
   )
 

@@ -89,7 +89,7 @@
 (e/declare Render)
 (e/defn RenderCell [object edgeT value]
   (dom/td                            ; custom renderer runs in context of a cell
-    (dom/props {:data-cell (e/fn [] edgeT)})
+    (e/client (set! (.-data-cell ^js dom/node) (e/server (e/fn [] edgeT))))
     (binding [Render DefaultCellRenderer]
       (e/Reconcile (e/call (Resolve (unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
                              Render) object edgeT #_(vary-meta edge dissoc ::hfql/Render) value)))))
