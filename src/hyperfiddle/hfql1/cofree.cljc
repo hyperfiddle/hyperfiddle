@@ -8,7 +8,6 @@
             [hyperfiddle.hfql1.bifunctor :refer [Bifunctor pair pair? fst snd bimap]]
             [hyperfiddle.hfql1.monoid :refer [mappend mempty]]
             [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend liftW comonad-law-1 comonad-law-2 comonad-law-3]]
-            #?(:clj [clojure.tools.logging])
             ))
 
 (defprotocol CofreeFunctor
@@ -80,20 +79,6 @@
   ([coalgebra] (partial coiterT coalgebra))
   ([coalgebra wa]
    (->CofreeT (extend (fn [w] (->CofreeF (extract w) (fmap (coiterT coalgebra) (coalgebra w)))) wa))))
-
-
-
-(defn memoize-1 [f]
-  (let [state (object-array [#?(:clj (Object.), :cljs (js-obj)) nil])]
-    (fn [& args]
-      (let [prev-args (aget state 0)
-            prev-ret (aget state 1)]
-        (aset state 0 args)
-        (if (= args prev-args)
-          prev-ret
-          (do #?(:clj (clojure.tools.logging/debug 'memoize-1 '≠ {:prev-args prev-args, :next-args args}))
-              (aset state 1 (apply f args))))))))
-
 
 
 

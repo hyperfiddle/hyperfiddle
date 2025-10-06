@@ -9,7 +9,7 @@
    [hyperfiddle.hfql1.functor :refer [fmap]]
    [hyperfiddle.hfql1.bifunctor :as bf :refer [pair fst snd swap]]
    [hyperfiddle.hfql1.comonad :refer [extract]]
-   [hyperfiddle.hfql1.cofree :refer [tree-seqT unwrap runCofreeT]]
+   [hyperfiddle.hfql1.cofree :refer [tree-seqT unwrap runCofreeT hoistCofreeT]]
    [hyperfiddle.hfql1.rose-tree :refer [rose-tree]]
    [hyperfiddle.hfql1.store :refer [pos peeks]]
    [hyperfiddle.hfql1.analyzer :as ana]
@@ -31,6 +31,7 @@
 (defn value-at-point [hfqlT] (get (scope hfqlT) '%))
 
 (def metas (comp fst runCofreeT))
+(def pull-has-star? (comp ::ana/has-star? metas))
 
 (defn navigable [nav-fn object]
   (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
@@ -348,7 +349,8 @@
     (snd
       (extract
         (ana/analyze {'% 2} [:a :c]))))
-  := {:hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
+  := {:hyperfiddle.hfql1.analyzer/id _
+      :hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
       :hyperfiddle.hfql1.analyzer/form '(quote [:a :b :c]),
       :hyperfiddle.hfql1.analyzer/lexical-env '{},
       :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c])}
@@ -402,7 +404,8 @@
         (hfql [:a :c])))
     (metas)
     (dissoc ::co/AST))
-  := {:hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
+  := {:hyperfiddle.hfql1.analyzer/id _
+      :hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
       :hyperfiddle.hfql1.analyzer/form '(quote [:a :b :c]),
       :hyperfiddle.hfql1.analyzer/lexical-env {},
       :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c]),
@@ -477,6 +480,21 @@
 ;;       hfqlT
 ;;       nil)))
 
+(def id (comp ::ana/id metas))
+
+(defn find-cell-by-column "Lookup a column in a row."
+  ([columnT] (partial find-cell-by-column columnT))
+  ([columnT rowT]
+   (let [identity (id columnT)]
+     (first (filter #(= identity (id %))
+              (unwrap rowT))))))
+
+(comment
+  (def _rows (unwrap (seed {'% (clojure.java.io/file ".")} (dustingetz.file-explorer/sitemap `dustingetz.file-explorer/dir-list))))
+  (def _columnT (first (unwrap (first _rows))))
+  (find-cell-by-column _columnT (second _rows))
+  )
+
 ;;;;;;;;;;;;;;;
 ;; Protocols ;;
 ;;;;;;;;;;;;;;;
@@ -547,16 +565,44 @@ identifier, though it might not be serializable."
                            :cljs
                            (.getBasis (type record))))))))
 
-(defn suggest-at-point! [hfqlT]
-  (if-let [suggestions (suggest (force (value-at-point hfqlT)))]
-    (co/vary-static-meta
-      (fmap (bf/first #(assoc % ::suggested true)) suggestions)
-      #(assoc % ::suggested true))
+(comment
+  _suggested
+  (runCofreeT _suggested)
+  ;; (pull (fmap #(assoc % ::suggested true) _suggested))
+  ;; ((fn rec [T]
+  ;;    (hyperfiddle.hfql1.cofree/->CofreeT
+  ;;      (hyperfiddle.hfql1.bifunctor/bimap #(assoc % ::suggested true)
+  ;;        (hyperfiddle.hfql1.comonad/extend (comp extract rec))
+  ;;        (runCofreeT T)))) _suggested)
+  (hyperfiddle.hfql1.cofree/hoistCofreeT (bf/first #(assoc % ::suggested true))
+    _suggested)
+  (map (comp ::suggested metas) (unwrap *1))
+  )
+
+
+(defn- suggest-at-point! [hfqlT]
+  (if-let [suggestedT (suggest (force (value-at-point hfqlT)))]
+    (hoistCofreeT (bf/first #(assoc % ::suggested true)) suggestedT) ; recursively map over CofreeT structure - lazily
     hfqlT))
 
 (defn augment-with-suggestions! [hfqlT]
   (when hfqlT
-    (combine hfqlT (suggest-at-point! hfqlT))))
+    (if-let [suggestedT (suggest-at-point! hfqlT)]
+      (let [suggested? (set (map (comp ::ana/id metas) (::co/static-children (metas suggestedT))))]
+        (hoistCofreeT (bf/first (fn [metas]
+                                  (if (suggested? (::ana/id metas))
+                                    (assoc metas ::suggested true)
+                                    metas)))
+          (combine hfqlT suggestedT)))  ; FIXME looses static metadata :(
+      hfqlT)))
+
+(comment
+  (import [java.io File])
+  (augment-with-suggestions!
+    (seed {'% (clojure.java.io/file ".")}
+      (hfql [File/.getName {File/.listFiles ...}]))) 
+  (unwrap *1)
+  )
 
 (defmulti resolve-dispatch type)
 (defmethod resolve-dispatch :default [object]

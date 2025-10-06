@@ -158,3 +158,8 @@
 
   ((uncurry str) (swap (pair 1 2)))
   := "21")
+
+
+(extend-protocol Bifunctor #?(:clj clojure.lang.Fn, :cljs function)
+  (-bimap [h f g] (fn [a b] (h (f a) (g b))))
+  )

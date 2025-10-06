@@ -1,14 +1,18 @@
 (ns hyperfiddle.navigator6.sorting
   (:require #?(:clj [clojure.tools.logging :as log])
             [contrib.data]
-            [hyperfiddle.rcf :refer [tests]]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
-            [hyperfiddle.hfql1.analyzer :as ana]
-            [hyperfiddle.hfql1.bifunctor :refer [snd]]
-            [hyperfiddle.hfql1.comonad :refer [extract]]
+            [hyperfiddle.electric3 :as e]
+            [hyperfiddle.electric-forms5 :as forms]
+            [hyperfiddle.hfql1.functor :refer [fmap]]
+            [hyperfiddle.hfql1.bifunctor :refer [snd bimap]]
             [hyperfiddle.hfql1.cofree :refer [unwrap]]
+            [hyperfiddle.hfql1.comonad :refer [extract]]
+            [hyperfiddle.hfql1.monad :refer [join]]
             [hyperfiddle.hfql1.monoid :refer [mappend]]
+            [hyperfiddle.hfql1.analyzer :as ana]
             [hyperfiddle.hfql2 :as hfql]
+            [hyperfiddle.rcf :refer [tests]]
             ))
 
 (defmulti comparable type)
@@ -17,44 +21,55 @@
 (defmethod comparable #?(:clj clojure.lang.Symbol :cljs cljs.core.Symbol) [sym] (str sym))
 (defmethod comparable #?(:clj clojure.lang.Keyword :cljs cljs.core.Keyword) [kw] (str (namespace kw) "/" (name kw))) ; drop ":"
 
-(defn- seed-cell [columnT rowT]
-  (hfql/seed (hfql/scope rowT) columnT))
+(defn- compare-nils-last "Wrap a comparator such that nils are always sorted last."
+  ([comparator] (partial compare-nils-last comparator))
+  ([comparator a b]
+   (cond
+     (nil? a) false
+     (nil? b) true
+     :else (comparator a b))))
 
-(defn- force-cell-value!
-  [columnT rowT]
-  (let [cellT (hfql/seed (hfql/scope rowT) columnT)
-        thunk (snd (extract cellT))]
+(defn- force-cell-value! "Equivalent to hfql/nav, but log a TRACE-level message if the cell wasn't realized already. Because we want to know if sorting causes unexpected IO."
+  [cellT]
+  (let [thunk (snd (extract cellT))]
     (when-not (realized? thunk)
       #?(:clj (log/trace "Running IO for sort over " (hfql/symbolic-edge cellT))))
     (force thunk)))
 
-#?(:clj
-   (defn- ->sort-comparator [columnT-specs]
-     (debug-exceptions `->sort-comparator
-       (let [[[columnT asc?]] columnT-specs ; only sort by first ; TODO support multi-sort
-             order (if asc? neg? pos?)
-             compare-fn (fn [a b]
-                          (cond
-                            (nil? a) false
-                            (nil? b) true
-                            :else (order (compare a b))))
-             force-cell-value! (memoize force-cell-value!)]
-         (when columnT
-           (fn [rowT-a rowT-b]
-             (debug-exceptions `->sort-comparator-inner
-               (compare-fn
-                 (comparable (force-cell-value! columnT rowT-a))
-                 (comparable (force-cell-value! columnT rowT-b))))))))))
+(def compare-cells "Take a comparator and transform it such that it receives comparable cell values instead of raw CofreeT objects."
+  ((join bimap) (fmap comparable force-cell-value!)))
+
+(defn directional-comparator
+  "Take '< or '> and return a comparator comparing any two values in resp. ascending or descending order.
+  Note < and > functions (not quoted) only work on numbers and so can only be used as a comparator for numbers.
+  The comparator returned by the current function sorts based on the sign of the return value of `compare`."
+  [direction]
+  {:pre [(or (= '< direction) (= '> direction))]}
+  (fmap (case direction > neg? < pos?) compare))
+
+(comment
+  (map hfql/pull (sort-by (hfql/find-cell-by-column _ageT) (compare-cells (compare-nils-last (directional-comparator '>))) _rowsT))
+  )
 
 (tests
+  (println)
+  (def _unwrap unwrap)
   (def _treeT (hfql/seed {'% [{:name "Alice", :age 30}
                               {:name "Bob", :age 32}
-                              {:name "Charlie", :age 31}]}
+                              {:name "Charlie", :age 31}
+                              {:name "Charlie2", :age 31}
+                              {:name "John", :age nil}]}
                 (hfql/hfql {* [:name :age]})))
-  (def _rowsT (-> _treeT unwrap))
-  (def _ageT (-> _rowsT first unwrap second))
+  (hfql/pull _treeT)
+  ;; (map hfql/nav (unwrap _treeT))
+  (println)
+  (def _rowsT (-> _treeT _unwrap))
+  (def _ageT (-> _rowsT first _unwrap second))
+  (extract (snd (extract _ageT)))
+  (println)
   (def _sorted-rowsT-asc (sort (->sort-comparator [[_ageT true]]) _rowsT))
-  (map hfql/nav _sorted-rowsT-asc)
+  (extract (snd (extract (second (_unwrap (first _sorted-rowsT-asc))))))
+  (map hfql/values _sorted-rowsT-asc)
   := '({:name "Alice", :age 30} {:name "Charlie", :age 31} {:name "Bob", :age 32})
 
   #_(def _sorted-rowsT-desc (sort (->sort-comparator [[_ageT false]]) _rowsT))
@@ -63,12 +78,24 @@
 
   )
 
-(defn sort-rows-by-columns [columnT-specs rowsT]
-  (if-some [sorter (and (not-empty columnT-specs) (->sort-comparator columnT-specs))]
-    (try (sort sorter rowsT) (catch #?(:clj Throwable, :cljs :default) ex
-                              (println " Failed to sort" (ex-message ex) #_ex)
-                              rowsT))
-    rowsT))
+(defn sort-rows-by-columns "TODO support multi-column sort." [columnT-specs rowsT]
+  (try
+    (let [[columnT direction] (first columnT-specs)] ; TODO support multi-column sort
+      (sort-by (hfql/find-cell-by-column columnT) (compare-cells (compare-nils-last (directional-comparator direction))) rowsT))
+    (catch #?(:clj Throwable, :cljs :default) ex
+      (println " Failed to sort" (ex-message ex) #_ex)
+      rowsT)))
+
+(e/defn Sorted [rowsT Body]
+  (e/client
+    (let [!sort-spec (e/server (atom nil))
+          sort-spec (e/server (e/watch !sort-spec))]
+      #_(e/server (prn "sort-spec" sort-spec) nil)
+      (->> (Body (e/server (sort-rows-by-columns sort-spec rowsT)))
+        (forms/Interpreter {`Sort! (e/fn [Getter direction]
+                                     (e/server ((constantly nil) direction Getter)) ; HACK must touch both args on server, otherwise the `case` do not run.
+                                     (case (e/server (reset! !sort-spec [[(Getter) direction]]) nil)
+                                       [::forms/ok]))})))))
 
 (defn -fsym [sexpr]
   (when (seq? sexpr)

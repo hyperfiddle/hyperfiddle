@@ -210,7 +210,8 @@
   ([env form]
    (merge
      (meta form)
-     {::type        (projection-type form)
+     {::id          (random-uuid)
+      ::type        (projection-type form)
       ::form        (#'quote form)
       ::lexical-env (lexical-bindings-map env)}
      (case (projection-type form)
@@ -239,7 +240,8 @@
                          form' (vec (remove recursion-point form))]
                      (merge
                        {::form form'
-                        ::symbolic-edges form'}
+                        ::symbolic-edges form'
+                        ::has-star? (boolean (some #(= ::star (::type %)) (map (φ env) form)))}
                        (when-some [recursion (first (filter recursion-point form))]
                          {::recursion-point true
                           ::recursion-limit (::recursion-limit (φ env recursion))})))
@@ -341,6 +343,13 @@
   (hyperfiddle.hfql1.rose-tree/coiter ψ ['foo "foo"])
   (analyze {} ['foo "foo"])
   (analyze {} {:a inc})
+  )
+
+(tests
+  (::has-star? (analyze {} [:a]))
+  := false
+  (::has-star? (analyze {} [:a '*]))
+  := true
   )
 
 (defmulti emit* type)

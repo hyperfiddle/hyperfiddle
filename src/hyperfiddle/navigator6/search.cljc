@@ -5,6 +5,7 @@
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql1.bifunctor :refer [snd]]
+            [hyperfiddle.hfql1.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.navigator6.utils :as utils]
@@ -31,13 +32,13 @@
 
 
 
-(e/defn Filtered [pred columns rows Body & {::keys [limit] :or {limit 10000}}]
+(e/defn Filtered [pred rows Body & {::keys [limit] :or {limit 10000}}]
   (e/client
     (let [rows-count (e/server (bounded-count limit rows)) ; 𝓞(n)
           filtered (e/server (e/Reconcile (if (< rows-count limit)
-                                            (pred columns rows e/*bindings* *local-search nil #_sort-spec)
-                                            [columns (with-meta (take limit rows) (meta rows))])))]
-      (Body (e/server (first filtered)) (e/server (second filtered))))))
+                                            (pred rows e/*bindings* *local-search)
+                                            (with-meta (take limit rows) (meta rows)))))]
+      (Body filtered))))
 
 
 
@@ -81,20 +82,19 @@
 
 #?(:clj
    (defn eager-pull-search-sort-BIG-O-N-SQUARE []
-     (fn [columnsT rowsT _hfql-bindings search _sort-spec]
-       [columnsT
-        (try
-          (debug-exceptions `eager-pull-search-sort-BIG-O-N-SQUARE
-            (if (not-empty search)
-              (sequence (comp (map first) ; short-circuit on first cell match per row.
-                          (remove nil?))
-                (for [rowT rowsT]
-                  (for [columnT columnsT
-                        :let [cell-value (hfql/nav (hfql/seed (hfql/scope rowT) columnT))]
-                        :when (search-matches cell-value search)]
-                    rowT)))
-              rowsT))
-          (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) []))])))
+     (fn [rowsT _hfql-bindings search]
+       (try
+         (debug-exceptions `eager-pull-search-sort-BIG-O-N-SQUARE
+           (if (not-empty search)
+             (sequence (comp (map first) ; short-circuit on first cell match per row.
+                         (remove nil?))
+               (for [rowT rowsT]
+                 (for [columnT (unwrap rowT)
+                       :let [cell-value (hfql/nav (hfql/find-cell-by-column columnT rowT))]
+                       :when (search-matches cell-value search)]
+                   rowT)))
+             rowsT))
+         (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) [])))))
 
 
 

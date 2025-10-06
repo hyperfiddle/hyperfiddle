@@ -3,7 +3,9 @@
   (:require [hyperfiddle.hfql1.functor :refer [Functor fmap]]
             [hyperfiddle.hfql1.comonad :refer [Comonad extend extract duplicate comonad-law-1 comonad-law-2 comonad-law-3]]
             [hyperfiddle.hfql1.bifunctor :refer [pair &&&]]
-            [hyperfiddle.rcf :refer [tests]]))
+            [hyperfiddle.rcf :refer [tests]]
+            #?(:clj [clojure.tools.logging])
+            ))
 
 (defprotocol ComonadStore
   (-pos [wa] "pos :: w a -> s. Read the stored value")
@@ -20,7 +22,22 @@
   (-pos [_wa] value)
   (-peek [_wa s] (accessor s)))
 
-(defn store "store :: (s -> a) -> s -> Store s a" [accessor value] (->Store accessor value))
+
+
+(defn memoize-1 [f]
+  (let [state (object-array [#?(:clj (Object.), :cljs (js-obj)) nil])]
+    (fn [& args]
+      (let [prev-args (aget state 0)
+            prev-ret (aget state 1)]
+        (aset state 0 args)
+        (if (= args prev-args)
+          prev-ret
+          (do #?(:clj (clojure.tools.logging/trace 'memoize-1 '≠ {:prev-args prev-args, :next-args args}))
+              (aset state 1 (apply f args))))))))
+
+
+
+(defn store "store :: (s -> a) -> s -> Store s a" [accessor value] (->Store (memoize-1 accessor) value))
 
 (defn pos "pos :: w a -> s. Read the stored value" [wa] (-pos wa))
 (defn peek "peek :: s -> w a -> a. Peek at what the current focus would be for a different stored value" [s wa] (-peek wa s))

@@ -10,8 +10,8 @@
    [hyperfiddle.hfql1.bifunctor :as bf :refer [Bifunctor IPair fst snd pair swap bimap &&&]]
    [hyperfiddle.hfql1.monoid :refer [mappend]]
    [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend -extract]]
-   [hyperfiddle.hfql1.cofree :refer [synthesize unwrap runCofreeT ->CofreeF ->CofreeT headF tree-seqT memoize-1 hoistCofreeT]]
-   [hyperfiddle.hfql1.store :refer [store seek seeks peeks pos #?(:cljs Store)]]
+   [hyperfiddle.hfql1.cofree :refer [synthesize unwrap runCofreeT ->CofreeF ->CofreeT headF tree-seqT hoistCofreeT]]
+   [hyperfiddle.hfql1.store :refer [store seek seeks peeks pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.hfql1.monad-reader :refer [reader local runReader]]
    [hyperfiddle.rcf :refer [tests tap %]]
    [hyperfiddle.hfql1.analyzer :as ana])
@@ -349,7 +349,7 @@ Pulling on non-maps (non associative) is perfectly fine.
          (store
            (fn peek [scope]
              (let [[value children] (runReader step scope)]
-               (->CofreeF (pair (assoc metas ::scope scope) value)
+               (->CofreeF (pair (assoc metas ::scope scope) value) ; TODO move to EnvW, as `value` is supposed to always be a Delay comonad
                  (if-not (multiplicity-many? t) ; if multiplicity one
                    ;; don't use fmap under here - we want to enforce lazy children.
                    (map ; for each child, unfold it and seed it with next scope.
