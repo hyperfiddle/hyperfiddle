@@ -9,7 +9,7 @@
             [hyperfiddle.hfql1.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.extensions :as extensions]
-            [hyperfiddle.navigator6.utils :refer [glitch-guard]]
+            [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard]]
             [hyperfiddle.router5 :as router]))
 
 (e/declare *server-pretty)
@@ -89,7 +89,7 @@
 (e/declare Render)
 (e/defn RenderCell [object edgeT value]
   (dom/td                            ; custom renderer runs in context of a cell
-    (e/client (set! (.-data-cell ^js dom/node) (e/server (e/fn [] edgeT))))
+    (e/client (set! (.-data-cellT ^js dom/node) (e/server (utils/Delay edgeT))))
     (binding [Render DefaultCellRenderer]
       (e/Reconcile (e/call (Resolve (unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
                              Render) object edgeT #_(vary-meta edge dissoc ::hfql/Render) value)))))

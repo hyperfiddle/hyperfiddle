@@ -45,6 +45,17 @@
           selected? (set (map id columnsT))]
       (filter (comp selected? id) (unwrap rowT)))))
 
+#?(:cljs
+   (defn- find-clicked-cell-or-row [^js dom-event]
+     (let [target (.-target dom-event)]
+       (when-let [closest-td (.closest target "td")]
+         (if-let [cellT (.-data-cellT closest-td)]
+           cellT
+           (when-let [closest-tr (.closest target "tr")]
+             (if-let [rowT (.-data-rowT closest-tr)]
+               rowT
+               nil)))))))
+
 (e/defn RenderMatrixBody [row-height columnsT rowsT selection]
   (e/client
     (let [fast-nth (e/server (caching-nth rowsT))]
@@ -56,6 +67,7 @@
                               exists? (e/server (some? rowT))]
                           (e/Reconcile
                             (e/When exists?
+                              (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))) nil)
                               (dom/td (dom/props {:style {:min-width (str row-height "px")}}) (forms/Checkbox* (= selected-index row-index) :type :radio :style {:display :inline-block}))
                               (e/server (selection/select-row-if-match-url! !selected-index row-index (= ((glitch-guard hfql/value-at-point) rowT) ((glitch-guard hfql/value-at-point) (second selection))))) ; TODO cell selection
                               (e/server
@@ -66,10 +78,11 @@
                       :as :tbody)
                  (forms/Parse (e/fn [{selected-index ::selection, event ::forms/event}] [`Select! selected-index event])))))
         (utils/InterceptCommand `Select! (e/fn [[_ selected-index event]]
-                                           (let [GetCellT (e/client (#(some-> ^js event .-target .-data-cell)))] ; TODO ensure there's always a match, TODO walk upwards to find row (e.g. on tr)
+                                           (let [selectionT (e/client (find-clicked-cell-or-row event))]
+                                             (e/client (prn "selectionT" selected-index selectionT))
                                              (e/server (e/Reconcile
-                                                         (if GetCellT #_[selected-rowT (fast-nth selected-index nil)] ; TODO cell selection
-                                                           [`selection/SetSelection! GetCellT #_(utils/Delay (GetCellT)) #_(utils/Delay selected-rowT)]
+                                                         (if selectionT
+                                                           [`selection/SetSelection! selectionT]
                                                            [`Noop]))))))
         (forms/Interpreter {`Noop (e/fn [] [::forms/ok])})))))
 

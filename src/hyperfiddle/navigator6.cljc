@@ -10,6 +10,7 @@
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
             [hyperfiddle.navigator6.matrix :refer [RenderStep]]
+            [hyperfiddle.navigator6.matrix2 :refer [RenderMatrix]]
             [hyperfiddle.navigator6.utils :refer [rebooting]]
             [contrib.css :as cssx]
             [dustingetz.str :as strx]
@@ -48,6 +49,7 @@
                 stepT)
               stepT)))]
   (defn- select-next-child [sitemap [column rowT]]
+    (prn "selecting next child" column rowT)
     (when rowT
       (or (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
             (hfql/seed (hfql/scope rowT)))
@@ -67,8 +69,8 @@
 (e/declare RenderValue)
 (e/defn ResolveRenderer [sitemap hfql]
   (e/server
-    (get {::pull (e/fn [stepT] (RenderStep stepT true))
-          ::star RenderStep}
+    (get {::pull (e/fn [stepT] (RenderMatrix stepT true))
+          ::star RenderMatrix}
       (render-type hfql)
       (e/Partial RenderValue sitemap))))
 
@@ -85,7 +87,8 @@
                     (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* (selection/get-rows-container stepT)))
                   (e/amb (e/call (ResolveRenderer sitemap stepT) stepT) ; call renderer for current point
                     (e/server (e/Reconcile ; guard – prevent mount-unmount if next child happen to be selected twice.
-                                (when-let [next-child (select-next-child sitemap selection/*local-selection)] ; Navigation prioritizes recursive children over regular children at point
+                                (when-let [next-child (do (prn "local selection" selection/*local-selection)
+                                                          (select-next-child sitemap selection/*local-selection))] ; Navigation prioritizes recursive children over regular children at point
                                   (Navigate sitemap next-child)))
                               (e/amb))))))))))))
 
