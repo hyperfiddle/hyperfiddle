@@ -1,149 +1,134 @@
 /*
+ This is a master css file containing generic rules for a Matrix component.
+ It comes with two other files: matrix_vertical and matrix_horizontal.
+ All three should be loaded.
+ */
+
+/*
   Stable scroll
   These rules are essential to get a proper virtual scroll working. Do not ignore them.
 */
 table.matrix{
-  --min-row-count: 2;
-  --initial-row-count: 15;
-  --row-height: 1lh; /* injected – one line-height */
-  min-height: calc(var(--min-row-count) * var(--row-height)); /* display a minimum of two rows for affordances to be discoverable */
-  height: calc(var(--initial-row-count) * var(--row-height)); /* prevent expansion to the full collection size. */
-  overflow: auto; /* enable scrolling */
-  overflow-anchor: none; /* ensure no row blink nor scrollbar jump on row rotation */
-  scrollbar-gutter: stable; /* ensure no visual blink on scrollbar appearance/disappearance */
+    --min-row-count: 2;
+    --initial-row-count: 15;
+    --row-height: 1lh; /* injected – one line-height */
+    min-height: calc(var(--min-row-count) * var(--row-height)); /* display a minimum of two rows for affordances to be discoverable */
+    height: calc(var(--initial-row-count) * var(--row-height)); /* prevent expansion to the full collection size. */
+    contain: size; /* prevent horizontal expansion to the full column set */
+    overflow: auto; /* enable scrolling */
+    overflow-anchor: none; /* ensure no row blink nor scrollbar jump on row rotation */
+    scrollbar-gutter: stable; /* ensure no visual blink on scrollbar appearance/disappearance */
 }
 
 /*
   Structure
   Ensure header, rows and columns lines up with pixel-perfect precision on all browsers, OSes, and screen of various pixel density.
 */
-table.matrix {
-  --column-count: 1; /* injected */
-  --row-count: 1; /* injected - excluding header rows */
-  --header-row-count: 1; /* injected – how many rows does the header spans? */
-  --row-height: 1lh; /* injected – one line-height */
-  display: grid;
-  grid-template-columns: 1lh repeat(var(--column-count), 1fr); /* 1lh for radio button, 1fr for vertical layout (header on top) */
-  grid-template-rows:
-    repeat(var(--header-row-count), var(--row-height)) /* header rows */
-    repeat(var(--row-count), var(--row-height)) /* scrolled body rows */
-    ;
-  thead {
+table.matrix{
+    --column-count: 1; /* injected */
+    --row-count: 1; /* injected - excluding header rows */
+    --header-row-count: 1; /* injected – how many rows does the header spans? */
+    --row-height: 1lh; /* injected – one line-height */
+    --column-width: 1fr; /* injected – must be static for horizontal layout */
     display: grid;
-    grid-template-columns: subgrid;
-    grid-template-rows: subgrid;
-    grid-column: 1 / -1;
-    grid-row: 1 /* from top row */
-      / calc( /* to */
-          var(--header-row-count) /* header size in rows */
-          + 1 /* because CSS start/end spans must be non-zero. E.g. 1 / 1 is not a thing 1 / 2 is correct.*/
-        )
-    ;
-    tr {
-      display: grid;
-      grid-column: 1 / -1;
-      grid-template-columns: subgrid;
-      grid-template-rows: subgrid;
-      grid-auto-flow: column;
+    thead{
+        display: grid;
+        grid-template-columns: subgrid;
+        grid-template-rows: subgrid;
+        tr{
+            display: grid;
+            grid-template-columns: subgrid;
+            grid-template-rows: subgrid;
+        }
     }
-  }
-  tbody {
-    display: grid;
-    grid-template-columns: subgrid;
-    grid-template-rows: subgrid;
-    grid-column: 1 / -1;
-    grid-row:
-      calc(var(--header-row-count) + 1) /* place body starting on next row after header*/
-      / calc(
-          var(--row-count) /* up to the total number of rows */
-          + 1 /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
-          + var(--header-row-count) /* because we must allocate extra rows to compensate for the ones taken by the header */
-       )
-    ;
-    tr {
-      display: grid;
-      grid-template-columns: subgrid;
-      grid-template-rows: subgrid;
-      grid-row: calc(var(--row-index) + 1); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
-      grid-column: 1 / -1;
-      td{
-        grid-column: calc(2 + var(--cell-index));
-      }
+    tbody{
+        display: grid;
+        grid-template-columns: subgrid;
+        grid-template-rows: subgrid;
+        tr{
+            display: grid;
+            grid-template-columns: subgrid;
+            grid-template-rows: subgrid;
+        }
     }
-  }
 }
 
 /* content isolation for overflowing tooltips and in-cell styling */
-
 table.matrix{
-  thead, tbody, tr{
-    contain: style size; /* rows are of fixed size and style do not escape */
-  }
-  th, td{
-    isolation: isolate; /* dedicated stacking context */
-    contain: layout style size; /* cell doesn’t affect surrounding cells */
-  }
+    thead, tbody, tr{
+        contain: style size; /* rows are of fixed size and style do not escape */
+    }
+    th, td{
+        isolation: isolate; /* dedicated stacking context */
+        contain: layout style size; /* cell doesn’t affect surrounding cells */
+    }
 }
 
 /* prevent raw text to escape cell */
-
 table.matrix{
-  :is(th, td):not(:has(*)){
-    contain: strict;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
-  }
+    :is(th, td):not(:has(*)){
+        contain: strict;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+    }
 }
 
 /* Cosmetics */
+
 table.matrix{
-  resize: both; /* Enable resize handle */
-  thead{
-    position: sticky; /* Table header stays on screen while scrolling */
-    top:0;
-    z-index: 1; /* Rows scrolls underneath header */
-
-  }
-
+    resize: both;
+    thead{
+        position: sticky; /* Table header stays on screen while scrolling */
+    }
+    tbody{
+        th{
+            position: sticky;
+            z-index: 1;
+        }
+    }
 }
 
 /* Stripped rows à la MacOs finder */
 table.matrix{
-  --row-color-dark: #f2f2f2;
-  --row-color-light: white;
-  overscroll-behavior: none; /* disable rubber-band effect to hide non-stripped background */
+    --row-color-dark: #f2f2f2;
+    --row-color-light: white;
+    overscroll-behavior: none; /* disable rubber-band effect to hide non-stripped background */
 
-  --background-pattern: repeating-linear-gradient(
+    --background-pattern: repeating-linear-gradient(
         to bottom,
         var(--row-color-dark) 0,
         var(--row-color-dark) var(--row-height),
         var(--row-color-light) var(--row-height),
         var(--row-color-light) calc(2 * var(--row-height))
-  );
-  --background-size: 100% calc(2 * var(--row-height));
-  background: var(--background-pattern);
-  background-size: var(--background-size);
-  background-position: 0 calc(mod(var(--header-row-count), 2) * var(--row-height)); /* shifted by a row */
-  thead { /* ensure it lines up with body */
+    );
+    --background-size: 100% calc(2 * var(--row-height));
+    --background-position-y: calc(var(--row-height) + mod(var(--header-row-count), 2) * var(--row-height)); /* shifted by a row */
     background: var(--background-pattern);
     background-size: var(--background-size);
-    background-position: 0 calc(mod(var(--header-row-count), 2) * var(--row-height)); /* shifted by a row */
-    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); /* tailwind’s --shadow-sm */
-  }
-  tbody{ /* statically defined to prevent any wobbling */
-    background: var(--background-pattern);
-    background-size: var(--background-size);
-  }
+    background-position-y: var(--background-position-y);
+    thead { /* ensure it lines up with body */
+        background: var(--background-pattern);
+        background-size: var(--background-size);
+        background-position-y: var(--background-position-y);
+        box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); /* tailwind’s --shadow-sm */
+    }
+    tbody{ /* statically defined to prevent any wobbling */
+        background: var(--background-pattern);
+        background-size: var(--background-size);
+        background-position-y: calc(var(--background-position-y) + var(--row-height));
+        th{
+            background: var(--background-pattern);
+        }
+    }
 }
 
-
-.matrix__diagonal {
-  grid-row: 1 / -1;
-  background: linear-gradient(to bottom left,
-    transparent 49.5%,
-    black 49.5%,
-    black 50.5%,
-    transparent 50.5%
-  );
+table.matrix .matrix__diagonal {
+    z-index: 1;
+    background: linear-gradient(to bottom left,
+                                transparent 49.5%,
+                                black 49.5%,
+                                black 50.5%,
+                                transparent 50.5%)
+                , var(--background-pattern);
 }

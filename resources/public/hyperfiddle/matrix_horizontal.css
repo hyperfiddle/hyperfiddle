@@ -1,0 +1,77 @@
+/*
+  PLEASE keep this file in sync with `matrix_vertical.css`.
+  PLEASE ensure line-to-line correspondence and rule-to-rule correspondence.
+  Use a diff tool.
+
+  Style for an horizontal matrix:
+  - header on left, as rows
+  - rows next to each others
+
+*/
+
+table.matrix.transposed {
+    grid-template-columns:
+        repeat(var(--header-row-count), var(--column-width)) /* header rows */
+        repeat(var(--row-count), var(--column-width)) /* scrolled body rows */
+    ;
+    grid-template-rows: var(--row-height) repeat(var(--column-count), var(--row-height)); /* 1lh for radio button, 1fr for vertical layout (header on top) */
+    thead {
+        grid-row: 1 / -1;
+        grid-column: 1 /* from top row */
+                     / calc( /* to */
+            var(--header-row-count) /* header size in rows */
+            + 1 /* because CSS start/end spans must be non-zero. E.g. 1 / 1 is not a thing 1 / 2 is correct.*/
+        )
+        ;
+        tr {
+            grid-row: 1 / -1;
+        }
+    }
+    tbody {
+        grid-row: 1 / -1;
+        grid-column:
+            calc(var(--header-row-count) + 1) /* place body starting on next row after header*/
+            / calc(
+                var(--row-count) /* up to the total number of rows */
+                + 1 /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
+                + var(--header-row-count) /* because we must allocate extra rows to compensate for the ones taken by the header */
+            )
+        ;
+        tr {
+            grid-column: calc(var(--row-index) + 1); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
+            grid-row: 1 / -1;
+            td{
+                grid-row: calc(2 + var(--cell-index));
+            }
+        }
+    }
+}
+
+/* Cosmetics */
+table.matrix.transposed{
+    thead{
+        left:0;
+        z-index: 2; /* Rows scrolls underneath header */
+        .transpose-affordance{
+            position: sticky;
+            top:0;
+        }
+    }
+    tbody{
+        th{
+            top:0;
+        }
+    }
+}
+
+/* Stripped rows à la MacOs finder */
+table.matrix.transposed{
+    tbody{
+        background-position-y: var(--background-position-y);
+    }
+}
+
+table.matrix.transposed .matrix__diagonal {
+    grid-row: 1;
+    grid-column: 1 / -1;
+}

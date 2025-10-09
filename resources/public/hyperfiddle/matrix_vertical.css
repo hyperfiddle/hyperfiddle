@@ -1,0 +1,77 @@
+/*
+  PLEASE keep this file in sync with `matrix_horizontal.css`.
+  PLEASE ensure line-to-line correspondence and rule-to-rule correspondence.
+  Use a diff tool.
+
+  Style for a vertical matrix:
+  - header on top, as columns
+  - rows on top of each others
+
+ */
+
+table.matrix {
+    grid-template-columns: 1lh repeat(var(--column-count), 1fr); /* 1lh for radio button, 1fr for vertical layout (header on top) */
+    grid-template-rows:
+        repeat(var(--header-row-count), var(--row-height)) /* header rows */
+        repeat(var(--row-count), var(--row-height)) /* scrolled body rows */
+    ;
+    thead {
+        grid-column: 1 / -1;
+        grid-row: 1 /* from top row */
+                  / calc( /* to */
+            var(--header-row-count) /* header size in rows */
+            + 1 /* because CSS start/end spans must be non-zero. E.g. 1 / 1 is not a thing 1 / 2 is correct.*/
+        )
+        ;
+        tr {
+            grid-column: 1 / -1;
+        }
+    }
+    tbody {
+        grid-column: 1 / -1;
+        grid-row:
+            calc(var(--header-row-count) + 1) /* place body starting on next row after header*/
+            / calc(
+                var(--row-count) /* up to the total number of rows */
+                + 1 /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
+                + var(--header-row-count) /* because we must allocate extra rows to compensate for the ones taken by the header */
+            )
+        ;
+        tr {
+            grid-row: calc(var(--row-index) + 1); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
+            grid-column: 1 / -1;
+            td{
+                grid-column: calc(2 + var(--cell-index));
+            }
+        }
+    }
+}
+
+/* Cosmetics */
+table.matrix{
+    thead{
+        top:0;
+        z-index: 1; /* Rows scrolls underneath header */
+
+
+
+
+    }
+    tbody{
+        th{
+            left:0;
+        }
+    }
+}
+
+/* Stripped rows à la MacOs finder */
+table.matrix{
+    tbody{ /* statically defined to prevent any wobbling */
+        background-position-y: calc(var(--background-position-y) + var(--row-height));
+    }
+}
+
+table.matrix .matrix__diagonal {
+    grid-row: 1 / -1;
+    grid-column: 1;
+}
