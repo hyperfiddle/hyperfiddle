@@ -44,6 +44,7 @@ table.matrix {
       grid-column: 1 / -1;
       grid-template-columns: subgrid;
       grid-template-rows: subgrid;
+      grid-auto-flow: column;
     }
   }
   tbody {
@@ -65,6 +66,9 @@ table.matrix {
       grid-template-rows: subgrid;
       grid-row: calc(var(--row-index) + 1); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
       grid-column: 1 / -1;
+      td{
+        grid-column: calc(2 + var(--cell-index));
+      }
     }
   }
 }
@@ -94,7 +98,7 @@ table.matrix{
 
 /* Cosmetics */
 table.matrix{
-  resize: vertical; /* Enable resize handle */
+  resize: both; /* Enable resize handle */
   thead{
     position: sticky; /* Table header stays on screen while scrolling */
     top:0;

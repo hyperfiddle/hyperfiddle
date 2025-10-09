@@ -88,11 +88,9 @@
 
 (e/declare Render)
 (e/defn RenderCell [object edgeT value]
-  (dom/td                            ; custom renderer runs in context of a cell
-    (e/client (set! (.-data-cellT ^js dom/node) (e/server (utils/Delay edgeT))))
-    (binding [Render DefaultCellRenderer]
-      (e/Reconcile (e/call (Resolve (unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
-                             Render) object edgeT #_(vary-meta edge dissoc ::hfql/Render) value)))))
+  (binding [Render DefaultCellRenderer]
+    (e/Reconcile (e/call (Resolve (unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
+                           Render) object edgeT #_(vary-meta edge dissoc ::hfql/Render) value))))
 
 (defn- get-leafT [stepT] ; TODO questionable logic
   ;; Idea here is to display "leaf values" in the following case:

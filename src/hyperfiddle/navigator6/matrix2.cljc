@@ -20,32 +20,42 @@
 
 (defn- maybe [f] (fn [x] (when x (f x))))
 
+(e/defn Command [value-fn event]
+  (let [[t err] (e/Token event)]
+    (e/Reconcile
+      (e/When t
+        [t (value-fn event)]))))
+
 (e/defn MatrixHeader [columnsT]
   (dom/thead
     (dom/tr
-      (dom/th (dom/props {:class "matrix__diagonal" :scope :col :style {:width "100%"}})
-              #_(dom/On* "click" ...))
-      (let [columns-index (e/server (into {} (map (juxt hfql/id identity)) columnsT))]
-        (e/for [edge (e/diff-by identity (e/server (map hfql/id columnsT)))]
-          (let [columnT (e/server (get columns-index edge))
-                form (e/server (str (hfql/symbolic-edge columnT)))]
-            (dom/th (dom/props {:scope :col :title (e/server (hfql/describe-formatted columnT))})
-                    #_(rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)
-                    (dom/text form)
-                    (e/client
-                      (let [!direction (atom (cycle ['> '<]))
-                            direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
-                            [t err] (e/Token direction)]
-                        (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]])))))))))))
+      (e/amb
+        (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :style {:width "100%"}})
+                (doto (Command (constantly [`Transpose!]) (dom/On* "click" identity nil))
+                  (->> (prn "transpose"))))
+        (let [columns-index (e/server (into {} (map (juxt hfql/id identity)) columnsT))]
+          (e/for [edge (e/diff-by identity (e/server (map hfql/id columnsT)))]
+            (let [columnT (e/server (get columns-index edge))
+                  form (e/server (str (hfql/symbolic-edge columnT)))]
+              (dom/th (dom/props {:scope :col :title (e/server (hfql/describe-formatted columnT))})
+                      #_(rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)
+                      (dom/text form)
+                      (e/client
+                        (let [!direction (atom (cycle ['> '<]))
+                              direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
+                              [t err] (e/Token direction)]
+                          (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]]))))))))))))
 
-(e/defn MatrixCell [cellT]
-  (e/server (rendering/Render* cellT)))
+(e/defn MatrixCell [index cellT]
+  (dom/td (dom/props {:style {:--cell-index index}})
+          (e/client (set! (.-data-cellT ^js dom/node) (e/server (utils/Delay cellT))))
+          (e/server (rendering/Render* cellT))))
 
 (e/defn RowHandle [selected?]
   (dom/th (dom/props {:scope :row})
     (forms/Checkbox* selected? :type :radio)))
 
-(e/defn MatrixRow [columnsT index rowT]
+(e/defn MatrixRow [columnsT index rowT offsetH limitH]
   (e/client
     (dom/tr
       (dom/props {:style {:--row-index index}})
@@ -55,43 +65,21 @@
             selected-colsT (e/server (set (mapv hfql/id columnsT)))
             cellsT (e/server (filterv #(selected-colsT (hfql/id %)) cellsT))
             cellsT-index (e/server (into {} (map (juxt hfql/id identity)) cellsT))]
-        (e/for [cell-id (e/diff-by identity (e/server (mapv hfql/id cellsT)))]
-          (MatrixCell (e/server (get cellsT-index cell-id))))))))
+        (e/server ;; trade off:
+          ;; e/for on client = ultra smooth row positioning but glitchy row content
+          ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
+          (e/for [index (IndexRing limitH offsetH)]
+            (MatrixCell index (e/server (nth cellsT index nil)))))))))
 
-#?(:cljs (defn resize-observer [node]
-           (->>
-             (m/observe (fn [!] (! [(.-clientHeight node)
-                                    (.-clientWidth node)])
-                          (let [obs (new js/ResizeObserver
-                                      (fn [entries]
-                                        (let [content-box-size (-> entries (aget 0) .-contentBoxSize (aget 0))]
-                                          (! [(.-blockSize content-box-size)
-                                              (.-inlineSize content-box-size)]))))]
-                            (.observe obs node) #(.unobserve obs node))))
-             (mx/throttle 100) ; Optimization – (un)mounting rows is expensive. 100ms is usually considered "minimum human-perceptible latency".
-             (m/relieve {}))))
-
-#?(:cljs (defn scroll-state [scrollable]
-           (->> (m/observe
-                  (fn [!]
-                    (let [sample (fn [] (! [(.. scrollable -scrollTop) ; optimization - detect changes (pointless)
-                                            (.. scrollable -scrollHeight) ; snapshot height to detect layout shifts in flipped mode
-                                            (.. scrollable -clientHeight)]))] ; measured viewport height (scrollbar length)
-                      (sample) #_(! [0 0 0]) ; don't emit 0 when flow is rebuilt
-                      (.addEventListener scrollable "scroll" sample #js {"passive" true})
-                      #(.removeEventListener scrollable "scroll" sample))))
-             (mx/throttle 16) ; RAF interval
-             (m/relieve {}))))
-
-(e/defn MatrixBody [columnsT rowsT offset limit]
+(e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
   (e/client
     (dom/tbody
       (let [fast-nth (e/server (utils/caching-nth rowsT))]
         (e/server ;; trade off:
           ;; e/for on client = ultra smooth row positioning but glitchy row content
           ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
-          (e/for [index (IndexRing limit offset)]
-            (MatrixRow columnsT index (e/server (fast-nth index nil)))))))))
+          (e/for [index (IndexRing limitV offsetV)]
+            (MatrixRow columnsT index (e/server (fast-nth index nil)) offsetH limitH)))))))
 
 #?(:cljs
    (defn- find-clicked-cell-or-row [^js dom-event]
@@ -116,22 +104,37 @@
                                                        [`Noop]))))))
     (forms/Interpreter {`Noop (e/fn [] [::forms/ok])})))
 
-(e/defn Matrix [columnsT rowsT & {:keys [transpose? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 400 #_ "40ch"}}]
+(defn- bound-by-axis [transpose? [offsetV limitV offsetH limitH :as initial]]
+  (doto
+      (if transpose?
+        [offsetH limitH offsetV limitV]
+        initial)
+    (->> (prn "bound-by-axis" transpose?))))
+
+#?(:cljs
+   (defn- transpose! [table-node !transpose]
+     (set! (.-scrollTop table-node) 0)
+     (set! (.-scrollLeft table-node) 0)
+     (swap! !transpose not)))
+
+(e/defn Matrix [columnsT rowsT & {:keys [transpose? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
   (e/client
-    (dom/style (dom/text css)) ; TODO factorize
     (dom/table
-      (let [rowsT-count (identity (e/server (count rowsT)))
-            [offset limit] (Scroll-window 24 rowsT-count dom/node {})
-            [scrollTop #_scrollHeight #_clientHeight] (e/input (scroll-state dom/node))]
-        (dom/props {:class "matrix"
-                    :style {:--row-height (str row-height "px")
-                            :--column-width (str column-width "px")
-                            :--row-count rowsT-count
-                            :--column-count (e/server (count columnsT))}})
-        (e/amb
-          (MatrixHeader columnsT)
-          (HandleSelection
-            (MatrixBody columnsT rowsT offset limit)))))))
+      (let [!transpose (atom true)
+            transpose (e/watch !transpose)]
+        (reset! !transpose (boolean transpose?))
+        (let [rowsT-count (identity (e/server (count rowsT)))]
+          (dom/props {:class ["matrix" ({true "transposed"} transpose)]
+                      :style {:--row-height (str row-height "px")
+                              :--column-width (str column-width "px")
+                              :--row-count rowsT-count
+                              :--column-count (e/server (count columnsT))}})
+          (e/amb
+            (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))}
+              (MatrixHeader columnsT))
+            (HandleSelection
+              (let [[offsetV limitV offsetH limitH] (bound-by-axis transpose (Scroll-window 24 rowsT-count dom/node {:column-width column-width}))]
+                (MatrixBody columnsT rowsT offsetV limitV offsetH limitH)))))))))
 
 
 (e/defn ColumnPicker [stepT]
@@ -154,13 +157,14 @@
                                        (forms/Checkbox* pre-checked :label (e/server (str (hfql/symbolic-edge columnT)))
                                          :title (e/server (hfql/describe-formatted columnT))))
                                    columnT)))]
-        (prn "pre-checked" pre-checked `(~'or ~(hfql/pull-has-star? stepT+) ~(empty? static-columns)) (count static-columns) (count suggested-columns) (map (comp ::hfql/suggested hfql/metas) childrenT))
+        ;; (prn "pre-checked" pre-checked `(~'or ~(hfql/pull-has-star? stepT+) ~(empty? static-columns)) (count static-columns) (count suggested-columns) (map (comp ::hfql/suggested hfql/metas) childrenT))
         (mappend from-spec suggested)))))
 
 (def COLLECTION-LIMIT 10000)
 
 (e/defn RenderMatrix [stepT & [transpose?]]
   (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix.css"})))
+  (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_transposed.css"})))
   (dom/fieldset
     (dom/props {:class "" #_"entity-children hyperfiddle-navigator6__block"})
     (let [legend (dom/legend (dom/props {:style {:display :flex, :flex-wrap :wrap}})
@@ -183,4 +187,4 @@
             (in legend (dom/span (dom/props {:style {:order -2}}) (search/SearchInput! false)))
             (sort/Sorted rowsT
               (e/fn [rowsT]
-                (Matrix columnsT rowsT #_#_selection/*local-selection transpose?)))))))))
+                (Matrix columnsT rowsT #_selection/*local-selection :transpose? transpose?)))))))))
