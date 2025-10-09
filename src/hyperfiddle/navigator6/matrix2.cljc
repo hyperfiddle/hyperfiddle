@@ -34,7 +34,7 @@
                 (doto (Command (constantly [`Transpose!]) (dom/On* "click" identity nil))
                   (->> (prn "transpose"))))
         (let [columns-index (e/server (into {} (map (juxt hfql/id identity)) columnsT))]
-          (e/for [edge (e/diff-by identity (e/server (map hfql/id columnsT)))]
+          (e/for [edge (e/diff (e/server (map hfql/id columnsT)))]
             (let [columnT (e/server (get columns-index edge))
                   form (e/server (str (hfql/symbolic-edge columnT)))]
               (dom/th (dom/props {:scope :col :title (e/server (hfql/describe-formatted columnT))})

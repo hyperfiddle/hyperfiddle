@@ -25,7 +25,7 @@
             [geoffreygaillard.debug-tools :refer [debug-exceptions]])
   #?(:cljs (:require-macros hyperfiddle.navigator4)))
 
-(defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
+(defmacro rebooting [sym & body] `(e/for [~sym (e/diff (e/as-vec ~sym))] ~@body))
 
 (e/declare *mode !mode *update *sitemap-writer *sitemap *page-defaults *block-opts *depth *server-pretty)
 (e/declare ^:dynamic *search)

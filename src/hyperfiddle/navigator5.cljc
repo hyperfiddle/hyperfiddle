@@ -18,7 +18,7 @@
             [geoffreygaillard.debug-tools :refer [debug-exceptions]])
   #?(:cljs (:require-macros hyperfiddle.navigator5)))
 
-(defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body))
+(defmacro rebooting [sym & body] `(e/for [~sym (e/diff (e/as-vec ~sym))] ~@body))
 
 (defn run-with-bindings [bindings f & args]
   #?(:clj (with-bindings bindings (apply f args))))

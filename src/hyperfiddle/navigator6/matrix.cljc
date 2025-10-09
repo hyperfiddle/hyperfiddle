@@ -102,7 +102,7 @@
               (dom/th (dom/props {:class "diagonal" :scope :col :style {:width "100%"}})
                       (dom/On* "click" (fn [_event] (-> table .-classList (.toggle "transpose")) nil) nil))
               (let [columns-index (e/server (into {} (map (juxt hfql/id identity)) columnsT))]
-                (e/for [edge (e/diff-by identity (e/server (map hfql/id columnsT)))]
+                (e/for [edge (e/diff (e/server (map hfql/id columnsT)))]
                   (let [columnT (e/server (get columns-index edge))
                         form (e/server (str (hfql/symbolic-edge columnT)))]
                     (dom/th (dom/props {:scope :col :title (e/server (hfql/describe-formatted columnT))})

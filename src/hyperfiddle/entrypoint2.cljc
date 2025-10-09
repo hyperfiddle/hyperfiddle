@@ -39,7 +39,7 @@
 (e/defn DefaultApps []
   {`Index IndexPage})
 
-(defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))] ~@body)) ; TODO remove
+(defmacro rebooting [sym & body] `(e/for [~sym (e/diff (e/as-vec ~sym))] ~@body)) ; TODO remove
 
 ; this is ElectricFiddle not Hyperfiddle
 (e/defn Hyperfiddle [user-apps & {:keys [default] :or {default `(Index)}}]
