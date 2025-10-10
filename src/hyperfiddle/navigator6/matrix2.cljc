@@ -173,7 +173,9 @@
             (e/amb
               (MatrixHeader columnsT)
               (let [[offsetV limitV offsetH limitH] (bounds-by-axis transpose (Scroll-window 24 rowsT-count dom/node {:column-width column-width}))]
-                (MatrixBody columnsT rowsT offsetV limitV offsetH (min (e/server (count columnsT)) limitH)))
+                (MatrixBody columnsT rowsT
+                  offsetV (min (e/server (count rowsT)) limitV)
+                  offsetH (min (e/server (count columnsT)) limitH)))
               (e/amb
                 (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
                   (fn [event]
