@@ -80,6 +80,7 @@ table.matrix{
 /* Cosmetics */
 
 table.matrix{
+    isolation: isolate; /* floating headers do not mess with outside tooltips */
     resize: both;
     thead{
         position: sticky; /* Table header stays on screen while scrolling */

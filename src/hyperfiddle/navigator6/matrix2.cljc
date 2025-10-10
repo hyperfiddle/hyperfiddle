@@ -205,10 +205,10 @@
 (def COLLECTION-LIMIT 10000)
 
 (e/defn RenderMatrix [stepT & [transpose?]]
-  (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix.css"})))
-  (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_vertical.css"})))
-  (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_horizontal.css"})))
   (dom/fieldset
+    (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix.css"})))
+    (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_vertical.css"})))
+    (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_horizontal.css"})))
     (dom/props {:class "" #_"entity-children hyperfiddle-navigator6__block"})
     (let [legend (dom/legend (dom/props {:style {:display :flex, :flex-wrap :wrap}})
                              (rendering/Step-Title stepT)
