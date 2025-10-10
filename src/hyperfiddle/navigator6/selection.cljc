@@ -12,15 +12,18 @@
 
 (e/declare *local-selection)
 
+(defn- symbolic-coordinates [cellT] (list (hfql/symbolic-edge cellT) (hfql/identify (hfql/value-at-point cellT))))
+
+;; (symbolic-cell-coordinates hyperfiddle.navigator6.matrix2/_cellT)
+;; (symbolic-row-coordinates hyperfiddle.navigator6.matrix2/_cellT)
+
 (e/defn WithLocalSelection [state-key resolve-fn Body]
   (e/client
     (binding [*local-selection (e/server (resolve-fn (get state/*local-state state-key)))]
       (->> (Body)
         (utils/InterceptCommand `SetSelection!
           (e/fn [[_ Getter]]
-            [`state/UpdateState! assoc state-key (e/server
-                                                   (let [cellT (Getter)]
-                                                     (list (hfql/symbolic-edge cellT) (hfql/identify (hfql/value-at-point cellT)))))]))))))
+            [`state/UpdateState! assoc state-key (e/server (symbolic-coordinates (Getter)))]))))))
 
 (defmacro with-local-selection [state-key resolve-fn & body]
   `(WithLocalSelection ~state-key ~resolve-fn (e/fn [] ~@body)))

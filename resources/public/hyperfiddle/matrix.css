@@ -56,9 +56,12 @@ table.matrix{
 /* content isolation for overflowing tooltips and in-cell styling */
 table.matrix{
     thead, tbody, tr{
+        position: relative;
+        isolation: isolate;
         contain: style size; /* rows are of fixed size and style do not escape */
     }
     th, td{
+        position: relative;
         isolation: isolate; /* dedicated stacking context */
         contain: layout style size; /* cell doesn’t affect surrounding cells */
     }
@@ -80,11 +83,16 @@ table.matrix{
     resize: both;
     thead{
         position: sticky; /* Table header stays on screen while scrolling */
+        z-index: 2;
     }
     tbody{
         th{
             position: sticky;
             z-index: 1;
+            padding: 0;
+        }
+        td{
+            padding: 0 0.25em;
         }
     }
 }
@@ -131,4 +139,55 @@ table.matrix .matrix__diagonal {
                                 black 50.5%,
                                 transparent 50.5%)
                 , var(--background-pattern);
+}
+
+/* selection */
+table.matrix[role=radiogroup]{
+    --color-selected: #0264E2; /* MacOs finder color */
+    --color-pending: oklch(95% 0.15 100);
+    --row-selected-background: none;
+    --row-background-color: var(--color-selected); 
+    --row-text-color: white;
+    cursor: default;
+
+    tr:has(input[type=radio]:is(:checked,[aria-busy=true])){
+        color: var(--row-text-color);
+        /*
+          Setting border-radius on cells is prefered over:
+            - border-radius on tr: not supported
+            - clip-path: clips overflowing content - e.g. tooltips
+            - pseudo-element as background: allocates layers
+            - mask-image on background: CPU bound - may impact scroll perfs
+              - border-radius is 100% GPU
+        */
+        
+        th:first-child{
+            border-top-left-radius: 6px;
+            border-bottom-left-radius: 6px;
+        }
+        td:last-child{
+            border-top-right-radius: 6px;
+            border-bottom-right-radius: 6px;
+        }
+    }
+    
+    tr:has(input[type=radio]:checked:not([aria-busy=true])){
+        th, td {
+            background: var(--row-background-color);
+        }
+    }
+    tr:has(input[type=radio][aria-busy=true]:checked){
+        --row-background-color: var(--color-pending);
+        th, td {
+            background: var(--row-background-color);
+        }
+    }
+    
+    td[aria-selected=true]{
+        box-shadow: inset 0 0 0 .125em var(--color-selected);
+    }
+    td[aria-busy=true]{
+        box-shadow: inset 0 0 0 .125em var(--color-pending);
+    }
+
 }

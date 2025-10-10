@@ -51,7 +51,7 @@ table.matrix {
 table.matrix{
     thead{
         top:0;
-        z-index: 1; /* Rows scrolls underneath header */
+        z-index: 2; /* Rows scrolls underneath header */
 
 
 
