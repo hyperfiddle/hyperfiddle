@@ -11,7 +11,7 @@
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
             [hyperfiddle.navigator6.matrix :refer [RenderStep]]
             [hyperfiddle.navigator6.matrix2 :refer [RenderMatrix]]
-            [hyperfiddle.navigator6.utils :refer [rebooting]]
+            [hyperfiddle.navigator6.utils :refer [rebooting glitch-guard]]
             [contrib.css :as cssx]
             [dustingetz.str :as strx]
             [clojure.pprint]
@@ -48,49 +48,61 @@
                   recursive-child)
                 stepT)
               stepT)))]
-  (defn- select-next-child [sitemap [column rowT]]
+  (defn- select-next-child [sitemap stepT [column rowT]]
     (prn "selecting next child" column rowT)
     (when rowT
       (or (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
             (hfql/seed (hfql/scope rowT)))
+        (when column
+          (try (hfql/find-child column (hfql/augment-with-suggestions! rowT)) (catch #?(:clj Throwable, :cljs :default) _ nil))
+          #_rowT)
         (select-eventual-recursion-point rowT)))))
 
-(defn- render-type [hfql]
-  (let [metas (hfql/metas hfql)]
-    (if (= ::ana/many (::ana/multiplicity metas))
-      ::star
-      (case (::ana/type metas)
-        ::ana/star ::star
-        ::ana/pull ::pull
-        ::ana/traversal (render-type (first (unwrap hfql)))
-        ::ana/ifn ::ifn
-        ::unknown))))
+(defn- render-type [hfqlT]
+  (doto 
+      (let [metas (hfql/metas hfqlT)]
+        (if (= ::ana/many (::ana/multiplicity metas))
+          ::star
+          (case (::ana/type metas)
+            ::ana/star ::star
+            ::ana/pull ::pull
+            ::ana/traversal (render-type (first (unwrap hfqlT)))
+            ::ana/ifn ::ifn
+            ::unknown)))
+    (->> (prn "render-type" (hash hfqlT)))))
 
 (e/declare RenderValue)
-(e/defn ResolveRenderer [sitemap hfql]
+(e/defn ResolveRenderer [sitemap hfqlT]
   (e/server
-    (get {::pull (e/fn [stepT] (RenderMatrix stepT true))
-          ::star RenderMatrix}
-      (render-type hfql)
-      (e/Partial RenderValue sitemap))))
+    (if hfqlT
+      (get {::pull (e/fn [stepT] (RenderMatrix stepT true))
+            ::star RenderMatrix}
+        ((glitch-guard render-type) hfqlT)
+        (e/Partial RenderValue sitemap))
+      (e/fn [& _]))))
 
+(defn maybe [f] (fn [x] (when x (f x))))
 (e/defn Navigate [sitemap stepT]
-  (e/server
-    (rebooting stepT ; glitch guard
-      (e/Reconcile ; guard – prevent mount-unmount
-        (when stepT
-          (e/client
-            (with-local-state ::state/route ; injects *local-state and interpret state write commands
-              (with-local-search ::search   ; injects *local-search and interpret search commands
-                (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                    ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
-                    (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* (selection/get-rows-container stepT)))
-                  (e/amb (e/call (ResolveRenderer sitemap stepT) stepT) ; call renderer for current point
-                    (e/server (e/Reconcile ; guard – prevent mount-unmount if next child happen to be selected twice.
-                                (when-let [next-child (do (prn "local selection" selection/*local-selection)
-                                                          (select-next-child sitemap selection/*local-selection))] ; Navigation prioritizes recursive children over regular children at point
-                                  (Navigate sitemap next-child)))
-                              (e/amb))))))))))))
+  (e/client
+    (dom/div ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
+      (let [id (e/server (hash stepT))]
+        (e/Reconcile
+          (rebooting id
+            (e/Reconcile
+              (e/When ((complement zero?) id)
+                (with-local-state ::state/route ; injects *local-state and interpret state write commands
+                  (with-local-search ::search   ; injects *local-search and interpret search commands
+                    (with-local-selection ::selection ; injects *local-selection and interpret selection commands
+                        ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
+                        (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* (selection/get-rows-container stepT)))
+                      (e/amb
+                        (e/call (ResolveRenderer sitemap stepT) stepT) ; call renderer for current point
+                        (let [next-childT (e/server (do (prn "local selection" selection/*local-selection)
+                                                        (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
+                          (e/Reconcile
+                            (when (e/server (some? next-childT))
+                              (e/server (Navigate sitemap next-childT))))
+                          (e/amb))))))))))))))
 
 (e/defn RenderMeta [stepT]
   (e/server
@@ -101,16 +113,20 @@
         (dom/pre (dom/text (strx/pprint-str m)))))))
 
 (e/defn RenderValue [sitemap stepT]
-  (e/server
-    (dom/fieldset
-      (dom/legend (dom/text "Anonymous value"))
-      (let [value (hfql/nav stepT)
-            suggestedT (hfql/suggest value)]
-        (e/Reconcile
-          (if (#(or (nil? suggestedT) (= stepT suggestedT)))
-            (do (RenderMeta stepT)
-                (dom/pre (dom/text (strx/pprint-str (snd (extract stepT))))))
-            (Navigate sitemap (hfql/seed (assoc (hfql/scope stepT) '% value) suggestedT))))))))
+  (let [id (e/server (hash stepT))]
+    (rebooting id
+      (e/Reconcile
+        (when ((complement zero?) id)
+          (e/server
+            (dom/fieldset
+              (dom/legend (dom/text "Anonymous value"))
+              (let [value ((glitch-guard hfql/nav) stepT)
+                    suggestedT (hfql/suggest value)]
+                (e/Reconcile
+                  (if (#(or (nil? suggestedT) (= stepT suggestedT)))
+                    (do (RenderMeta stepT)
+                        (dom/pre (dom/text (strx/pprint-str (snd (extract stepT))))))
+                    (Navigate sitemap (hfql/seed (assoc ((glitch-guard hfql/scope) stepT) '% value) suggestedT))))))))))))
 
 ;;;;;;;;;;;;;;;;
 ;; Entrypoint ;;
@@ -133,8 +149,8 @@
                 (let [[f & _args] query]
                   (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
                   (dom/props {:class (cssx/css-slugify f)}))
-                (rebooting query
-                  (Navigate sitemap (e/server (resolve-route sitemap query))))))))))))
+                ;; (rebooting query)
+                (Navigate sitemap (e/server (resolve-route sitemap query)))))))))))
 
 (def table-block-css
 "
