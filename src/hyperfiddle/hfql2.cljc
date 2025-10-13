@@ -16,22 +16,26 @@
    [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format]))
-  #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql]])))
+  #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql defpointfree]])))
 
+(defmacro defpointfree
+  "Like (def foo (comp a b)) but improve stacktraces by printing `foo` instead of comp_XYZ."
+  {:clj-kondo/lint-as 'clojure.core/def}
+  [name f]
+  `(defn ~name [point#] (~f point#)))
 
 (def seed co/seed)
 (def nav* extract)
-(def nav (comp force snd nav*))
-(def pull* (comp extract co/pull))
-(def pull (comp force snd pull*))
-(def next-steps unwrap)
-(def values (comp (fmap (comp force nav)) tree-seqT))
+(defpointfree nav (comp force snd nav*))
+(defpointfree pull* (comp extract co/pull))
+(defpointfree pull (comp force snd pull*))
+(defpointfree next-steps unwrap)
+(defpointfree values (comp (fmap (comp force nav)) tree-seqT))
 
-(defn scope [hfqlT] (pos (snd (runCofreeT hfqlT))))
-(defn value-at-point [hfqlT] (get (scope hfqlT) '%))
-
-(def metas (comp fst runCofreeT))
-(def pull-has-star? (comp ::ana/has-star? metas))
+(defpointfree scope (comp pos snd runCofreeT))
+(defpointfree value-at-point (comp '% scope))
+(defpointfree metas (comp fst runCofreeT))
+(defpointfree pull-has-star? (comp ::ana/has-star? metas))
 
 (defn navigable [nav-fn object]
   (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
