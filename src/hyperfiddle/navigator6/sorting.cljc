@@ -45,7 +45,7 @@
   The comparator returned by the current function sorts based on the sign of the return value of `compare`."
   [direction]
   {:pre [(or (= '< direction) (= '> direction))]}
-  (fmap (case direction > neg? < pos?) compare))
+  (fmap (case direction < neg? > pos?) compare))
 
 (comment
   (map hfql/pull (sort-by (hfql/find-cell-by-column _ageT) (compare-cells (compare-nils-last (directional-comparator '>))) _rowsT))
@@ -81,14 +81,18 @@
 (defn sort-rows-by-columns "TODO support multi-column sort." [columnT-specs rowsT]
   (try
     (let [[columnT direction] (first columnT-specs)] ; TODO support multi-column sort
-      (sort-by (hfql/find-cell-by-column columnT) (compare-cells (compare-nils-last (directional-comparator direction))) rowsT))
+      (if (nil? direction)
+        rowsT ; no sort, or default sort, bypass.
+        (sort-by (hfql/find-cell-by-column columnT) (compare-cells (compare-nils-last (directional-comparator direction))) rowsT)))
     (catch #?(:clj Throwable, :cljs :default) ex
       (println " Failed to sort" (ex-message ex) #_ex)
       rowsT)))
 
+(e/defn DefaultSort [rowsT] [[(first (unwrap (first rowsT))) '<]])
+
 (e/defn Sorted [rowsT Body]
   (e/client
-    (let [!sort-spec (e/server (atom nil))
+    (let [!sort-spec (e/server (atom [])) ; (e/Snapshot (DefaultSort rowsT)) ; will eagerly compute all cells in first column
           sort-spec (e/server (e/watch !sort-spec))]
       #_(e/server (prn "sort-spec" sort-spec) nil)
       (->> (Body (e/server (sort-rows-by-columns sort-spec rowsT)))
