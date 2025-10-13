@@ -23,7 +23,7 @@
       (->> (Body)
         (utils/InterceptCommand `SetSelection!
           (e/fn [[_ Getter]]
-            [`state/UpdateState! assoc state-key (e/server (symbolic-coordinates (Getter)))]))))))
+            [`state/ReplaceState! assoc state-key (e/server (symbolic-coordinates (Getter)))]))))))
 
 (defmacro with-local-selection [state-key resolve-fn & body]
   `(WithLocalSelection ~state-key ~resolve-fn (e/fn [] ~@body)))
@@ -61,9 +61,13 @@
        (with-bindings bindings
          ;; (prn "resolve-selected-object-BIG-O-N" column row)
          [column
-          (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
-            (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
-            (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT))))]))))
+          (when (some? childrenT)
+            (or
+              (when (and (some? row) (= row (hfql/identify (hfql/value-at-point childrenT))))
+                childrenT)
+              (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
+                (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
+                (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT))))))]))))
 
 (defn get-rows-container [stepT]
   (case (::ana/type (hfql/metas stepT))

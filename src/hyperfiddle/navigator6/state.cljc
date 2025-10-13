@@ -21,6 +21,13 @@
       (apply f (read-state ::route route depth) args))
     (drop (inc depth) route)))
 
+(e/defn HandleReplaceState! [f & args]
+  ;; `update` doesn't work, route is a lazyseq (?)
+  (e/Reconcile
+    (case (router/Navigate! ['. (doto (take (inc *depth) (apply update-state ::route router/route *depth f args))
+                                  prn)])
+      [::forms/ok])))
+
 (e/defn HandleUpdateState! [f & args]
   ;; `update` doesn't work, route is a lazyseq (?)
   (e/Reconcile
@@ -31,7 +38,8 @@
   (e/client
     (binding [*depth (inc (#(or *depth 0)))]
       (binding [*local-state (read-state ::route router/route *depth)]
-        (forms/Interpreter {`UpdateState! HandleUpdateState!}
+        (forms/Interpreter {`ReplaceState! HandleReplaceState!
+                            `UpdateState! HandleUpdateState!}
           (Body))))))
 
 (defmacro with-local-state [storage-type & body]
