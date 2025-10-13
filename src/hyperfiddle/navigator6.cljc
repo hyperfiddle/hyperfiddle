@@ -49,7 +49,7 @@
                 stepT)
               stepT)))]
   (defn- select-next-child [sitemap stepT [column rowT]]
-    (prn "selecting next child" column rowT)
+    ;; (prn "selecting next child" column rowT)
     (when rowT
       (or (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
             (hfql/seed (hfql/scope rowT)))
@@ -59,17 +59,15 @@
         (select-eventual-recursion-point rowT)))))
 
 (defn- render-type [hfqlT]
-  (doto 
-      (let [metas (hfql/metas hfqlT)]
-        (if (= ::ana/many (::ana/multiplicity metas))
-          ::star
-          (case (::ana/type metas)
-            ::ana/star ::star
-            ::ana/pull ::pull
-            ::ana/traversal (render-type (first (unwrap hfqlT)))
-            ::ana/ifn ::ifn
-            ::unknown)))
-    (->> (prn "render-type" (hash hfqlT)))))
+  (let [metas (hfql/metas hfqlT)]
+    (if (= ::ana/many (::ana/multiplicity metas))
+      ::star
+      (case (::ana/type metas)
+        ::ana/star ::star
+        ::ana/pull ::pull
+        ::ana/traversal (render-type (first (unwrap hfqlT)))
+        ::ana/ifn ::ifn
+        ::unknown))))
 
 (e/declare RenderValue)
 (e/defn ResolveRenderer [sitemap hfqlT]
@@ -82,6 +80,7 @@
       (e/fn [& _]))))
 
 (defn maybe [f] (fn [x] (when x (f x))))
+
 (e/defn Navigate [sitemap stepT]
   (e/client
     (dom/div ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"

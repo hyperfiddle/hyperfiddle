@@ -5,7 +5,7 @@
   #?(:cljs (:require-macros [hyperfiddle.navigator6.utils :refer [in rebooting]])))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))]
-                                    (println "Rebooting on " ~sym)
+                                    #_(println "Rebooting on " ~sym)
                                     ~@body))
 
 (defmacro in [dom-node & body] `(binding [dom/node ~dom-node] ~@body))
