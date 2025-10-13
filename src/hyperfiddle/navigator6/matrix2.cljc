@@ -15,7 +15,7 @@
    [hyperfiddle.navigator6.search :as search]
    [hyperfiddle.navigator6.selection :as selection]
    [hyperfiddle.navigator6.sorting :as sort]
-   [hyperfiddle.navigator6.utils :as utils :refer [in]]
+   [hyperfiddle.navigator6.utils :as utils :refer [in glitch-guard]]
    [missionary.core :as m]))
 
 (defn- maybe [f] (fn [x] (when x (f x))))
@@ -184,7 +184,7 @@
 
 (e/defn ColumnPicker [stepT]
   (e/server
-    (when-let [pull-step (selection/select-pull-step stepT)]
+    (when-let [pull-step ((glitch-guard selection/select-pull-step) stepT)]
       (let [stepT+ (hfql/augment-with-suggestions! pull-step)
             childrenT (remove (comp ::ana/recursive-child hfql/metas) (unwrap stepT+))
             static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
@@ -216,7 +216,7 @@
                              (rendering/Step-Title stepT)
                              dom/node)
           columnsT (e/server (in legend (ColumnPicker stepT)))
-          stepT (e/server (selection/get-rows-container stepT))
+          stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
           rowsT (e/server (#(if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
                               [stepT]
                               (unwrap stepT))))]

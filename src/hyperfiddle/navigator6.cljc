@@ -86,23 +86,24 @@
   (e/client
     (dom/div ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
       (let [id (e/server (hash stepT))]
-        (e/Reconcile
-          (rebooting id
-            (e/Reconcile
-              (e/When ((complement zero?) id)
-                (with-local-state ::state/route ; injects *local-state and interpret state write commands
-                  (with-local-search ::search   ; injects *local-search and interpret search commands
-                    (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                        ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
-                        (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* (selection/get-rows-container stepT)))
-                      (e/amb
-                        (e/call (ResolveRenderer sitemap stepT) stepT) ; call renderer for current point
-                        (let [next-childT (e/server (do (prn "local selection" selection/*local-selection)
-                                                        (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
-                          (e/Reconcile
-                            (when (e/server (some? next-childT))
-                              (e/server (Navigate sitemap next-childT))))
-                          (e/amb))))))))))))))
+        (rebooting id ; glitch guard
+          (e/server
+            (rebooting stepT ; glitch guard – It's important to reboot on both peers or glitch may happen on one and not the other.
+              (e/Reconcile
+                (e/When ((complement zero?) id) ; guard navigate on nil
+                  (with-local-state ::state/route ; injects *local-state and interpret state write commands
+                    (with-local-search ::search   ; injects *local-search and interpret search commands
+                      (with-local-selection ::selection ; injects *local-selection and interpret selection commands
+                          ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
+                          (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
+                        (e/amb
+                          (e/call (ResolveRenderer sitemap stepT) stepT) ; call renderer for current point
+                          (let [next-childT (e/server (do #_(prn "local selection" selection/*local-selection)
+                                                          (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
+                            (e/Reconcile
+                              (when (e/server (some? next-childT))
+                                (e/server (Navigate sitemap next-childT))))
+                            (e/amb)))))))))))))))
 
 (e/defn RenderMeta [stepT]
   (e/server
