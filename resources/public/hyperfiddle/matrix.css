@@ -75,6 +75,13 @@ table.matrix{
         text-overflow: ellipsis;
         overflow: hidden;
     }
+    :is(th, td) > :is(a /*, add more here */){
+        display: inline-block;
+        max-inline-size: 100%;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+    }
 }
 
 /* Cosmetics */
