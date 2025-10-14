@@ -61,7 +61,7 @@
        (with-bindings bindings
          ;; (prn "resolve-selected-object-BIG-O-N" column row)
          [column
-          (when (some? childrenT)
+          (when (and row (some? childrenT))
             (or
               (when (and (some? row) (= row (hfql/identify (hfql/value-at-point childrenT))))
                 childrenT)

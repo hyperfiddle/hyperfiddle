@@ -219,10 +219,11 @@
           stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
           rowsT (e/server (#(if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
                               [stepT]
-                              (unwrap stepT))))]
+                              (unwrap stepT))))
+          rowsT (e/server (map hfql/augment-with-suggestions! rowsT)) ; ensure search on all columns
+          ]
       (search/Filtered (e/server (search/eager-pull-search-sort-BIG-O-N-SQUARE))
-        (e/server (map hfql/augment-with-suggestions! ; ensure search on all columns
-                    rowsT)) ; rowsT
+        (e/server rowsT)
         (e/fn [rowsT]
           (in legend
             (dom/span (dom/props {:style {:order -1}})
