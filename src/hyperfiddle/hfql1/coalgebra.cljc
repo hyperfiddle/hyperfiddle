@@ -231,7 +231,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   expected to be compatible with `clojure.core/with-bindings*`. I.e. a map of
   `{#'var value, ...}`."
   [Ra]
-  (reader ; no need to memoize/delay here, all possible IO is in `Ra`, let Ra deal with it.
+  (mem-reader ; no need to memoize/delay here, all possible IO is in `Ra`, let Ra deal with it.
     (fn [env]
       ((bound-fn* (get env `hfql/*bindings* {}) (runReader Ra)) env))))
 
@@ -375,6 +375,12 @@ Pulling on non-maps (non associative) is perfectly fine.
        (->CofreeT
          (store
            (fn peek [scope]
+             ;; IO issue: scope can change due to dynamic bindings (e.g. search
+             ;; needle). Even if `step` is memoized, a new ->CofreeF will be
+             ;; built. And under * traversal IO will be forced to produce a new
+             ;; list of children. FIXME, memoize the CofreeF instance and
+             ;; rebuild it only if `value` or `children` did change.
+             #?(:clj (log/debug "Unwrapping" (::ana/symbolic-edge (or (::ana/edge metas) metas))))
              (let [[value children] (runReader step scope)]
                (->CofreeF (pair (assoc metas ::scope scope) value) ; TODO move to EnvW, as `value` is supposed to always be a Delay comonad
                  (if-not (multiplicity-many? t) ; if multiplicity one
