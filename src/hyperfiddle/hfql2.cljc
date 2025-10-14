@@ -14,6 +14,7 @@
    [hyperfiddle.hfql1.store :refer [pos peeks]]
    [hyperfiddle.hfql1.analyzer :as ana]
    [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]]
+   [hyperfiddle.hfql1.utils :refer [has-meta?]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format]))
   #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql defpointfree]])))
@@ -40,6 +41,14 @@
 
 (defn navigable [nav-fn object]
   (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
+
+(defn- safe-vary-meta [object f & args]
+  (if (has-meta? object)
+    (apply vary-meta object f args)
+    object))
+
+(defn filtered [object] (safe-vary-meta object assoc ::filtered true))
+(defn filtered? [object] (::filtered (meta object)))
 
 (defn unfold [ast] (unfoldT (partial hfqlT ast) ast))
 (defn hfql* [analyzed-hfql] #_(seed {}) (unfold (fmap swap analyzed-hfql)))

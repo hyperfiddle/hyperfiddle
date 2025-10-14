@@ -2,6 +2,10 @@
   (:require
    [hyperfiddle.rcf :refer [tests]]))
 
+(defn has-meta? [object]
+  #?(:clj (instance? clojure.lang.IObj object)
+     :cljs (satisfies? IMeta object)))
+
 (defn ordered-map
   "A simple, naive ordered map impl preserving order of keys given at creation
   time, and behaving as a sorted-map on keys assoced after creation.

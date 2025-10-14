@@ -220,9 +220,9 @@
           rowsT (e/server (#(if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
                               [stepT]
                               (unwrap stepT))))
-          rowsT (e/server (map hfql/augment-with-suggestions! rowsT)) ; ensure search on all columns
+          rowsT (e/server (with-meta (map hfql/augment-with-suggestions! rowsT) (meta rowsT))) ; ensure search on all columns
           ]
-      (search/Filtered (e/server (search/eager-pull-search-sort-BIG-O-N-SQUARE))
+      (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
         (e/server rowsT)
         (e/fn [rowsT]
           (in legend

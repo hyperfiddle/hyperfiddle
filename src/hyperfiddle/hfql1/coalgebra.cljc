@@ -15,7 +15,8 @@
    [hyperfiddle.hfql1.monad-reader :refer [reader local runReader]]
    [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.rcf :refer [tests tap %]]
-   [hyperfiddle.hfql1.analyzer :as ana])
+   [hyperfiddle.hfql1.analyzer :as ana]
+   [hyperfiddle.hfql1.utils :refer [has-meta?]])
   #?(:clj (:import [hyperfiddle.hfql1.store Store]))
   #?(:cljs (:require-macros [hyperfiddle.hfql1.coalgebra :refer [-hfql]])))
 
@@ -25,11 +26,6 @@
     value))
 
 (def ^:dynamic *navigate* safe-ccp-nav) ; default is to navigate objects, except in UIs where, at leaves, where we want to see the symbolic values
-
-
-(defn- has-meta? [object]
-  #?(:clj (instance? clojure.lang.IObj object)
-     :cljs (satisfies? IMeta object)))
 
 (defn- meta [object]
   (when (has-meta? object)
@@ -393,14 +389,16 @@ Pulling on non-maps (non associative) is perfectly fine.
                      children)
                    (if (empty? children) ; if recursion is bounded and over, * won't have more children
                      ()
-                     (map ; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
-                                        ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
-                       (comp (flip seed (unfoldT coalgebra (first children)))
-                         (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
-                         (fn [value_i] (*navigate* (force value) nil value_i)))
-                       (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge metas) metas))))
-                         (force value)) ; ⚠ will force all effects up to the root to compute children multiplicity
-                       ))))))
+                     (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge metas) metas))))
+                                      (force value))] ; ⚠ will force all effects up to the root to compute children multiplicity
+                       (with-meta ; carry metadata over
+                         (map ; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
+                              ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
+                           (comp (flip seed (unfoldT coalgebra (first children)))
+                             (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
+                             (fn [value_i] (*navigate* (force value) nil value_i)))
+                           forced)
+                         (meta forced))))))))
            (::ana/lexical-env metas)))))))
 
 (defn seed

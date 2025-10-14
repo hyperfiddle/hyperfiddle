@@ -67,7 +67,7 @@
 (extend-protocol Functor
   ;; List
   #?(:clj clojure.lang.ISeq, :cljs ISeq)
-  (-fmap [fa a->b] (map a->b fa))
+  (-fmap [fa a->b] (map a->b fa)) ; TODO carry metadata over
 
   #?(:clj clojure.lang.PersistentList$EmptyList :cljs EmptyList)
   (-fmap [fa _a->b] fa)

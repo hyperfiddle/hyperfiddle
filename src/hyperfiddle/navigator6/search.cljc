@@ -36,7 +36,7 @@
   (e/client
     (let [rows-count (e/server (bounded-count limit rows)) ; 𝓞(n)
           filtered (e/server (e/Reconcile (if (< rows-count limit)
-                                            (pred rows e/*bindings* *local-search)
+                                            (pred rows *local-search)
                                             (with-meta (take limit rows) (meta rows)))))]
       (Body filtered))))
 
@@ -81,38 +81,40 @@
           :else (vreset! !last-filtered (filter do-filter pulled)))))))
 
 #?(:clj
-   (defn eager-pull-search-sort-BIG-O-N-SQUARE []
-     (fn [rowsT _hfql-bindings search]
-       (try
-         (debug-exceptions `eager-pull-search-sort-BIG-O-N-SQUARE
-           (if (not-empty search)
-             (sequence (comp (map first) ; short-circuit on first cell match per row.
-                         (remove nil?))
-               (for [rowT rowsT]
-                 (for [columnT (unwrap rowT)
-                       :let [cell-value (hfql/nav (hfql/find-cell-by-column columnT rowT))]
-                       :when (search-matches cell-value search)]
-                   rowT)))
-             rowsT))
-         (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) [])))))
-
-
-
-#?(:clj
-   (defn eager-search-kvs-BIG-O-N-SQUARE []
-     (let [_do-filter (prefix-filterer (fn [needle pair] (search-matches (snd pair) needle)))]
-       (fn [columnsT rowsT _hfql-bindings search _sort-spec]
+   (defn eager-search-BIG-O-N-SQUARE []
+     (fn [rowsT needle]
+       (if (hfql/filtered? rowsT)
+         rowsT
          (try
-           (debug-exceptions `eager-search-kvs-BIG-O-N-SQUARE
-             (if (not-empty search)
-               (let [kvs (for [rowT rowsT
-                               columnT columnsT
-                               :let [cell-value (delay (hfql/nav (hfql/seed (hfql/scope rowT) columnT)))]
-                               :when (or (search-matches (hfql/symbolic-edge columnT) search)
-                                       (search-matches (force cell-value) search))]
-                           [rowT columnT])]
-                 [(distinct (map second kvs))
-                  (dedupe (map first kvs))])
-               [columnsT rowsT]))
-           (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t)
-                  [columnsT rowsT]))))))
+           (debug-exceptions `eager-search-BIG-O-N-SQUARE
+             (if (not-empty needle)
+               (sequence (comp (map first) ; short-circuit on first cell match per row.
+                           (remove nil?))
+                 (for [rowT rowsT]
+                   (for [columnT (unwrap rowT)
+                         :let [cell-value (hfql/nav (hfql/find-cell-by-column columnT rowT))]
+                         :when (search-matches cell-value needle)]
+                     rowT)))
+               rowsT))
+           (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) []))))))
+
+
+
+;; #?(:clj
+;;    (defn eager-search-kvs-BIG-O-N-SQUARE []
+;;      (let [_do-filter (prefix-filterer (fn [needle pair] (search-matches (snd pair) needle)))]
+;;        (fn [columnsT rowsT _hfql-bindings search _sort-spec]
+;;          (try
+;;            (debug-exceptions `eager-search-kvs-BIG-O-N-SQUARE
+;;              (if (not-empty search)
+;;                (let [kvs (for [rowT rowsT
+;;                                columnT columnsT
+;;                                :let [cell-value (delay (hfql/nav (hfql/seed (hfql/scope rowT) columnT)))]
+;;                                :when (or (search-matches (hfql/symbolic-edge columnT) search)
+;;                                        (search-matches (force cell-value) search))]
+;;                            [rowT columnT])]
+;;                  [(distinct (map second kvs))
+;;                   (dedupe (map first kvs))])
+;;                [columnsT rowsT]))
+;;            (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t)
+;;                   [columnsT rowsT]))))))
