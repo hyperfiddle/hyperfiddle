@@ -36,6 +36,53 @@
     form))
 
 (defn- quoted-var-form? [form] (and (quoted? form) (var-form? (unquote* form))))
+
+;;;;;;;;;;;;;;;;;;;;;
+;; KW special form ;;
+;;;;;;;;;;;;;;;;;;;;;
+
+(defn- generated-symbol? [sym]
+  {:pre [(symbol? sym)]}
+  (and (simple-symbol? sym)
+    (str/ends-with? (name sym) "#")))
+
+(defn- expanded-fn-form? [form]
+  (and (seq? form)
+    (= 'fn* (first form))
+    (vector? (second form))))
+
+(defn- unary-fn-form? [form]
+  (and (expanded-fn-form? form)
+    (= 1 (count (second form))) ; 1 arg
+    ))
+
+(defn- is-structural? [form]
+  (and (seq? form)
+    (#{'do} (first form))))
+
+(defn- last-form [forms]
+  (let [last-form (last forms)]
+    (if (is-structural? last-form)
+      (last-form last-form)
+      last-form)))
+
+(defn- is-kw-fn? [form]
+  (when (and (expanded-fn-form? form)
+          (unary-fn-form? form))
+    (let [[_fn* [arg-sym] & body] form
+          last-form (last-form body)]
+      (and (generated-symbol? arg-sym)
+        (seq? last-form)
+        (keyword? (first last-form))
+        (= arg-sym (second last-form))
+        #_(= 2 (count last-form))))))
+
+(defn- get-kw-fn-form-kw [kw-fn-form]
+  (when (is-kw-fn? kw-fn-form)
+    (let [[_fn* _args & body] kw-fn-form]
+      (first (last-form body)))))
+
+
 
 (defn projection-type [form]
   (cond
@@ -54,9 +101,8 @@
     (lambda? form)        ::lambda
     (quoted-var-form? form) ::quoted-var
     (quoted? form)        ::literal
-    ;; TODO kw-fn
     ;; TODO ifn? – maybe
-    ;; TODO method sym
+    ;; TODO? method sym
     :else                 (throw (ex-info "unknown form" {:form form}))))
 
 (defn- reshape-traversals [hfql]
@@ -223,6 +269,8 @@
          ::keyword   {::symbolic-edge form
                       ::form-resolved form ; keyword auto-resolve at read-time.
                       ::form-short #?(:clj (aliased-form form), :cljs form)}
+         ::keyword-fn (let [kw (get-kw-fn-form-kw form)]
+                        (assoc (φ env kw) ::value form))
          ::string    {::symbolic-edge form}
          ::symbol    {::symbolic-edge form ; potentially aliased
                       ::value (escape-method-call form), ; macroexpand will auto-resolve
@@ -249,12 +297,15 @@
                             ::recursion-limit (::recursion-limit (φ env recursion))})))
          ::fn        {::symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
                       ::value form} ; already resolved
-         ::lambda    {::symbolic-edge (let [[_fn ?name ?args] form]
-                                        (if (symbol? ?name)
-                                          `(~'fn ~?name ~'…)
-                                          '(fn anonymous …)))
-                      ::parameters '(%)
-                      ::value form}
+         ::lambda    (let [base {::symbolic-edge (let [[_fn ?name ?args] form]
+                                                   (if (symbol? ?name)
+                                                     `(~'fn ~?name ~'…)
+                                                     '(fn anonymous …)))
+                                 ::parameters '(%)
+                                 ::value form}]
+                       (if-let [kw (get-kw-fn-form-kw form)]
+                         (merge base (select-keys (φ env kw) #{::symbolic-edge ::form-resolved ::form-short}))
+                         base))
          ::call      (let [[f & params] form] ; symbolic – quoted by defmacro
                        {::symbolic-edge form ; symbolic – interpreter will template later
                         ::value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
