@@ -1,5 +1,5 @@
 (ns hyperfiddle.hfql1.coalgebra
-  (:refer-clojure :exclude [extend resolve meta])
+  (:refer-clojure :exclude [extend resolve meta bound-fn*])
   (:require
    [clojure.core.protocols :as ccp]
    [contrib.data :refer [group-by-pred]]
@@ -130,7 +130,7 @@
       ;; explicit reader for clarity. Also mem-reader is optimized
       (delayed
         (fn [%]
-          #?(:clj (log/info "[IO]" `getter key))
+          #?(:clj (log/debug "[IO]" `getter key))
           (*navigate* % key (get % key)))))))
 
 (def ^:private dup-first ":: (a, b) -> (a, a)" (&&& fst fst))
@@ -161,7 +161,22 @@
 (defn- touch [object] (if (seqable? object) (doall object) object))
 (def ^:private star (mem-reader (delayed touch)))
 
-(defn leaf [f] (fmap (fn [v] (pair v ())) f))
+(defn- left "Variadic opposite of `{}` aka discard." [a & _] a) ; almost the K combinator
+(defn- right "Variadic `{}` aka discard." [& args] (last args)) ; almost (K I)
+
+(defn- bound-fn*
+  ([f] #?(:clj (clojure.core/bound-fn* f)
+          :cljs (throw (ex-info "Unsupported platform" {}))))
+  ([bindings f]
+   #?(:clj
+      (with-bindings* bindings clojure.core/bound-fn* f)
+      :cljs f ; TODO
+      )))
+
+(defn leaf [Ra]
+  (->> (reader (fn [env]
+                 ((bound-fn* {#'*navigate* right} (runReader Ra)) env)))
+    (fmap (fn [v] (pair v ())))))
 
 (declare seed)
 
