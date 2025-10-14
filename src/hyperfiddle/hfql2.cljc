@@ -127,7 +127,13 @@
   )
 
 
-(tests
+(tests ; FIXME not sure what to do here ATM. Will revisit after Datomic Browser is done, Datomic Browser has higher priority.
+  ;; Goal: navigate through object graph at the REPL
+  ;; Problem: in a grid UI we want scalars at leaves, not objects
+  ;; technical issue: HFQL bypasess `ccp/nav` at expression leaves, causing this test to fail.
+  ;; Questions:
+  ;; - should this test be changed?
+  ;; - should HFQL be changed and use another strategy to navigate/not navigate a leaves?
   (def _attribute  {:db/id 42, :db/ident :attribute/name})
   (def _object (with-meta {:a 42} {`ccp/nav (fn [o k v] (if (= :a k) _attribute (get o k v)))}))
   (nav (seed {'% _object} (hfql :a)))
@@ -358,7 +364,8 @@
       :hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
       :hyperfiddle.hfql1.analyzer/form '(quote [:a :b :c]),
       :hyperfiddle.hfql1.analyzer/lexical-env '{},
-      :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c])}
+      :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c])
+      :hyperfiddle.hfql1.analyzer/has-star? false}
   )
 
 (defn symbolic-edge* [metas]
@@ -415,7 +422,8 @@
       :hyperfiddle.hfql1.analyzer/lexical-env {},
       :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c]),
       :hyperfiddle.hfql1.coalgebra/static-children _
-      :hyperfiddle.hfql1.coalgebra/scope '{a 1, b 2}})
+      :hyperfiddle.hfql1.coalgebra/scope '{a 1, b 2}
+      :hyperfiddle.hfql1.analyzer/has-star? false})
 
 ;; (defn filter-pull [pred pullT]
 ;;   (assert (= ::ana/pull (::ana/type (metas pullT))))

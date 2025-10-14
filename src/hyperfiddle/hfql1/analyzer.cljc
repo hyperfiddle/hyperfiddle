@@ -349,9 +349,9 @@
   )
 
 (tests
-  (::has-star? (analyze {} [:a]))
+  (::has-star? (snd (extract (analyze {} [:a]))))
   := false
-  (::has-star? (analyze {} [:a '*]))
+  (::has-star? (snd (extract (analyze {} [:a '*]))))
   := true
   )
 
