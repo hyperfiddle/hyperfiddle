@@ -79,7 +79,7 @@
       (RenderInlineColl object edgeT value)
       (do (e/client (.setAttribute dom/node "data-empty" (e/server (= ::not-found value))))
           (let [pretty-v (pretty-value value *server-pretty)
-                denv {} #_{'% (hfql/identify object), (hfql/form edgeT) value, '%v (#(or (hfql/identify value) value))}
+                denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) value, '%v (#(or (hfql/identify value) value))}
                 symbolic-link-href (unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
             (e/Reconcile
               (if (some? symbolic-link-href)
@@ -101,7 +101,7 @@
 
 (e/defn Render [object edge value] (RenderCell object edge value))
 (e/defn Render* [stepT]
-  (Render ((glitch-guard hfql/scope) stepT)
+  (Render ((glitch-guard hfql/value-at-point) stepT)
     stepT
     (#(if stepT
         (hfql/nav (get-leafT stepT))
