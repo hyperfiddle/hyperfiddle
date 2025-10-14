@@ -204,76 +204,79 @@
   ;; (shorten-form ::test)  := "::test"
   )
 
+(defn- compute-id [node] (hash (select-keys node #{::type ::form ::symbolic-edge ::symbolic-edges ::form-short ::form-resolved})))
+
 (defn- φ ; phi
   "An algebra collecting static knowledge about an HFQL expression."
   ([env] (partial φ env))
   ([env form]
-   (merge
-     (meta form)
-     {::id          (random-uuid)
-      ::type        (projection-type form)
-      ::form        (#'quote form)
-      ::lexical-env (lexical-bindings-map env)}
-     (case (projection-type form)
-       ::star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
-       ::recur     {::recursion-limit (if (number? form) form ##Inf)}
-       ::literal   {::symbolic-edge form}
-       ::keyword   {::symbolic-edge form
-                    ::form-resolved form ; keyword auto-resolve at read-time.
-                    ::form-short #?(:clj (aliased-form form), :cljs form)}
-       ::string    {::symbolic-edge form}
-       ::symbol    {::symbolic-edge form ; potentially aliased
-                    ::value (escape-method-call form), ; macroexpand will auto-resolve
-                    ::var (var-resolver env form) ; nil if symbol is lexicaly bound
-                    ::form-resolved (resolver env form) ; resolve via eventual ns alias
-                    ::form-short #?(:clj (aliased-form form), :cljs form)}
-       ::var       {::symbolic-edge form ; the var object itself
-                    ::value form ; also the var object itself
-                    ::parameters '(%)
-                    ;; TODO add aliased form
-                    }
-       ::quoted-var {::form (unquote* form)
-                     ::symbolic-edge form
-                     ;; TODO add aliased form
-                     }
-       ::pull      (let [recursion-point (some-fn #{'...} number?)
-                         form' (vec (remove recursion-point form))]
-                     (merge
-                       {::form form'
-                        ::symbolic-edges form'
-                        ::has-star? (boolean (some #(= ::star (::type %)) (map (φ env) form)))}
-                       (when-some [recursion (first (filter recursion-point form))]
-                         {::recursion-point true
-                          ::recursion-limit (::recursion-limit (φ env recursion))})))
-       ::fn        {::symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
-                    ::value form} ; already resolved
-       ::lambda    {::symbolic-edge (let [[_fn ?name ?args] form]
-                                      (if (symbol? ?name)
-                                        `(~'fn ~?name ~'…)
-                                        '(fn anonymous …)))
-                    ::parameters '(%)
-                    ::value form}
-       ::call      (let [[f & params] form] ; symbolic – quoted by defmacro
-                     {::symbolic-edge form ; symbolic – interpreter will template later
-                      ::value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
-                      ::var (var-resolver env f)
-                      ::parameters params
-                      ::arguments (replace {'% ''%} params)
-                      ::form-resolved (resolver env f)
-                      ::lexical-env (merge (lexical-bindings-map env)
-                                      (zipmap (map #'quote (filter symbol? params))
-                                        (filter symbol? params)))})
-       ::traversal (let [edge (φ env (fst form))
-                         base (case (::type edge)
-                                ::star {::kind ::star, ::multiplicity ::many}
-                                {::edge edge, ::lexical-env (::lexical-env edge)})
-                         continuation (φ env (snd form))]
-                     (merge base
-                       (when (= ::star (::kind continuation)) {::multiplicity ::many})
-                       (when (or (= ::recur (::type continuation)) (and (::recursion-point continuation) (not= ::pull (::type continuation))))
-                         {::recursion-point true
-                          ::recursion-limit (::recursion-limit continuation)})
-                       ))))))
+   (as-> (meta form) %
+     (merge
+       %
+       {::type        (projection-type form)
+        ::form        (#'quote form)
+        ::lexical-env (lexical-bindings-map env)}
+       (case (projection-type form)
+         ::star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
+         ::recur     {::recursion-limit (if (number? form) form ##Inf)}
+         ::literal   {::symbolic-edge form}
+         ::keyword   {::symbolic-edge form
+                      ::form-resolved form ; keyword auto-resolve at read-time.
+                      ::form-short #?(:clj (aliased-form form), :cljs form)}
+         ::string    {::symbolic-edge form}
+         ::symbol    {::symbolic-edge form ; potentially aliased
+                      ::value (escape-method-call form), ; macroexpand will auto-resolve
+                      ::var (var-resolver env form) ; nil if symbol is lexicaly bound
+                      ::form-resolved (resolver env form) ; resolve via eventual ns alias
+                      ::form-short #?(:clj (aliased-form form), :cljs form)}
+         ::var       {::symbolic-edge form ; the var object itself
+                      ::value form ; also the var object itself
+                      ::parameters '(%)
+                      ;; TODO add aliased form
+                      }
+         ::quoted-var {::form (unquote* form)
+                       ::symbolic-edge form
+                       ;; TODO add aliased form
+                       }
+         ::pull      (let [recursion-point (some-fn #{'...} number?)
+                           form' (vec (remove recursion-point form))]
+                       (merge
+                         {::form form'
+                          ::symbolic-edges form'
+                          ::has-star? (boolean (some #(= ::star (::type %)) (map (φ env) form)))}
+                         (when-some [recursion (first (filter recursion-point form))]
+                           {::recursion-point true
+                            ::recursion-limit (::recursion-limit (φ env recursion))})))
+         ::fn        {::symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
+                      ::value form} ; already resolved
+         ::lambda    {::symbolic-edge (let [[_fn ?name ?args] form]
+                                        (if (symbol? ?name)
+                                          `(~'fn ~?name ~'…)
+                                          '(fn anonymous …)))
+                      ::parameters '(%)
+                      ::value form}
+         ::call      (let [[f & params] form] ; symbolic – quoted by defmacro
+                       {::symbolic-edge form ; symbolic – interpreter will template later
+                        ::value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
+                        ::var (var-resolver env f)
+                        ::parameters params
+                        ::arguments (replace {'% ''%} params)
+                        ::form-resolved (resolver env f)
+                        ::lexical-env (merge (lexical-bindings-map env)
+                                        (zipmap (map #'quote (filter symbol? params))
+                                          (filter symbol? params)))})
+         ::traversal (let [edge (φ env (fst form))
+                           base (case (::type edge)
+                                  ::star {::kind ::star, ::multiplicity ::many}
+                                  {::edge edge, ::lexical-env (::lexical-env edge)})
+                           continuation (φ env (snd form))]
+                       (merge base
+                         (when (= ::star (::kind continuation)) {::multiplicity ::many})
+                         (when (or (= ::recur (::type continuation)) (and (::recursion-point continuation) (not= ::pull (::type continuation))))
+                           {::recursion-point true
+                            ::recursion-limit (::recursion-limit continuation)})
+                         ))))
+     (assoc % ::id (compute-id %)))))
 
 (defmulti -escape ::type)
 (defmethod -escape ::star [metas] metas)
