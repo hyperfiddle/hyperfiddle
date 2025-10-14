@@ -9,7 +9,6 @@
             [hyperfiddle.navigator6.state :as state :refer [with-local-state]]
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
-            [hyperfiddle.navigator6.matrix :refer [RenderStep]]
             [hyperfiddle.navigator6.matrix2 :refer [RenderMatrix]]
             [hyperfiddle.navigator6.utils :refer [rebooting glitch-guard]]
             [contrib.css :as cssx]
@@ -153,7 +152,6 @@
                 (let [[f & _args] query]
                   (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
                   (dom/props {:class (cssx/css-slugify f)}))
-                ;; (rebooting query)
                 (Navigate sitemap (e/server (resolve-route sitemap query)))))))))))
 
 (def table-block-css
