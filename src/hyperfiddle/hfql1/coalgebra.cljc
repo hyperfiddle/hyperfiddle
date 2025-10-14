@@ -13,6 +13,7 @@
    [hyperfiddle.hfql1.cofree :refer [synthesize unwrap runCofreeT ->CofreeF ->CofreeT headF tree-seqT hoistCofreeT]]
    [hyperfiddle.hfql1.store :refer [store seek seeks peeks pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.hfql1.monad-reader :refer [reader local runReader]]
+   [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.rcf :refer [tests tap %]]
    [hyperfiddle.hfql1.analyzer :as ana])
   #?(:clj (:import [hyperfiddle.hfql1.store Store]))
@@ -61,7 +62,8 @@
 
 (defn delayed "delayed :: (a -> b) -> a -> Delay b"
   ([f] (fn delayed-f [a] (delayed f a)))
-  ([f a] (delay (force (f (force a))))))
+  ([f a] (let [f (#?(:clj clojure.core/bound-fn*, :cljs identity) f)]
+           (delay (force (f (force a)))))))
 
 (tests
 
@@ -223,6 +225,16 @@ Pulling on non-maps (non associative) is perfectly fine.
   (try (keys (force (runReader star object))) ; expects an IPersistentMap or a sequences of MapEntries
        (catch #?(:clj Throwable, :cljs :default) _ ())))
 
+(defn- inject-dynamic-bindings
+  "Transform a Reader (env -> a) such that when run, the value associated to
+  `hyperfiddle.hfql2/*bindings*` in `env` is installed in dynamic scope. The `*bindings*` value is
+  expected to be compatible with `clojure.core/with-bindings*`. I.e. a map of
+  `{#'var value, ...}`."
+  [Ra]
+  (reader ; no need to memoize/delay here, all possible IO is in `Ra`, let Ra deal with it.
+    (fn [env]
+      ((bound-fn* (get env `hfql/*bindings* {}) (runReader Ra)) env))))
+
 (defn hfqlT
   "Docstring is outdated TODO revise
   A coalgebra turning a statically analyzed HFQL Cofree tree into lazy,
@@ -294,7 +306,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                         (if (star-traversal? (extract direct-child))
                           [(first (unwrap direct-child))]
                           [direct-child])))))))))]
-    (fmap transform point)))
+    (fmap (comp inject-dynamic-bindings transform) point)))
 
 (defprotocol SetScope
   (set-scope-value [w scope]))
@@ -793,3 +805,18 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-values (seed {'% {:a 10}} (seed {'% {:a 1}} (-hfql [:a]))))
   := '({:a 10} 10))
 
+(tests
+  "dynamic scope injection"
+  (def ^:dynamic *_x* 1)
+  (def _plus-x (fn [y] (+ *_x* y)))
+  (let [% 2]
+    (-values (-hfql (_plus-x %))))
+  := '(3)
+
+  (binding [*_x* 8]
+    (let [% 2]
+      (-values
+        (seed {`hfql/*bindings* {#'*_x* *_x*}
+               '% 2}
+          (-hfql (_plus-x %))))))
+  := '(10))

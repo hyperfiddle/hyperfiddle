@@ -34,6 +34,7 @@
 
 (defpointfree scope (comp pos snd runCofreeT))
 (defpointfree value-at-point (comp '% scope))
+(defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
 (defpointfree metas (comp fst runCofreeT))
 (defpointfree pull-has-star? (comp ::ana/has-star? metas))
 

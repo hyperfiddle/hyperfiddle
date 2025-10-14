@@ -81,6 +81,9 @@
 
 (defn maybe [f] (fn [x] (when x (f x))))
 
+(defn inject-dynamic-bindings [e-bindings stepT]
+  (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))
+
 (e/defn Navigate [sitemap stepT]
   (e/client
     (dom/div ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
@@ -96,7 +99,8 @@
                           ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
                           (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
                         (e/amb
-                          (e/call (ResolveRenderer sitemap stepT) stepT) ; call renderer for current point
+                          (e/call (ResolveRenderer sitemap stepT) ; call renderer for current point
+                            (e/server ((glitch-guard inject-dynamic-bindings) e/*bindings* stepT)))
                           (let [next-childT (e/server (do #_(prn "local selection" selection/*local-selection)
                                                           (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
                             (e/Reconcile
