@@ -56,6 +56,9 @@ table.matrix.transposed{
             position: sticky;
             top:0;
         }
+        th{
+            justify-self: end;
+        }
     }
     tbody{
         th{
@@ -74,4 +77,14 @@ table.matrix.transposed{
 table.matrix.transposed .matrix__diagonal {
     grid-row: 1;
     grid-column: 1 / -1;
+}
+
+table.matrix.single.transposed {
+    grid-template-columns: minmax(auto, max-content) 1fr;
+
+
+
+
+
+
 }

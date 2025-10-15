@@ -155,14 +155,14 @@
      (set! (.-scrollLeft table-node) 0)
      (swap! !transpose not)))
 
-(e/defn Matrix [columnsT rowsT-count rowsT & {:keys [transpose? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
+(e/defn Matrix [columnsT rowsT-count rowsT & {:keys [transpose? single? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
       (let [!transpose (atom true)
             transpose (e/watch !transpose)]
         (reset! !transpose (boolean transpose?))
-        (dom/props {:class ["matrix" ({true "transposed"} transpose)]
+        (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "single"} single?)]
                     :style {:--row-height (str row-height "px")
                             :--column-width (str column-width "px")
                             :--row-count rowsT-count
@@ -219,7 +219,7 @@
 
   )
 
-(e/defn RenderMatrix [stepT & [transpose?]]
+(e/defn RenderMatrix [stepT & [transpose? single?]]
   (dom/fieldset
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix.css"})))
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_vertical.css"})))
@@ -248,4 +248,4 @@
               (sort/Sorted (e/server (map hfql/augment-with-suggestions! rowsT))
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection/select-pull-step) stepT))]
-                    (Matrix columnsT rowsT-count rowsT :transpose? transpose?)))))))))))
+                    (Matrix columnsT rowsT-count rowsT :transpose? transpose?, :single? single?)))))))))))

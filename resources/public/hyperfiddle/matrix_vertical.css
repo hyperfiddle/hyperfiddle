@@ -56,6 +56,9 @@ table.matrix{
 
 
 
+
+
+
     }
     tbody{
         th{
@@ -74,4 +77,14 @@ table.matrix{
 table.matrix .matrix__diagonal {
     grid-row: 1 / -1;
     grid-column: 1;
+}
+
+table.matrix.single{
+
+    thead > tr > th{
+        contain: layout;
+    }
+    tbody > tr > th{
+        display: none;
+    }
 }

@@ -72,7 +72,7 @@
 (e/defn ResolveRenderer [sitemap hfqlT]
   (e/server
     (if hfqlT
-      (get {::pull (e/fn [stepT] (RenderMatrix stepT true))
+      (get {::pull (e/fn [stepT] (RenderMatrix stepT :transpose? true, :single? true))
             ::star RenderMatrix}
         ((glitch-guard render-type) hfqlT)
         (e/Partial RenderValue sitemap))
