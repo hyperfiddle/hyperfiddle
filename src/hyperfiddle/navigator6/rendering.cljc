@@ -135,7 +135,7 @@
           {:post [(or (string? %) (nil? %))]}
           (when stepT
             (-> (hfql/describe-formatted stepT)
-              (str "\n\n" (format-query-meta (hfql/metas stepT)))
+              (str "\n\n" (format-query-meta (meta (hfql/nav stepT))))
               (str/trim)
               (strx/blank->nil)))))
 
