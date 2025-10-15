@@ -71,8 +71,12 @@
             {:data-tooltip
              (e/Reconcile (when show? (Tooltip object edgeT value)))}))))) )
 
+(e/declare *rowT)
+
 (e/defn RenderTooltip [tooltip-kind-ident object edgeT value]
-  (RenderTooltip* (get ((glitch-guard hfql/metas) edgeT) tooltip-kind-ident nil)
+  (RenderTooltip* (get ((glitch-guard hfql/metas) edgeT) tooltip-kind-ident
+                    (get ((glitch-guard hfql/metas) *rowT) tooltip-kind-ident
+                      nil))
     object edgeT value))
 
 (e/defn DefaultCellRenderer [object edgeT value]
