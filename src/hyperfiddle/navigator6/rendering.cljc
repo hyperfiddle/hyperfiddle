@@ -61,9 +61,8 @@
 
 (e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
 
-(e/defn RenderTooltip [tooltip-ident object edgeT value]
-  (let [tooltip-ident (get ((glitch-guard hfql/metas) edgeT) tooltip-ident nil)
-        tooltip-qualified-ident (hyperfiddle.hfql1.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
+(e/defn RenderTooltip* [tooltip-ident object edgeT value]
+  (let [tooltip-qualified-ident (hyperfiddle.hfql1.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
         Tooltip (Resolve tooltip-qualified-ident nil)]
     (e/Reconcile
       (when (some? Tooltip)
@@ -71,6 +70,10 @@
           (dom/props
             {:data-tooltip
              (e/Reconcile (when show? (Tooltip object edgeT value)))}))))) )
+
+(e/defn RenderTooltip [tooltip-kind-ident object edgeT value]
+  (RenderTooltip* (get ((glitch-guard hfql/metas) edgeT) tooltip-kind-ident nil)
+    object edgeT value))
 
 (e/defn DefaultCellRenderer [object edgeT value]
   (RenderTooltip ::hfql/Tooltip object edgeT value)

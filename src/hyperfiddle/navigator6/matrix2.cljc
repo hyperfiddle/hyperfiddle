@@ -26,7 +26,7 @@
       (e/When t
         [(forms/after-ack t (partial after-ack event)) (value-fn event)]))))
 
-(e/defn MatrixHeader [columnsT]
+(e/defn MatrixHeader [stepT columnsT]
   (dom/thead
     (dom/tr
       (e/amb
@@ -37,7 +37,7 @@
             (let [columnT (e/server (get columns-index edge))
                   form (e/server (str (hfql/symbolic-edge columnT)))]
               (dom/th (dom/props {:scope :col :title (e/server (hfql/describe-formatted columnT))})
-                      #_(rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)
+                      (e/server (rendering/RenderTooltip* (get ((glitch-guard hfql/metas) (selection/select-pull-step stepT)) ::hfql/ColumnHeaderTooltip nil) nil columnT nil)) ; TODO cleanup
                       (dom/text form)
                       (e/client
                         (let [!direction (atom (cycle ['> '<]))
@@ -155,7 +155,7 @@
      (set! (.-scrollLeft table-node) 0)
      (swap! !transpose not)))
 
-(e/defn Matrix [columnsT rowsT-count rowsT & {:keys [transpose? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
+(e/defn Matrix [stepT columnsT rowsT-count rowsT & {:keys [transpose? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
@@ -170,7 +170,7 @@
         (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
                             `Noop (e/fn [] [::forms/ok])}
           (e/amb
-            (MatrixHeader columnsT)
+            (MatrixHeader stepT columnsT)
             (let [[offsetV limitV offsetH limitH] (bounds-by-axis transpose (Scroll-window 24 rowsT-count dom/node {:column-width column-width}))]
               (MatrixBody columnsT rowsT
                 offsetV (min rowsT-count limitV)
@@ -233,4 +233,4 @@
               (in legend (dom/span (dom/props {:style {:order -2}}) (search/SearchInput! false)))
               (sort/Sorted (e/server (map hfql/augment-with-suggestions! rowsT))
                 (e/fn [rowsT]
-                  (Matrix columnsT rowsT-count rowsT :transpose? transpose?))))))))))
+                  (Matrix stepT columnsT rowsT-count rowsT :transpose? transpose?))))))))))
