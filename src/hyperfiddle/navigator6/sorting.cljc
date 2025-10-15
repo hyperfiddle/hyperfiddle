@@ -31,10 +31,11 @@
 
 (defn- force-cell-value! "Equivalent to hfql/nav, but log a TRACE-level message if the cell wasn't realized already. Because we want to know if sorting causes unexpected IO."
   [cellT]
-  (let [thunk (snd (extract cellT))]
-    (when-not (realized? thunk)
-      #?(:clj (log/trace "Running IO for sort over " (hfql/symbolic-edge cellT))))
-    (force thunk)))
+  (when cellT
+    (let [thunk (snd (extract cellT))]
+      (when-not (realized? thunk)
+        #?(:clj (log/trace "Running IO for sort over " (hfql/symbolic-edge cellT))))
+      (force thunk))))
 
 (def compare-cells "Take a comparator and transform it such that it receives comparable cell values instead of raw CofreeT objects."
   ((join bimap) (fmap comparable force-cell-value!)))
