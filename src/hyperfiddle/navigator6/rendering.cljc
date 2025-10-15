@@ -101,7 +101,7 @@
 
 (e/defn Render [object edge value] (RenderCell object edge value))
 (e/defn Render* [stepT]
-  (Render ((glitch-guard hfql/value-at-point) stepT)
+  (Render (force ((glitch-guard hfql/value-at-point) stepT))
     stepT
     (#(if stepT
         (hfql/nav (get-leafT stepT))
