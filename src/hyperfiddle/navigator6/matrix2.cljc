@@ -205,6 +205,20 @@
 
 (def COLLECTION-LIMIT 10000)
 
+#_(let [monoid #?(:clj clojure.lang.PersistentQueue/EMPTY :cljs #queue [])]
+  (defn stream-in [coll]
+    (m/relieve
+      (m/reductions conj monoid
+        (m/seed coll)))))
+
+
+#_(comment
+  (m/? (m/reduce {} nil
+         (m/reductions (fn [_ q] (prn [(count q) (sequence q)]) nil) nil
+           (stream-in (range 10)))))
+
+  )
+
 (e/defn RenderMatrix [stepT & [transpose?]]
   (dom/fieldset
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix.css"})))
