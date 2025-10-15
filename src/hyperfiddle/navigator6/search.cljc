@@ -32,11 +32,13 @@
 
 
 
-(e/defn Filtered [pred rows Body & {::keys [limit] :or {limit 10000}}]
+(e/defn Filtered
+  [pred rows-count rows Body & {::keys [limit] :or {limit 10000}}]
   (e/client
-    (let [rows-count (e/server (bounded-count limit rows)) ; 𝓞(n)
-          filtered (e/server (e/Reconcile (if (< rows-count limit)
+    (let [filtered (e/server (e/Reconcile (cond
+                                            (and (not (hfql/filtered? rows)) (< rows-count limit))
                                             (pred rows *local-search)
+                                            :else
                                             (with-meta (take limit rows) (meta rows)))))]
       (Body filtered))))
 
@@ -83,20 +85,19 @@
 #?(:clj
    (defn eager-search-BIG-O-N-SQUARE []
      (fn [rowsT needle]
-       (if (hfql/filtered? rowsT)
-         rowsT
-         (try
-           (debug-exceptions `eager-search-BIG-O-N-SQUARE
-             (if (not-empty needle)
-               (sequence (comp (map first) ; short-circuit on first cell match per row.
-                           (remove nil?))
-                 (for [rowT rowsT]
-                   (for [columnT (unwrap rowT)
-                         :let [cell-value (hfql/nav (hfql/find-cell-by-column columnT rowT))]
-                         :when (search-matches cell-value needle)]
-                     rowT)))
-               rowsT))
-           (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) []))))))
+       (try
+         (debug-exceptions `eager-search-BIG-O-N-SQUARE
+           (if-not (str/blank? needle)
+             (sequence (comp (map first) ; short-circuit on first cell match per row.
+                         (remove nil?))
+               (for [rowT rowsT
+                     :let [rowT+ (hfql/augment-with-suggestions! rowT)]] ; forces a nav!
+                 (for [columnT (unwrap rowT+)
+                       :let [cell-value (hfql/nav columnT)]
+                       :when (search-matches cell-value needle)]
+                   rowT)))
+             rowsT))
+         (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) [])))))
 
 
 

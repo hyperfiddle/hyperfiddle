@@ -155,31 +155,30 @@
      (set! (.-scrollLeft table-node) 0)
      (swap! !transpose not)))
 
-(e/defn Matrix [columnsT rowsT & {:keys [transpose? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
+(e/defn Matrix [columnsT rowsT-count rowsT & {:keys [transpose? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
       (let [!transpose (atom true)
             transpose (e/watch !transpose)]
         (reset! !transpose (boolean transpose?))
-        (let [rowsT-count (identity (e/server (count rowsT)))]
-          (dom/props {:class ["matrix" ({true "transposed"} transpose)]
-                      :style {:--row-height (str row-height "px")
-                              :--column-width (str column-width "px")
-                              :--row-count rowsT-count
-                              :--column-count (e/server (count columnsT))}})
-          (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
-                              `Noop (e/fn [] [::forms/ok])}
+        (dom/props {:class ["matrix" ({true "transposed"} transpose)]
+                    :style {:--row-height (str row-height "px")
+                            :--column-width (str column-width "px")
+                            :--row-count rowsT-count
+                            :--column-count (e/server (count columnsT))}})
+        (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
+                            `Noop (e/fn [] [::forms/ok])}
+          (e/amb
+            (MatrixHeader columnsT)
+            (let [[offsetV limitV offsetH limitH] (bounds-by-axis transpose (Scroll-window 24 rowsT-count dom/node {:column-width column-width}))]
+              (MatrixBody columnsT rowsT
+                offsetV (min rowsT-count limitV)
+                offsetH (min (e/server (count columnsT)) limitH)))
             (e/amb
-              (MatrixHeader columnsT)
-              (let [[offsetV limitV offsetH limitH] (bounds-by-axis transpose (Scroll-window 24 rowsT-count dom/node {:column-width column-width}))]
-                (MatrixBody columnsT rowsT
-                  offsetV (min (e/server (count rowsT)) limitV)
-                  offsetH (min (e/server (count columnsT)) limitH)))
-              (e/amb
-                (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
-                  (fn [event]
-                    (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil)))))))))))
+              (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
+                (fn [event]
+                  (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil))))))))))
 
 
 (e/defn ColumnPicker [stepT]
@@ -220,17 +219,18 @@
           rowsT (e/server (#(if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
                               [stepT]
                               (unwrap stepT))))
-          rowsT (e/server (with-meta (map hfql/augment-with-suggestions! rowsT) (meta rowsT))) ; ensure search on all columns
-          ]
+          rowsT-count (e/server (bounded-count COLLECTION-LIMIT rowsT)) ; 𝓞(n)
+          rowsT2 rowsT]
       (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
+        rowsT-count
         (e/server rowsT)
         (e/fn [rowsT]
-          (in legend
-            (dom/span (dom/props {:style {:order -1}})
-                      (dom/text (rendering/format-collection-count (e/server (bounded-count COLLECTION-LIMIT rowsT)) ; 𝓞(n)
-                                  COLLECTION-LIMIT))))
-          (e/amb
-            (in legend (dom/span (dom/props {:style {:order -2}}) (search/SearchInput! false)))
-            (sort/Sorted rowsT
-              (e/fn [rowsT]
-                (Matrix columnsT rowsT :transpose? transpose?)))))))))
+          (let [rowsT-count (e/server (bounded-count rowsT-count rowsT))]
+            (in legend
+              (dom/span (dom/props {:style {:order -1}})
+                        (dom/text (rendering/format-collection-count rowsT-count COLLECTION-LIMIT))))
+            (e/amb
+              (in legend (dom/span (dom/props {:style {:order -2}}) (search/SearchInput! false)))
+              (sort/Sorted (e/server (map hfql/augment-with-suggestions! rowsT))
+                (e/fn [rowsT]
+                  (Matrix columnsT rowsT-count rowsT :transpose? transpose?))))))))))

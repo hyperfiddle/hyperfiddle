@@ -39,8 +39,9 @@
 (defpointfree metas (comp fst runCofreeT))
 (defpointfree pull-has-star? (comp ::ana/has-star? metas))
 
+(declare unchunk-seq)
 (defn navigable [nav-fn object]
-  (vary-meta object assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
+  (vary-meta (unchunk-seq object) assoc `ccp/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
 
 (defn- safe-vary-meta [object f & args]
   (if (has-meta? object)
@@ -673,3 +674,35 @@ identifier, though it might not be serializable."
   (describe (get dustingetz.namespace-explorer/sitemap `all-ns))
   (describe-formatted (get dustingetz.namespace-explorer/sitemap `all-ns)))
 
+;;; Misc
+
+(defn unchunk-seq ; keeping around for reference
+  "Turn a clojure seqable into a one-step-at-a-time seq. Preserves eventual
+  metadata. Must be called on the original chunked seq. Calling `unchunk-seq` on
+  any descendent seq won't have any effect. E.g. `(unchunk-seq (range 3))` –
+  turns a chunked LongRange into a proper lazy-seq. But `(unchunk-seq (map
+  prn (range 3)))` will still print 0 1 2 because `map` eagerly preprocesses the
+  first chunk.
+
+  Use case: prevent undesired side effects while building the cofree tree. We
+  don't want to realize any child value when computing fan-out cardinality (e.g. '*).
+  Example: In {range {'* inc}}, given `range` receives 3, `range` will produce a
+  chunked LongRange. Any downstream `map`, `filter`, `for` etc. will pre-process
+  the first chunk and eventually call `inc`. This is not acceptable because in
+  the general case `inc` may not be a pure function.
+
+  Note range is a good example because: `range` may or may not return a chunked seq:
+  - (type (range)) := clojure.lang.Iterate – not chucked, fully lazy
+  - (type (range 1)) or (range 1 10 1) := LongRange – chunked
+  - (type (range 1 1)) := PersistentList$EmptyList
+
+  Also see `realize`.
+  "
+  [aseq]
+  (if true #_(chunked-seq? aseq)
+    (with-meta
+      (lazy-seq
+        (when-let [s (seq aseq)]
+          (cons (first s) (unchunk-seq (rest s)))))
+      (meta aseq))
+    aseq))
