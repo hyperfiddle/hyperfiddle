@@ -6,7 +6,7 @@
             [geoffreygaillard.predicates :as pred]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.navigator6.utils :as utils]
-            [hyperfiddle.hfql1.cofree :refer [unwrap]]
+            [hyperfiddle.ct.cofree :refer [unwrap]]
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.selection :refer [with-local-selection]])))
 

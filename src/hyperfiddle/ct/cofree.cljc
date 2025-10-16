@@ -1,13 +1,13 @@
-(ns hyperfiddle.hfql1.cofree
+(ns hyperfiddle.ct.cofree
   "Cofree comonads are quite useful for annotating syntax trees, or talking about streams.
 
   https://hackage.haskell.org/package/free-5.2/docs/Control-Comonad-Cofree.html"
   (:refer-clojure :exclude [extend])
   (:require [hyperfiddle.rcf :refer [tests]]
-            [hyperfiddle.hfql1.functor :refer [Functor fmap ->Identity runIdentity]]
-            [hyperfiddle.hfql1.bifunctor :refer [Bifunctor pair pair? fst snd bimap]]
-            [hyperfiddle.hfql1.monoid :refer [mappend mempty]]
-            [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend liftW comonad-law-1 comonad-law-2 comonad-law-3]]
+            [hyperfiddle.ct.functor :refer [Functor fmap ->Identity runIdentity]]
+            [hyperfiddle.ct.bifunctor :refer [Bifunctor pair pair? fst snd bimap]]
+            [hyperfiddle.ct.monoid :refer [mappend mempty]]
+            [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend liftW comonad-law-1 comonad-law-2 comonad-law-3]]
             ))
 
 (defprotocol CofreeFunctor

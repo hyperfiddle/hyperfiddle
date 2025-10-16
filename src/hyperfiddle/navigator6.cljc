@@ -15,9 +15,9 @@
             [dustingetz.str :as strx]
             [clojure.pprint]
             [dustingetz.loader :as loader]
-            [hyperfiddle.hfql1.bifunctor :refer [snd]]
-            [hyperfiddle.hfql1.comonad :refer [extract]]
-            [hyperfiddle.hfql1.cofree :refer [unwrap]]
+            [hyperfiddle.ct.bifunctor :refer [snd]]
+            [hyperfiddle.ct.comonad :refer [extract]]
+            [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql1.analyzer :as ana])
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 

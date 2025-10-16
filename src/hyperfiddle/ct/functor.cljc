@@ -1,6 +1,6 @@
-(ns hyperfiddle.hfql1.functor
+(ns hyperfiddle.ct.functor
   (:require [hyperfiddle.rcf :refer [tests]]
-            [hyperfiddle.hfql1.function :refer [flip const]]))
+            [hyperfiddle.ct.function :refer [flip const]]))
 
 (defprotocol Functor
   (-fmap [fa a->b] "fmap :: Functor f => (a -> b) -> f a -> f b"))

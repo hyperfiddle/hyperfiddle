@@ -1,10 +1,10 @@
-(ns hyperfiddle.hfql1.rose-tree
+(ns hyperfiddle.ct.rose-tree
   (:refer-clojure :exclude [extend])
-  (:require [hyperfiddle.hfql1.functor :refer [Functor fmap]]
-            [hyperfiddle.hfql1.bifunctor :refer [Bifunctor bimap]]
-            ;; [hyperfiddle.hfql1.applicative :as ap :refer [Applicative fapply pure]]
-            [hyperfiddle.hfql1.comonad :refer [Comonad duplicate]]
-            [hyperfiddle.hfql1.cofree :refer [ComonadCofree]]
+  (:require [hyperfiddle.ct.functor :refer [Functor fmap]]
+            [hyperfiddle.ct.bifunctor :refer [Bifunctor bimap]]
+            ;; [hyperfiddle.ct.applicative :as ap :refer [Applicative fapply pure]]
+            [hyperfiddle.ct.comonad :refer [Comonad duplicate]]
+            [hyperfiddle.ct.cofree :refer [ComonadCofree]]
             ))
 
 (defrecord RoseTree [a children]

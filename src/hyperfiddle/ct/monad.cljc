@@ -1,10 +1,10 @@
-(ns hyperfiddle.hfql1.monad
-  (:require [hyperfiddle.hfql1.function :refer [const id]]
-            [hyperfiddle.hfql1.functor :refer [fmap runIdentity #?(:cljs Identity)]]
-            [hyperfiddle.hfql1.applicative :as A :refer [fapply pure *>]]
+(ns hyperfiddle.ct.monad
+  (:require [hyperfiddle.ct.function :refer [const id]]
+            [hyperfiddle.ct.functor :refer [fmap runIdentity #?(:cljs Identity)]]
+            [hyperfiddle.ct.applicative :as A :refer [fapply pure *>]]
             [hyperfiddle.rcf :refer [tests]])
-  #?(:clj (:import [hyperfiddle.hfql1.functor Identity]))
-  #?(:cljs (:require-macros [hyperfiddle.hfql1.monad :refer [with-context]])))
+  #?(:clj (:import [hyperfiddle.ct.functor Identity]))
+  #?(:cljs (:require-macros [hyperfiddle.ct.monad :refer [with-context]])))
 
 (defprotocol Monad
   (-bind [ma a->ma] ">>= :: (a -> m b) -> m a -> m b"))

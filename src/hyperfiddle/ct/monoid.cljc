@@ -1,5 +1,5 @@
-(ns hyperfiddle.hfql1.monoid
-  (:require [hyperfiddle.hfql1.semigroup :refer [<>]]
+(ns hyperfiddle.ct.monoid
+  (:require [hyperfiddle.ct.semigroup :refer [<>]]
             [hyperfiddle.rcf :refer [tests]]))
 
 (defprotocol Monoid

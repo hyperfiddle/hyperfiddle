@@ -1,8 +1,8 @@
-(ns hyperfiddle.hfql1.comonad
+(ns hyperfiddle.ct.comonad
   (:refer-clojure :exclude [extend])
-  (:require [hyperfiddle.hfql1.functor :refer [->Identity runIdentity fmap #?(:cljs Identity)]]
+  (:require [hyperfiddle.ct.functor :refer [->Identity runIdentity fmap #?(:cljs Identity)]]
             [hyperfiddle.rcf :refer [tests]])
-  #?(:clj (:import [hyperfiddle.hfql1.functor Identity])))
+  #?(:clj (:import [hyperfiddle.ct.functor Identity])))
 
 (defprotocol Comonad
   (-extract [Wa] "extract :: w a -> a")

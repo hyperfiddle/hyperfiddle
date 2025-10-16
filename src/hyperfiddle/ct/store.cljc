@@ -1,8 +1,8 @@
-(ns hyperfiddle.hfql1.store
+(ns hyperfiddle.ct.store
   (:refer-clojure :exclude [peek -peek extend])
-  (:require [hyperfiddle.hfql1.functor :refer [Functor fmap]]
-            [hyperfiddle.hfql1.comonad :refer [Comonad extend extract duplicate comonad-law-1 comonad-law-2 comonad-law-3]]
-            [hyperfiddle.hfql1.bifunctor :refer [pair &&&]]
+  (:require [hyperfiddle.ct.functor :refer [Functor fmap]]
+            [hyperfiddle.ct.comonad :refer [Comonad extend extract duplicate comonad-law-1 comonad-law-2 comonad-law-3]]
+            [hyperfiddle.ct.bifunctor :refer [pair &&&]]
             [hyperfiddle.rcf :refer [tests]]
             #?(:clj [clojure.tools.logging])
             ))

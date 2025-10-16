@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql1.function
+(ns hyperfiddle.ct.function
   "https://hackage.haskell.org/package/base-4.11.0.0/docs/Data-Function.html"
   (:require [hyperfiddle.rcf :refer [tests]]))
 

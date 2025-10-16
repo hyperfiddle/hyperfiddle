@@ -1,8 +1,8 @@
-(ns hyperfiddle.hfql1.bifunctor
+(ns hyperfiddle.ct.bifunctor
   "https://hackage.haskell.org/package/base-4.21.0.0/docs/Data-Bifunctor.html"
   (:refer-clojure :exclude [first second #?(:cljs -first) #?(:cljs -second)])
-  (:require [hyperfiddle.hfql1.function :refer [id]]
-            [hyperfiddle.hfql1.functor :refer [Functor fmap]]
+  (:require [hyperfiddle.ct.function :refer [id]]
+            [hyperfiddle.ct.functor :refer [Functor fmap]]
             [hyperfiddle.rcf :refer [tests]]))
 
 (defprotocol Bifunctor

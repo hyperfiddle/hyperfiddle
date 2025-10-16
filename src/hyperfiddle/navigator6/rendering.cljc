@@ -6,7 +6,7 @@
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql1.analyzer :as ana :refer [unquote*]]
-            [hyperfiddle.hfql1.cofree :refer [unwrap]]
+            [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.extensions :as extensions]
             [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard]]

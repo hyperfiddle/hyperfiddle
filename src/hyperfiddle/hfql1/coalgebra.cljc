@@ -5,19 +5,19 @@
    [contrib.data :refer [group-by-pred]]
    [clojure.datafy :as datafy]
    #?(:clj [clojure.tools.logging :as log])
-   [hyperfiddle.hfql1.function :refer [flip]]
-   [hyperfiddle.hfql1.functor :refer [Functor fmap]]
-   [hyperfiddle.hfql1.bifunctor :as bf :refer [Bifunctor IPair fst snd pair swap bimap &&&]]
-   [hyperfiddle.hfql1.monoid :refer [mappend]]
-   [hyperfiddle.hfql1.comonad :refer [Comonad extract duplicate extend -extract]]
-   [hyperfiddle.hfql1.cofree :refer [synthesize unwrap runCofreeT ->CofreeF ->CofreeT headF tree-seqT hoistCofreeT]]
-   [hyperfiddle.hfql1.store :refer [store seek seeks peeks pos #?(:cljs Store) memoize-1]]
-   [hyperfiddle.hfql1.monad-reader :refer [reader local runReader]]
+   [hyperfiddle.ct.function :refer [flip]]
+   [hyperfiddle.ct.functor :refer [Functor fmap]]
+   [hyperfiddle.ct.bifunctor :as bf :refer [Bifunctor IPair fst snd pair swap bimap &&&]]
+   [hyperfiddle.ct.monoid :refer [mappend]]
+   [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend -extract]]
+   [hyperfiddle.ct.cofree :refer [synthesize unwrap runCofreeT ->CofreeF ->CofreeT headF tree-seqT hoistCofreeT]]
+   [hyperfiddle.ct.store :refer [store seek seeks peeks pos #?(:cljs Store) memoize-1]]
+   [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
    [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.rcf :refer [tests tap %]]
    [hyperfiddle.hfql1.analyzer :as ana]
    [hyperfiddle.hfql1.utils :refer [has-meta?]])
-  #?(:clj (:import [hyperfiddle.hfql1.store Store]))
+  #?(:clj (:import [hyperfiddle.ct.store Store]))
   #?(:cljs (:require-macros [hyperfiddle.hfql1.coalgebra :refer [-hfql]])))
 
 (defn safe-ccp-nav [object key value]
@@ -335,7 +335,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   ;; therefore both Store functions are equal.
   #?(:clj Object)
   #?(:clj (equals [this other] (env-w-equals this other)))
-  #?(:clj (hashCode [_] (hash [meta (if (instance? hyperfiddle.hfql1.store.Store w) (pos w) w)])))
+  #?(:clj (hashCode [_] (hash [meta (if (instance? hyperfiddle.ct.store.Store w) (pos w) w)])))
 
   #?(:cljs cljs.core/IEquiv)
   #?(:cljs (-equiv [this other] (env-w-equals this other)))
@@ -346,8 +346,8 @@ Pulling on non-maps (non associative) is perfectly fine.
   (assert (instance? EnvW this))
   (and (instance? EnvW other)
     (= (fst this) (fst other))
-    (if (instance? hyperfiddle.hfql1.store.Store (snd this))
-      (and (instance? hyperfiddle.hfql1.store.Store (snd other))
+    (if (instance? hyperfiddle.ct.store.Store (snd this))
+      (and (instance? hyperfiddle.ct.store.Store (snd other))
         (= (pos (snd this)) (pos (snd other))))
       true)))
 

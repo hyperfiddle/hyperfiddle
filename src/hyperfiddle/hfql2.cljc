@@ -5,13 +5,13 @@
    [clojure.core.protocols :as ccp]
    [clojure.pprint :refer [cl-format]]
    [hyperfiddle.rcf :refer [tests]]
-   [hyperfiddle.hfql1.monoid :refer [mappend]]
-   [hyperfiddle.hfql1.functor :refer [fmap]]
-   [hyperfiddle.hfql1.bifunctor :as bf :refer [pair fst snd swap]]
-   [hyperfiddle.hfql1.comonad :refer [extract]]
-   [hyperfiddle.hfql1.cofree :refer [tree-seqT unwrap runCofreeT hoistCofreeT]]
-   [hyperfiddle.hfql1.rose-tree :refer [rose-tree]]
-   [hyperfiddle.hfql1.store :refer [pos peeks]]
+   [hyperfiddle.ct.monoid :refer [mappend]]
+   [hyperfiddle.ct.functor :refer [fmap]]
+   [hyperfiddle.ct.bifunctor :as bf :refer [pair fst snd swap]]
+   [hyperfiddle.ct.comonad :refer [extract]]
+   [hyperfiddle.ct.cofree :refer [tree-seqT unwrap runCofreeT hoistCofreeT]]
+   [hyperfiddle.ct.rose-tree :refer [rose-tree]]
+   [hyperfiddle.ct.store :refer [pos peeks]]
    [hyperfiddle.hfql1.analyzer :as ana]
    [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]]
    [hyperfiddle.hfql1.utils :refer [has-meta?]]
@@ -593,11 +593,11 @@ identifier, though it might not be serializable."
   (runCofreeT _suggested)
   ;; (pull (fmap #(assoc % ::suggested true) _suggested))
   ;; ((fn rec [T]
-  ;;    (hyperfiddle.hfql1.cofree/->CofreeT
-  ;;      (hyperfiddle.hfql1.bifunctor/bimap #(assoc % ::suggested true)
-  ;;        (hyperfiddle.hfql1.comonad/extend (comp extract rec))
+  ;;    (hyperfiddle.ct.cofree/->CofreeT
+  ;;      (hyperfiddle.ct.bifunctor/bimap #(assoc % ::suggested true)
+  ;;        (hyperfiddle.ct.comonad/extend (comp extract rec))
   ;;        (runCofreeT T)))) _suggested)
-  (hyperfiddle.hfql1.cofree/hoistCofreeT (bf/first #(assoc % ::suggested true))
+  (hyperfiddle.ct.cofree/hoistCofreeT (bf/first #(assoc % ::suggested true))
     _suggested)
   (map (comp ::suggested metas) (unwrap *1))
   )
@@ -637,7 +637,7 @@ identifier, though it might not be serializable."
 (defmethod resolve :default [object] object) ; don't know how to resolve ≡ identity
 
 (defn- describe-dispatch-fn [object]
-  (cond (satisfies? hyperfiddle.hfql1.cofree/ComonadCofree object)
+  (cond (satisfies? hyperfiddle.ct.cofree/ComonadCofree object)
         (::ana/type (metas object))
         (map? object) (or (::ana/type object) (type object))
         :else (type object)))

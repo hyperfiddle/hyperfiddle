@@ -1,9 +1,9 @@
-(ns hyperfiddle.hfql1.monad-reader
+(ns hyperfiddle.ct.monad-reader
   (:require
-   [hyperfiddle.hfql1.function :refer [const flip id dot]]
-   [hyperfiddle.hfql1.functor :refer [Functor fmap]]
-   [hyperfiddle.hfql1.applicative :refer [Applicative pure fapply]]
-   [hyperfiddle.hfql1.monad :refer [>>= Monad return *context* with-context]]
+   [hyperfiddle.ct.function :refer [const flip id dot]]
+   [hyperfiddle.ct.functor :refer [Functor fmap]]
+   [hyperfiddle.ct.applicative :refer [Applicative pure fapply]]
+   [hyperfiddle.ct.monad :refer [>>= Monad return *context* with-context]]
    [hyperfiddle.rcf :refer [tests]]))
 
 (declare runReader)

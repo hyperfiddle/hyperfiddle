@@ -4,11 +4,11 @@
             [contrib.data :refer [update-existing]]
             [contrib.walk :refer [prewalk]]
             [hyperfiddle.rcf :refer [tests]]
-            [hyperfiddle.hfql1.functor :refer [fmap]]
-            [hyperfiddle.hfql1.bifunctor :as bf :refer [pair pair? pair-with-meta fst snd &&&]]
-            [hyperfiddle.hfql1.comonad :refer [extract]]
-            [hyperfiddle.hfql1.cofree :refer [unwrap]]
-            [hyperfiddle.hfql1.rose-tree :refer [rose-tree coiter]]
+            [hyperfiddle.ct.functor :refer [fmap]]
+            [hyperfiddle.ct.bifunctor :as bf :refer [pair pair? pair-with-meta fst snd &&&]]
+            [hyperfiddle.ct.comonad :refer [extract]]
+            [hyperfiddle.ct.cofree :refer [unwrap]]
+            [hyperfiddle.ct.rose-tree :refer [rose-tree coiter]]
             [clojure.string :as str])
   #?(:cljs (:require-macros [hyperfiddle.hfql1.analyzer :refer [hfql resolve-direct-method]])))
 
@@ -387,14 +387,14 @@
 
 (comment
   (analyze {} [])
-  (hyperfiddle.hfql1.rose-tree/unfold ψ [])
-  (hyperfiddle.hfql1.rose-tree/unfold ψ 'foo)
-  (hyperfiddle.hfql1.rose-tree/coiter ψ 'foo)
+  (hyperfiddle.ct.rose-tree/unfold ψ [])
+  (hyperfiddle.ct.rose-tree/unfold ψ 'foo)
+  (hyperfiddle.ct.rose-tree/coiter ψ 'foo)
   (analyze {} 'foo)
   (analyze {} "foo")
-  (hyperfiddle.hfql1.rose-tree/coiter ψ inc)
+  (hyperfiddle.ct.rose-tree/coiter ψ inc)
   (analyze {} 'inc)
-  (hyperfiddle.hfql1.rose-tree/coiter ψ ['foo "foo"])
+  (hyperfiddle.ct.rose-tree/coiter ψ ['foo "foo"])
   (analyze {} ['foo "foo"])
   (analyze {} {:a inc})
   )

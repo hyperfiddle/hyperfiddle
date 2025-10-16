@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql1.semigroup)
+(ns hyperfiddle.ct.semigroup)
 
 (defprotocol Semigroup
   (-<> [a b] "<> :: a -> a -> a. aka binop – a binary operation."))

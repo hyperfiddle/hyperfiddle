@@ -1,9 +1,9 @@
-(ns hyperfiddle.hfql1.applicative
-  (:require [hyperfiddle.hfql1.function :refer [id const $ flip]]
-            [hyperfiddle.hfql1.functor :refer [fmap <$ runIdentity #?(:cljs Identity)]]
+(ns hyperfiddle.ct.applicative
+  (:require [hyperfiddle.ct.function :refer [id const $ flip]]
+            [hyperfiddle.ct.functor :refer [fmap <$ runIdentity #?(:cljs Identity)]]
             [hyperfiddle.rcf :refer [tests]])
-  #?(:clj (:import [hyperfiddle.hfql1.functor Identity]))
-  #?(:cljs (:require-macros [hyperfiddle.hfql1.applicative :refer [with-context]])))
+  #?(:clj (:import [hyperfiddle.ct.functor Identity]))
+  #?(:cljs (:require-macros [hyperfiddle.ct.applicative :refer [with-context]])))
 
 (defprotocol Applicative
   (-fapply [fa->b fa] "fapply aka <*> :: f (a -> b) -> f a -> f b")
