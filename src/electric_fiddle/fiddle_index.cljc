@@ -85,12 +85,12 @@
    & {:keys [default]
       :or {default `(FiddleIndex)}}]
   #_(dom/pre (dom/text (pr-str r/route)))
-  (let [[fiddle & _] r/route]
-    (if-not fiddle (r/ReplaceState! ['. default])
-      (let [Fiddle (get fiddles fiddle NotFoundPage)]
-        (set! (.-title js/document) (str (some-> fiddle name (str " – ")) "Electric Fiddle"))
+  (let [[?fiddle & _] r/route]
+    (if-not ?fiddle (r/ReplaceState! ['. default])
+      (let [Fiddle (get fiddles ?fiddle NotFoundPage)]
+        (set! (.-title js/document) (str (some-> ?fiddle name (str " – ")) "Electric Fiddle"))
         (binding [pages fiddles] ; todo untangle - tutorial uses some fiddle infrastructure, perhaps should use more?
-          (case fiddle
+          (case ?fiddle
             `FiddleIndex #_(FiddleIndex) (Fiddle) ; lol why - workaround crash 20241205
             (r/pop (Fiddle))))))))
 
