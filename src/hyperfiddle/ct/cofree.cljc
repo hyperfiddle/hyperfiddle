@@ -82,7 +82,9 @@
 
 
 
-(defn tree-seqT [t] (cons t (lazy-seq (mapcat tree-seqT (unwrap t)))))
+(defn tree-seqT "tree-seqT :: Foldable f => Cofree f a -> [Cofree f a]
+  Pre-order traversal of a Cofree structure."
+  [t] (cons t (lazy-seq (mapcat tree-seqT (unwrap t)))))
 
 
 
