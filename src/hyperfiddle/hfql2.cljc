@@ -12,6 +12,7 @@
    [hyperfiddle.ct.cofree :refer [tree-seqT unwrap runCofreeT hoistCofreeT]]
    [hyperfiddle.ct.rose-tree :refer [rose-tree]]
    [hyperfiddle.ct.store :refer [pos peeks]]
+   [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
    [hyperfiddle.hfql1.analyzer :as ana]
    [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]]
    [hyperfiddle.hfql1.utils :refer [has-meta?]]
@@ -27,14 +28,14 @@
 
 (def seed co/seed)
 (def nav* extract)
-(defpointfree nav (comp force snd nav*))
+(defpointfree nav (comp force-thunk snd nav*))
 (defpointfree pull* (comp extract co/pull))
-(defpointfree pull (comp force snd pull*))
+(defpointfree pull (comp force-thunk snd pull*))
 (defpointfree next-steps unwrap)
-(defpointfree values (comp (fmap (comp force nav)) tree-seqT))
+(defpointfree values (comp (fmap (comp force-thunk nav)) tree-seqT))
 
 (defpointfree scope (comp pos snd runCofreeT))
-(defpointfree value-at-point (comp force '% scope))
+(defpointfree value-at-point (comp force-thunk '% scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
 (defpointfree metas (comp fst runCofreeT))
 (defpointfree pull-has-star? (comp ::ana/has-star? metas))
@@ -190,7 +191,7 @@
     (nav step)
     := alice
 
-    (force (nav (first (next-steps step)))) ; FIXME computing next-steps should not require `step` to be seeded.
+    (force-thunk (nav (first (next-steps step)))) ; FIXME computing next-steps should not require `step` to be seeded.
     := {:user/name "Alice", :user/email "alice@example.com"}
 
     (map nav (-> step next-steps first next-steps))
@@ -604,7 +605,7 @@ identifier, though it might not be serializable."
 
 
 (defn- suggest-at-point! [hfqlT]
-  (if-let [suggestedT (suggest (force (value-at-point hfqlT)))]
+  (if-let [suggestedT (suggest (force-thunk (value-at-point hfqlT)))]
     (hoistCofreeT (bf/first #(assoc % ::suggested true)) suggestedT) ; recursively map over CofreeT structure - lazily
     hfqlT))
 
