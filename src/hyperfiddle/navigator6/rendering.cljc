@@ -9,6 +9,7 @@
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.extensions :as extensions]
+            [hyperfiddle.navigator6.selection :as selection]
             [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard]]
             [hyperfiddle.router5 :as router]))
 
@@ -146,12 +147,17 @@
               (str/trim)
               (strx/blank->nil)))))
 
+(defn- render-step-title [stepT *parent-selection]
+  (pr-str (or (when stepT (hfql/symbolic-edge-computed stepT))
+            (let [[col rowT] *parent-selection]
+              col))))
+
 (e/defn Step-Title [stepT]
   (dom/span
     (dom/props {:class "title"
                 :style {:order -3}
                 :data-tooltip (e/server (table-title-tooltip-content stepT))})
-    (dom/text (e/server (pr-str ((glitch-guard hfql/symbolic-edge-computed) stepT))))))
+    (dom/text (e/server (render-step-title stepT selection/*parent-selection)))))
 
 (comment
   (hfql/describe-column (get dustingetz.namespace-explorer/sitemap `all-ns))

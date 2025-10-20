@@ -49,12 +49,14 @@
                 stepT)
               stepT)))]
   (defn- select-next-child [sitemap stepT [column rowT]]
-    (when rowT
+    (if rowT
       (or (when column
             (try (hfql/find-child column (hfql/augment-with-suggestions! rowT)) (catch #?(:clj Throwable, :cljs :default) _ nil)))
         (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
           (hfql/seed (hfql/scope rowT)))
-        (select-eventual-recursion-point rowT)))))
+        (select-eventual-recursion-point rowT))
+      (when column
+        (try (hfql/find-child column (hfql/augment-with-suggestions! stepT)) (catch #?(:clj Throwable, :cljs :default) _ nil))))))
 
 (defn- render-type [hfqlT]
   (let [metas (hfql/metas hfqlT)]
@@ -103,7 +105,9 @@
                                                           (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
                             (e/Reconcile
                               (when (e/server (some? next-childT))
-                                (e/server (Navigate sitemap next-childT))))
+                                (e/server
+                                  (binding [selection/*parent-selection selection/*local-selection]
+                                    (Navigate sitemap next-childT)))))
                             (e/amb)))))))))))))))
 
 (e/defn RenderMeta [stepT]

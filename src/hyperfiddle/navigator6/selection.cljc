@@ -11,7 +11,7 @@
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.selection :refer [with-local-selection]])))
 
-(e/declare *local-selection)
+(e/declare *local-selection *parent-selection)
 
 (defn- symbolic-coordinates [cellT] (list (hfql/symbolic-edge cellT) (hfql/identify (hfql/value-at-point cellT))))
 
