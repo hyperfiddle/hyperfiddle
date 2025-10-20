@@ -49,13 +49,11 @@
                 stepT)
               stepT)))]
   (defn- select-next-child [sitemap stepT [column rowT]]
-    ;; (prn "selecting next child" column rowT)
     (when rowT
-      (or (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
-            (hfql/seed (hfql/scope rowT)))
-        (when column
-          (try (hfql/find-child column (hfql/augment-with-suggestions! rowT)) (catch #?(:clj Throwable, :cljs :default) _ nil))
-          #_rowT)
+      (or (when column
+            (try (hfql/find-child column (hfql/augment-with-suggestions! rowT)) (catch #?(:clj Throwable, :cljs :default) _ nil)))
+        (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
+          (hfql/seed (hfql/scope rowT)))
         (select-eventual-recursion-point rowT)))))
 
 (defn- render-type [hfqlT]
