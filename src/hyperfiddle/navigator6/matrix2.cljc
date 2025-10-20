@@ -100,7 +100,11 @@
 (e/defn MatrixRow [row-group-id columnsT index rowT offsetH limitH]
   (e/client
     (dom/tr
-      (dom/props {:style {:--row-index index}})
+      (dom/props {:style {:--row-index index}
+                  ;; TODO improve – we have an extra nil row at the bottom when scrolling to the far bottom of a table.
+                  ;; Because we render limit + 1 row for smooth scrolling experience (top and bottom rows are always clipped on scroll)
+                  ;; This extra row is empty at the end of the collection, and we don't want it to show up at all. So we hide it with CSS.
+                  :data-empty (str (e/server (nil? rowT)))})
       (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
       (RowHandle row-group-id rowT)
       (let [cellsT (e/server ((maybe unwrap) rowT))
