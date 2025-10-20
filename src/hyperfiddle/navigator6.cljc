@@ -124,15 +124,13 @@
       (e/Reconcile
         (when ((complement zero?) id)
           (e/server
-            (dom/fieldset
-              (dom/legend (dom/text "Anonymous value"))
-              (let [value ((glitch-guard hfql/nav) stepT)
-                    suggestedT (hfql/suggest value)]
-                (e/Reconcile
-                  (if (#(or (nil? suggestedT) (= stepT suggestedT)))
-                    (do (RenderMeta stepT)
-                        (dom/pre (dom/text (strx/pprint-str (snd (extract stepT))))))
-                    (Navigate sitemap (hfql/seed (assoc ((glitch-guard hfql/scope) stepT) '% value) suggestedT))))))))))))
+            (let [value ((glitch-guard hfql/nav) stepT)
+                  suggestedT (hfql/suggest value)]
+              (e/Reconcile
+                (if (#(or (nil? suggestedT) (= stepT suggestedT)))
+                  (do (RenderMeta stepT)
+                      (dom/pre (dom/text (strx/pprint-str (snd (extract stepT))))))
+                  (Navigate sitemap (hfql/seed (assoc ((glitch-guard hfql/scope) stepT) '% value) suggestedT)))))))))))
 
 ;;;;;;;;;;;;;;;;
 ;; Entrypoint ;;
