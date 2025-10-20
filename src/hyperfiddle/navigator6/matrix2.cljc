@@ -16,6 +16,7 @@
    [hyperfiddle.navigator6.selection :as selection]
    [hyperfiddle.navigator6.sorting :as sort]
    [hyperfiddle.navigator6.utils :as utils :refer [in glitch-guard]]
+   [dustingetz.loader :refer [Offload]]
    [missionary.core :as m]))
 
 (defn- maybe [f] (fn [x] (when x (f x))))
@@ -225,16 +226,20 @@
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_vertical.css"})))
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_horizontal.css"})))
     (dom/props {:class "" #_"entity-children hyperfiddle-navigator6__block"})
-    (let [legend (dom/legend (dom/props {:style {:display :flex, :flex-wrap :wrap}})
+    (let [stepT (e/server (Offload #(do (hfql/nav stepT) stepT) {:label 'run-query}))
+          legend (dom/legend (dom/props {:style {:display :flex, :flex-wrap :wrap}})
                              (rendering/Step-Title stepT)
                              dom/node)
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
-          rowsT (e/server (#(if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
-                              [stepT]
-                              (unwrap stepT))))
-          rowsT-count (e/server (bounded-count COLLECTION-LIMIT rowsT)) ; 𝓞(n)
-          rowsT2 rowsT]
+          rowsT (e/server (Offload
+                            #(if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
+                               [stepT]
+                               (unwrap stepT))
+                            {:label 'list-rows}))
+          rowsT-count (e/server (Offload #(bounded-count COLLECTION-LIMIT rowsT)
+                                  {:label 'count-rows})) ; 𝓞(n)
+          ]
       (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
         rowsT-count
         (e/server rowsT)

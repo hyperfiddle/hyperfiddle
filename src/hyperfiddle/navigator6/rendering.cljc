@@ -84,7 +84,7 @@
   (e/Reconcile
     (if (#(or (set? value) (sequential? value) (array? value)))
       (RenderInlineColl object edgeT value)
-      (do (e/client (.setAttribute dom/node "data-empty" (e/server (= ::not-found value))))
+      (do (e/client (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))) ; FIXME not showing up
           (let [pretty-v (pretty-value value *server-pretty)
                 denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) value, '%v (#(or (hfql/identify value) value))}
                 symbolic-link-href (unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]

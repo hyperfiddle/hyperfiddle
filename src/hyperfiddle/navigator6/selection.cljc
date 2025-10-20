@@ -7,6 +7,7 @@
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.navigator6.utils :as utils]
             [hyperfiddle.ct.cofree :refer [unwrap]]
+            [dustingetz.loader :refer [Offload]]
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.selection :refer [with-local-selection]])))
 
@@ -19,7 +20,7 @@
 
 (e/defn WithLocalSelection [state-key resolve-fn Body]
   (e/client
-    (binding [*local-selection (e/server (resolve-fn (get state/*local-state state-key)))]
+    (binding [*local-selection (e/server (Offload #(resolve-fn (get state/*local-state state-key)) {:label 'resolve-selected-object}))]
       (->> (Body)
         (utils/InterceptCommand `SetSelection!
           (e/fn [[_ Getter]]

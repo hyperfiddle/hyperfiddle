@@ -156,7 +156,7 @@
 
 legend:has(.data-loader){ border: 2px #e9e9e9 groove; }
 
-.data-loader[data-loader-status] ~ *:not(.data-loader) td[data-empty]::before { content: \"⏳\"; }
+.data-loader[data-loader-status] ~ *:not(.data-loader) td[data-empty=true]::before { content: \"⏳\"; }
 
 ")
 

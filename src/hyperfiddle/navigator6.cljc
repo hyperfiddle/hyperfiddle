@@ -18,7 +18,8 @@
             [hyperfiddle.ct.bifunctor :refer [snd]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
-            [hyperfiddle.hfql1.analyzer :as ana])
+            [hyperfiddle.hfql1.analyzer :as ana]
+            [dustingetz.loader :refer [Offload]])
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
 (defn- augment-scope-with-%-from-route-args [args stepT]
@@ -74,7 +75,7 @@
     (if hfqlT
       (get {::pull (e/fn [stepT] (RenderMatrix stepT :transpose? true, :single? true))
             ::star RenderMatrix}
-        ((glitch-guard render-type) hfqlT)
+        (Offload #((glitch-guard render-type) hfqlT) {:label 'ResolveRenderer})
         (e/Partial RenderValue sitemap))
       (e/fn [& _]))))
 
