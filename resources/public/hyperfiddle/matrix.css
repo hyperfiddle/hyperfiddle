@@ -130,7 +130,7 @@ table.matrix{
         background: var(--background-pattern);
         background-size: var(--background-size);
         background-position-y: var(--background-position-y);
-        box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); /* tailwind’s --shadow-sm */
+        box-shadow: 1px 0px 3px 0 rgb(0 0 0 / 0.1), 1px 0px 2px -1px rgb(0 0 0 / 0.1); /* tailwind’s --shadow-sm */
     }
     tbody{ /* statically defined to prevent any wobbling */
         background: var(--background-pattern);
