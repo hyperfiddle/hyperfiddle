@@ -4,6 +4,7 @@
    [clojure.core :as cc]
    [clojure.core.protocols :as ccp]
    [clojure.pprint :refer [cl-format]]
+   [clojure.set :as set]
    [hyperfiddle.rcf :refer [tests]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.functor :refer [fmap]]
@@ -609,16 +610,16 @@ identifier, though it might not be serializable."
     (hoistCofreeT (bf/first #(assoc % ::suggested true)) suggestedT) ; recursively map over CofreeT structure - lazily
     hfqlT))
 
-(defn augment-with-suggestions! [hfqlT]
-  (when hfqlT
-    (if-let [suggestedT (suggest-at-point! hfqlT)]
-      (let [suggested? (set (map (comp ::ana/id metas) (::co/static-children (metas suggestedT))))]
-        (hoistCofreeT (bf/first (fn [metas]
-                                  (if (suggested? (::ana/id metas))
-                                    (assoc metas ::suggested true)
-                                    metas)))
-          (combine hfqlT suggestedT)))  ; FIXME looses static metadata :(
-      hfqlT)))
+(let [id (comp ::ana/id metas)
+      children-ids (comp set (fmap id) ::co/static-children metas)]
+  (defn augment-with-suggestions! [hfqlT]
+    (when hfqlT
+      (if-let [suggestedT (suggest-at-point! hfqlT)]
+        (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))]
+          (hoistCofreeT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
+                                    (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
+            (combine hfqlT suggestedT)))  ; FIXME looses static metadata :(
+        hfqlT))))
 
 (comment
   (import [java.io File])
