@@ -237,9 +237,10 @@
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
           rowsT (e/server (Offload
-                            #(if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
-                               [stepT]
-                               (unwrap stepT))
+                            #(do (prn "list rows"(hash stepT))
+                                 (if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
+                                   [stepT]
+                                   (unwrap stepT)))
                             {:label 'list-rows}))
           rowsT-count (e/server (Offload #(bounded-count COLLECTION-LIMIT rowsT)
                                   {:label 'count-rows})) ; 𝓞(n)

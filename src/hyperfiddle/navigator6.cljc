@@ -87,10 +87,11 @@
 (e/defn Navigate [sitemap stepT]
   (e/client
     (dom/div ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
-      (let [id (e/server (hash stepT))]
+      (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
         (rebooting id ; glitch guard
           (e/server
-            (rebooting stepT ; glitch guard – It's important to reboot on both peers or glitch may happen on one and not the other.
+            (rebooting id ; glitch guard – It's important to reboot on both peers or glitch may happen on one and not the other.
+              (prn "rebooting" id)
               (e/Reconcile
                 (e/When ((complement zero?) id) ; guard navigate on nil
                   (with-local-state ::state/route ; injects *local-state and interpret state write commands
@@ -119,7 +120,7 @@
         (dom/pre (dom/text (strx/pprint-str m)))))))
 
 (e/defn RenderValue [sitemap stepT]
-  (let [id (e/server (hash stepT))]
+  (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
     (rebooting id
       (e/Reconcile
         (when ((complement zero?) id)

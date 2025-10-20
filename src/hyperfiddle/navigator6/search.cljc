@@ -9,6 +9,7 @@
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.navigator6.utils :as utils]
+            [dustingetz.loader :refer [Offload]]
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.search :refer [with-local-search]]))
   )
@@ -37,7 +38,7 @@
   (e/client
     (let [filtered (e/server (e/Reconcile (cond
                                             (and (not (hfql/filtered? rows)) (< rows-count limit))
-                                            (pred rows *local-search)
+                                            (Offload #(pred rows *local-search) {:label 'in-memory-search})
                                             :else
                                             (with-meta (take limit rows) (meta rows)))))]
       (Body filtered))))

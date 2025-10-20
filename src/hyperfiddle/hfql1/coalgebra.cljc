@@ -10,7 +10,7 @@
    [hyperfiddle.ct.bifunctor :as bf :refer [Bifunctor IPair fst snd pair swap bimap &&&]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend -extract]]
-   [hyperfiddle.ct.cofree :refer [synthesize unwrap runCofreeT ->CofreeF ->CofreeT headF tree-seqT hoistCofreeT]]
+   [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tailF tree-seqT hoistCofreeT]]
    [hyperfiddle.ct.store :refer [store seek seeks peeks pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
    [hyperfiddle.hfql2 :as-alias hfql]
@@ -361,8 +361,41 @@ Pulling on non-maps (non associative) is perfectly fine.
   SetScope
   (set-scope-value [w scope] (seek scope w)))
 
-(defn- wrap-with-static-metadata [metas t] (->CofreeT (->EnvW metas (runCofreeT t))))
-(defn vary-static-meta [t f] (->CofreeT (bf/first f (runCofreeT t))))
+(declare hfqlt-equals hfqlt-hash)
+
+(deftype HFQLT [CofreeT] ; A simple wrapper over CofreeT with custom equality
+  ICofreeT
+  (-runCofreeT [_] (runCofreeT CofreeT))
+  Functor
+  (-fmap [fa f] (HFQLT. (fmap f CofreeT)))
+  Comonad
+  (-extract [t] (extract CofreeT))
+  (-duplicate [t] (HFQLT. (duplicate CofreeT)))
+  (-extend [wa f] (HFQLT. (extend f CofreeT)))
+  ComonadCofree
+  (-unwrap [t] (unwrap CofreeT))
+
+  #?(:clj Object)
+  #?(:clj (equals [this other] (hfqlt-equals this other)))
+  #?(:clj (hashCode [this] (hfqlt-hash this)))
+
+  #?(:cljs cljs.core/IEquiv)
+  #?(:cljs (-equiv [this other] (hfqlt-equals this other)))
+  #?(:cljs cljs.core/IHash)
+  #?(:cljs (-hash [this] (hfqlt-hash this)))
+  )
+
+(defn ->hfqlT [fwa] (->HFQLT (->CofreeT fwa)))
+
+(defn- hfqlt-equals [^HFQLT this ^HFQLT other]
+  (and (instance? HFQLT this) (instance? HFQLT other)
+    (= (::ana/id (metas (runCofreeT this)))
+      (::ana/id (metas (runCofreeT other))))))
+
+(defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (metas (runCofreeT hfqlt)))))
+
+(defn- wrap-with-static-metadata [metas t] (->hfqlT (->EnvW metas (runCofreeT t))))
+(defn vary-static-meta [t f] (->hfqlT (bf/first f (runCofreeT t))))
 
 (defn unfoldT
   ([coalgebra] (partial unfoldT coalgebra))
@@ -370,7 +403,7 @@ Pulling on non-maps (non associative) is perfectly fine.
    (let [[metas step :as t] (coalgebra AST)]
      ;; (hoistCofreeT (fn [w] (->EnvW metas w)))
      (wrap-with-static-metadata (assoc metas ::AST AST ::static-children (map (unfoldT coalgebra) (unwrap AST)))
-       (->CofreeT
+       (->hfqlT
          (store
            (fn peek [scope]
              ;; IO issue: scope can change due to dynamic bindings (e.g. search
@@ -446,7 +479,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   "
   ([env] (partial seed env))
   ([env t]
-   (->CofreeT (set-scope-value (runCofreeT t) env))))
+   (->hfqlT (set-scope-value (runCofreeT t) env))))
 
 (defmacro -hfql [hfql] `(let [ast# (fmap swap (ana/hfql ~hfql))]
                           (unfoldT (partial hfqlT ast#) ast#)))

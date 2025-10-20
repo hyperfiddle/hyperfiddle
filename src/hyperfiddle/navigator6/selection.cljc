@@ -20,7 +20,12 @@
 
 (e/defn WithLocalSelection [state-key resolve-fn Body]
   (e/client
-    (binding [*local-selection (e/server (Offload #(resolve-fn (get state/*local-state state-key)) {:label 'resolve-selected-object}))]
+    (binding [*local-selection (e/server (let [selection-state (get state/*local-state state-key)
+                                               resolve-fn ((e/capture-fn) resolve-fn)]
+                                           (doto
+                                               (Offload #(resolve-fn selection-state) ; FIXME doesn't select
+                                                 {:label 'resolve-selected-object})
+                                             (->> (prn "resolved")))))]
       (->> (Body)
         (utils/InterceptCommand `SetSelection!
           (e/fn [[_ Getter]]

@@ -35,9 +35,14 @@
 (defn unwrap "unwrap :: w a -> f (w a). Given a Cofree instance, return its children. i.e. remove a layer."
   [Wa] (-unwrap Wa))
 
-(defn runCofreeT "runCofreeT :: w (CofreeF f a (CofreeT f w a))" [cofreeT] (:fwa cofreeT))
+(defprotocol ICofreeT
+  (-runCofreeT [this]))
+
+(defn runCofreeT "runCofreeT :: w (CofreeF f a (CofreeT f w a))" [cofreeT] (-runCofreeT cofreeT))
 
 (defrecord CofreeT [fwa] ; CofreeT f w a
+  ICofreeT
+  (-runCofreeT [_] fwa)
   Functor
   (-fmap [fa f] (CofreeT. (fmap (bimap f (fmap f)) (runCofreeT fa))))
   ;; This is also an Applicative and Monad – implement if needed.
