@@ -13,7 +13,8 @@
 
 (e/declare *local-selection *parent-selection)
 
-(defn- symbolic-coordinates [cellT] (list (hfql/symbolic-edge cellT) (hfql/identify (hfql/value-at-point cellT))))
+(defn- symbolic-coordinates [cellT] (when cellT ; glitch-guard
+                                      (list (hfql/symbolic-edge cellT) (hfql/identify (hfql/value-at-point cellT)))))
 
 ;; (symbolic-cell-coordinates hyperfiddle.navigator6.matrix2/_cellT)
 ;; (symbolic-row-coordinates hyperfiddle.navigator6.matrix2/_cellT)
