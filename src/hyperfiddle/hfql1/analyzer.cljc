@@ -268,8 +268,6 @@
          ::keyword   {::symbolic-edge form
                       ::form-resolved form ; keyword auto-resolve at read-time.
                       ::form-short #?(:clj (aliased-form form), :cljs form)}
-         ::keyword-fn (let [kw (get-kw-fn-form-kw form)]
-                        (assoc (φ env kw) ::value form))
          ::string    {::symbolic-edge form}
          ::symbol    {::symbolic-edge form ; potentially aliased
                       ::value (escape-method-call form), ; macroexpand will auto-resolve

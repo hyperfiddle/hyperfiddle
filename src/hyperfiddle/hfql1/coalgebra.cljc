@@ -287,9 +287,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                         [])))))))
           ::ana/traversal
           (let [edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
-                                           (::ana/bypass point) (ana/hfql force-thunk)
-                                           :else
-                                           (ana/hydrate [(::ana/edge point) ()])  ; FIXME wart, should be handled by the analyzer
+                                           :else (ana/hydrate [(::ana/edge point) ()])  ; FIXME wart, should be handled by the analyzer
                                            ))]
             (constantly
               (mem-reader
