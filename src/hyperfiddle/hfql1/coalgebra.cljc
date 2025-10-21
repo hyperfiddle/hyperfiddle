@@ -429,7 +429,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                               ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
                            (comp (flip seed (unfoldT coalgebra (first children)))
                              (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
-                             (fn [value_i] (thunk (*navigate* (force-thunk value) nil value_i))))
+                             (fn [value_i] (thunk (safe-ccp-nav (force-thunk value) nil value_i)))) ; hard-wired navigate call – a fan-out is never a leaf.
                            forced)
                          (meta forced))))))))
            (::ana/lexical-env point)))))))
