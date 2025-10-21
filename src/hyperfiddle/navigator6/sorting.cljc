@@ -32,7 +32,7 @@
 (defn- force-cell-value! "Equivalent to hfql/nav, but log a TRACE-level message if the cell wasn't realized already. Because we want to know if sorting causes unexpected IO."
   [cellT]
   (when cellT
-    (let [thunk (snd (extract cellT))]
+    (let [thunk (extract cellT)]
       (when-not (realized? thunk)
         #?(:clj (log/trace "Running IO for sort over " (hfql/symbolic-edge cellT))))
       (force thunk))))
@@ -66,10 +66,10 @@
   (println)
   (def _rowsT (-> _treeT _unwrap))
   (def _ageT (-> _rowsT first _unwrap second))
-  (extract (snd (extract _ageT)))
+  (extract (extract _ageT))
   (println)
   (def _sorted-rowsT-asc (sort (->sort-comparator [[_ageT true]]) _rowsT))
-  (extract (snd (extract (second (_unwrap (first _sorted-rowsT-asc))))))
+  (extract (extract (second (_unwrap (first _sorted-rowsT-asc)))))
   (map hfql/values _sorted-rowsT-asc)
   := '({:name "Alice", :age 30} {:name "Charlie", :age 31} {:name "Bob", :age 32})
 

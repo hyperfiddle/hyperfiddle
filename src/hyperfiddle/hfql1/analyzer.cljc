@@ -1,11 +1,10 @@
 (ns hyperfiddle.hfql1.analyzer
-  (:refer-clojure :exclude [vary-meta])
   (:require [clojure.core :as cc]
             [contrib.data :refer [update-existing]]
             [contrib.walk :refer [prewalk]]
             [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.ct.functor :refer [fmap]]
-            [hyperfiddle.ct.bifunctor :as bf :refer [pair pair? pair-with-meta fst snd &&&]]
+            [hyperfiddle.ct.bifunctor :as bf :refer [pair pair? pair-with-meta fst snd]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.ct.rose-tree :refer [rose-tree coiter]]
@@ -330,30 +329,30 @@
      (assoc % ::id (compute-id %)))))
 
 (defmulti -escape ::type)
-(defmethod -escape ::star [metas] metas)
-(defmethod -escape ::recur [metas] metas)
-(defmethod -escape ::literal [metas] metas)
-(defmethod -escape ::keyword [metas] (update metas ::form-short #'quote))
-(defmethod -escape ::string [metas] metas)
-(defmethod -escape ::symbol [metas] (-> (update metas ::symbolic-edge #'quote)
+(defmethod -escape ::star [point] point)
+(defmethod -escape ::recur [point] point)
+(defmethod -escape ::literal [point] point)
+(defmethod -escape ::keyword [point] (update point ::form-short #'quote))
+(defmethod -escape ::string [point] point)
+(defmethod -escape ::symbol [point] (-> (update point ::symbolic-edge #'quote)
                                       (update ::form-short #'quote)))
-(defmethod -escape ::var [metas] (update metas ::parameters #'quote))
-(defmethod -escape ::quoted-var [metas] (update metas ::form unquote*)) ; special case
-(defmethod -escape ::pull [metas] (-> (update metas ::form #'quote)
+(defmethod -escape ::var [point] (update point ::parameters #'quote))
+(defmethod -escape ::quoted-var [point] (update point ::form unquote*)) ; special case
+(defmethod -escape ::pull [point] (-> (update point ::form #'quote)
                                     (update ::symbolic-edges #'quote)))
-(defmethod -escape ::fn [metas] (update metas ::symbolic-edge #'quote))
-(defmethod -escape ::lambda [metas] (-> (update metas ::symbolic-edge #'quote)
+(defmethod -escape ::fn [point] (update point ::symbolic-edge #'quote))
+(defmethod -escape ::lambda [point] (-> (update point ::symbolic-edge #'quote)
                                       (update ::parameters #'quote)))
 
-(defmethod -escape ::call [metas] (-> (update metas ::symbolic-edge #'quote)
+(defmethod -escape ::call [point] (-> (update point ::symbolic-edge #'quote)
                                     (update ::parameters #'quote)
                                     (update ::arguments conj 'list)))
 
-(defmethod -escape ::traversal [metas] (update-existing metas ::edge -escape))
+(defmethod -escape ::traversal [point] (update-existing point ::edge -escape))
 
-(defn escape [metas]
-  ;; #dbg ; ^{:break/when (nil? (::type metas))}
-  (-escape (update metas ::form #'quote)))
+(defn escape [point]
+  ;; #dbg ; ^{:break/when (nil? (::type point))}
+  (-escape (update point ::form #'quote)))
 
 
 (comment
@@ -383,7 +382,7 @@
 (defn analyze
   "Unfold an HFQL symbolic expression into an AST, gathering a maximum of static knowledge about expressions."
   ([env] (partial analyze env))
-  ([env hfql] (unfold (&&& identity (φ env)) ψ (prewalk reshape-traversals hfql))))
+  ([env hfql] (unfold (φ env) ψ (prewalk reshape-traversals hfql))))
 
 (comment
   (analyze {} [])
@@ -400,9 +399,9 @@
   )
 
 (tests
-  (::has-star? (snd (extract (analyze {} [:a]))))
+  (::has-star? (extract (analyze {} [:a])))
   := false
-  (::has-star? (snd (extract (analyze {} [:a '*]))))
+  (::has-star? (extract (analyze {} [:a '*])))
   := true
   )
 
@@ -411,13 +410,13 @@
 (defmethod emit*  #?(:clj clojure.lang.AMapEntry :cljs MapEntry) [[k v]]
   `(pair ~(#'quote k) ~(#'quote v)))
 
-(defn emit [W]
-  (let [[form meta] (extract W)]
-    {::form (emit* form)
-     ::meta (escape meta)
-     ::children (mapv emit (unwrap W))}))
+(defn emit [w] ; emit :: Comonad w => w a -> (a, [(a, [...]) ...])
+  (pair
+    (extract w)
+    (mapv emit (unwrap w))))
 
-(defn hydrate [{::keys [form meta children]}] (rose-tree (pair (unquote* form) meta) (mapv hydrate children)))
+(defn hydrate [[point children]] ; hydrate :: (a, [(a, [...]) ...]) -> RoseTree a
+  (rose-tree point (mapv hydrate children)))
 
 #_(tests
   "hydrate ∘ emit = id"
@@ -425,20 +424,24 @@
     a := ((comp hydrate emit) a))
   )
 
-(defmacro hfql [form] `(hydrate ~(emit (analyze &env form))))
+(defn marshal [w] (fmap (comp escape #(update % ::form emit*)) w))
+(defn unmarshal [rose-tree] (fmap #(update % ::form unquote*) rose-tree))
+
+(defmacro hfql [form] `(unmarshal (hydrate ~(emit (marshal (analyze &env form))))))
 ;; (defmacro hfql [form] (emit (analyze &env form)))
 
 
 (comment
-  (hfql inc)
-  (hfql #'inc)
-  (hfql [:a *])
+  (set! *print-namespace-maps* false)
+  (hfql inc) 
+  (hfql #'inc) 
+  (hfql [:a *]) 
   (hfql {:a inc})
   (let [fork (fn [x] (list x x))]
     (hfql {identity {fork {fork fork}}}))
 
   (hfql (ns-publics *ns*) )
-  (hfql (ns-publics %) )
+  (hfql (ns-publics %) ) 
 
 
   (hfql (fn _inc [%] (inc %)))
@@ -451,8 +454,8 @@
     (mapv (partial traverse-two f) (unwrap W1) (unwrap W2))))
 
 (defn wrap-in-pull [W]
-  (let [[_form metas] (extract W)
-        pullW (analyze (::lexical-env metas) [(::form metas)])]
+  (let [point (extract W)
+        pullW (analyze (::lexical-env point) [(::form point)])]
     (rose-tree (extract pullW)
       [(traverse-two (fn [_W1 W2] (extract W2))
          (first (unwrap pullW)) W)])))
@@ -478,8 +481,5 @@
 ;;   := (hfql [:a :c])
 
 ;;   )
-
-
-(defn vary-meta [tree f] (rose-tree (bf/first f (extract tree)) (unwrap tree)))
 
 

@@ -7,11 +7,11 @@
    #?(:clj [clojure.tools.logging :as log])
    [hyperfiddle.ct.function :refer [flip]]
    [hyperfiddle.ct.functor :refer [Functor fmap]]
-   [hyperfiddle.ct.bifunctor :as bf :refer [Bifunctor IPair fst snd pair swap bimap &&&]]
+   [hyperfiddle.ct.bifunctor :as bf :refer [Bifunctor IPair fst snd pair]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend -extract]]
-   [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tailF tree-seqT hoistCofreeT]]
-   [hyperfiddle.ct.store :refer [store seek seeks peeks pos #?(:cljs Store) memoize-1]]
+   [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tree-seqT]]
+   [hyperfiddle.ct.store :refer [store seek pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
    [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.rcf :refer [tests tap %]]
@@ -32,18 +32,16 @@
   (when (has-meta? object)
     (clojure.core/meta object)))
 
-(def metas fst)
-(def star? (comp #(= ::ana/star %) ::ana/type metas))
-(def star-traversal? (comp #(= ::ana/star %) ::ana/kind metas))
-(def multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity metas))
+(def star? (comp #(= ::ana/star %) ::ana/type))
+(def star-traversal? (comp #(= ::ana/star %) ::ana/kind))
+(def multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity))
 
 (defn projection-type [point]
-  (let [metas (metas point)]
-    (case (::ana/type metas)
-      ::ana/symbol (if (fn? (::ana/value metas))
-                     ::ana/fn
-                     ::ana/symbol)
-      (::ana/type metas))))
+  (case (::ana/type point)
+    ::ana/symbol (if (fn? (::ana/value point))
+                   ::ana/fn
+                   ::ana/symbol)
+    (::ana/type point)))
 
 (defn- resolve
   "Lookup `symbol` into `env` and return associated value. Throw if symbol cannot be found in `env`."
@@ -54,7 +52,7 @@
      (throw (ex-info (str "Unable to resolve `" symbol "` from environment.") {:symbol symbol, :env env}))))
   ([symbol env not-found]
    (try (resolve symbol env)
-        (catch #?(:clj Throwable, :cljs :default) ex
+        (catch #?(:clj Throwable, :cljs :default) _ex
           not-found))))
 
 (defn thunked "thunked :: (a -> b) -> a -> Thunk b"
@@ -79,8 +77,8 @@
 (def focus-% (local (thunked (resolve '%))))
 
 (defn resolve-arguments
-  ([metas] (partial resolve-arguments metas))
-  ([metas env]
+  ([point] (partial resolve-arguments point))
+  ([point env]
    (map (fn [parameter argument]
           (if (symbol? parameter)
             (let [resolved (resolve parameter env)]
@@ -90,19 +88,19 @@
             (if (= ::unbound argument)
               (throw (ex-info "Unbound function argument" {:parameter parameter}))
               argument)))
-     (::ana/parameters metas) (concat (::ana/arguments metas) (repeat ::unbound)))))
+     (::ana/parameters point) (concat (::ana/arguments point) (repeat ::unbound)))))
 
 (def focus-arguments (comp local thunked resolve-arguments))
 
-(defn template-symbolic-edge [env metas & [point-free?]]
-  (let [{::ana/keys [form parameters]} metas]
-    (case (::ana/type metas)
+(defn template-symbolic-edge [env point & [point-free?]]
+  (let [{::ana/keys [form parameters]} point]
+    (case (::ana/type point)
       ::ana/call (cons (first form)
                    (map (fn [parameter argument]
                           (if (or (:symbolic (meta parameter)) (:symbolic (meta argument)))
                             parameter
                             argument))
-                     parameters (resolve-arguments metas env)))
+                     parameters (resolve-arguments point env)))
       ::ana/symbol (if point-free?
                      form
                      (list form (force-thunk (resolve '% env '%))) ; introduce a point
@@ -110,22 +108,26 @@
       form)))
 
 (defn symbolic-edge-static [point]
-  (let [metas (metas point)]
-    (::ana/symbolic-edge
-     (case (::ana/type metas)
-       ::ana/traversal (::ana/edge metas)
-       metas))))
+  (::ana/symbolic-edge
+   (case (::ana/type point)
+     ::ana/traversal (::ana/edge point)
+     point)))
 
-(defn symbolic-edge [point & {::keys [point-free] :or {point-free true}}]
-  (case (projection-type point)
-    ::ana/traversal (template-symbolic-edge (::scope (metas point)) (::ana/edge (metas point)) point-free)
-    ;; ::ana/call (template-symbolic-edge (::scope (metas point)) (metas point) point-free) ; TODO
-    (symbolic-edge-static point)))
+(defn symbolic-edge ; FIXME uniformize
+  [point & {::keys [point-free] :or {point-free true}}]
+  (let [[point scope] (if (satisfies? ICofreeT point) ; FIXME wart – uniformize
+                        (let [envw (runCofreeT point)]
+                          [(fst envw) (pos (snd envw))])
+                        [point (::scope point)])]
+    (case (projection-type point)
+      ::ana/traversal (template-symbolic-edge scope (::ana/edge point) point-free)
+      ;; ::ana/call (template-symbolic-edge (::scope point) point point-free) ; TODO
+      (symbolic-edge-static point))))
 
 (def mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
 
-(defn- getter [metas]
-  (let [key (get metas ::ana/form)]
+(defn- getter [point]
+  (let [key (get point ::ana/form)]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
       (thunked
@@ -133,30 +135,28 @@
           #?(:clj (log/debug "[IO]" `getter key))
           (*navigate* % key (get % key)))))))
 
-(def ^:private dup-first ":: (a, b) -> (a, a)" (&&& fst fst))
-
-(defn- get-or-call [metas]
+(defn- get-or-call [point]
   (mem-reader ; explicit reader for clarity
     (thunked
       (fn [%]
-        ;; (prn (dissoc metas ::AST))
+        ;; (prn (dissoc point ::AST))
         ;; (prn "get-or-call" (hash %) %)
-        (let [ifn (::ana/value metas)]
+        (let [ifn (::ana/value point)]
           (if (try (contains? % ifn) ; FIXME find a better check
                    (catch #?(:clj Throwable, :cljs :default) _
                      #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
                      false))
-            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form metas)))
+            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form point)))
                 (*navigate* % ifn (get % ifn)))
-            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ana/form metas)))
+            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ana/form point)))
                 (apply ifn [%]))))))))
 
-(defn- call [metas]
+(defn- call [point]
   (mem-reader
     (thunked
       (fn [args]
-        #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge metas)))
-        (apply (::ana/value metas) args)))))
+        #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge point)))
+        (apply (::ana/value point) args)))))
 
 (defn- touch [object] (if (seqable? object) (doall object) object))
 (def ^:private star (mem-reader (thunked touch)))
@@ -174,8 +174,7 @@
       )))
 
 (defn leaf [Ra]
-  (->> (reader (fn [env]
-                 ((bound-fn* {#'*navigate* right} (runReader Ra)) env)))
+  (->> (reader (fn [env] ((bound-fn* {#'*navigate* right} (runReader Ra)) env)))
     (fmap (fn [v] (pair v ())))))
 
 (declare seed)
@@ -189,20 +188,20 @@
   ;; need to build a map here, unless there's a use case to render
   ;; the raw value at point (unpulled), e.g. for an EDN <pre>,
   ;; which may be no different from of test utility?
-  (let [realized-kids (->> kidsT
-                        (fmap (seed env))
-                        (fmap runCofreeT)
-                        (fmap extract) ; store
-                        (fmap headF)   ; inner layer
-                        )]
-    (into {} (map pair (fmap symbolic-edge realized-kids)
-               (fmap (comp force-thunk snd) realized-kids)))))
+  (into {} (map pair (fmap (comp symbolic-edge fst runCofreeT) kidsT)
+             (->> kidsT
+               (fmap (seed env))
+               (fmap runCofreeT)
+               (fmap extract) ; store
+               (fmap headF)   ; inner layer
+               (fmap force-thunk)
+               ))))
 
 (declare unfoldT)
 
 (defn- recursion-point? [hfql]
   (or (= ::ana/recur (projection-type (extract hfql)))
-    (::ana/recursion-point (metas (extract hfql)))
+    (::ana/recursion-point (extract hfql))
     (when-let [child (first (unwrap hfql))]
       (and (star-traversal? (extract child))
         (recursion-point? child)))))
@@ -246,7 +245,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   traversal."
   [root hfql]
   (let [hfqlT (partial hfqlT root)
-        point (dup-first (extract hfql))
+        point (extract hfql)
         children (unwrap hfql)
         transform
         (case (projection-type point)
@@ -255,10 +254,10 @@ Pulling on non-maps (non associative) is perfectly fine.
           ::ana/string  (comp leaf focus-% getter)
           ::ana/literal (comp leaf focus-% getter)
           ::ana/fn      (comp leaf focus-% get-or-call)
-          ::ana/var     (comp leaf (focus-arguments (metas point)) call)
+          ::ana/var     (comp leaf (focus-arguments point) call)
           ::ana/quoted-var (comp leaf focus-% getter)
-          ::ana/call    (comp leaf (focus-arguments (metas point)) call)
-          ::ana/lambda  (comp leaf (focus-arguments (metas point)) call)
+          ::ana/call    (comp leaf (focus-arguments point) call)
+          ::ana/lambda  (comp leaf (focus-arguments point) call)
           ::ana/star    (comp leaf focus-% (constantly star))
           ::ana/recur   (constantly (mem-reader (fn [env] (pair env [root]))))
           ::ana/pull
@@ -269,7 +268,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                       dynamic-keys (when star? (star-keys (get env '%)))
                       star-kids (let [static-keys (set (map (comp symbolic-edge extract) kids))
                                       remaining-star-keys (remove static-keys dynamic-keys)]
-                                  (fmap (fmap swap) (unwrap (ana/analyze {} (vec remaining-star-keys)))))
+                                  (unwrap (ana/analyze {} (vec remaining-star-keys))))
                       recur-point (first (filter direct-recursion-point? (concat kids star-kids)))
                       kids (remove direct-recursion-point? kids)
                       star-kids (remove direct-recursion-point? star-kids)]
@@ -279,32 +278,33 @@ Pulling on non-maps (non associative) is perfectly fine.
                             (pull-peek-at-immediate-kids! env)))
                     (mappend kids star-kids
                       (if recur-point
-                        (let [limit (or (::ana/recursion-limit (metas (extract recur-point))) (::ana/recursion-limit (metas (extract root))))] ; TODO deduplicate with traversal
+                        (let [limit (or (::ana/recursion-limit (extract recur-point)) (::ana/recursion-limit (extract root)))] ; TODO deduplicate with traversal
                           (if (> limit 1)
-                            [(-> (fmap (bf/first #(assoc % ::ana/recursion-limit (dec limit))) root)
-                               (ana/vary-meta #(assoc % ::ana/recursive-child true)))]
+                            [(->> root ; TODO fuse
+                               (fmap #(assoc % ::ana/recursion-limit (dec limit)))
+                               (fmap #(assoc % ::ana/recursive-child true)))]
                             []))
                         [])))))))
           ::ana/traversal
-          (let [edgeT (unfoldT hfqlT (fmap swap (cond (star-traversal? point) (ana/hfql identity)
-                                                      (::ana/bypass (metas point)) (ana/hfql force-thunk)
-                                                      :else
-                                                  (ana/hydrate {::ana/form (::ana/form (::ana/edge (metas point))) ; FIXME wart, should be handled by the analyzer
-                                                                ::ana/meta (::ana/edge (metas point))}))))]
+          (let [edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
+                                           (::ana/bypass point) (ana/hfql force-thunk)
+                                           :else
+                                           (ana/hydrate [(::ana/edge point) ()])  ; FIXME wart, should be handled by the analyzer
+                                           ))]
             (constantly
               (mem-reader
                 (fn [env]
-                  (pair (snd (extract (seed (force-thunk env) edgeT)))
+                  (pair (extract (seed (force-thunk env) edgeT))
                     (let [direct-child (first children)]
                       (if (recursion-point? hfql)
-                        (let [limit (or (::ana/recursion-limit (metas (extract direct-child))) (::ana/recursion-limit (metas (extract root))))] ; TODO deduplicate with pull
+                        (let [limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract root)))] ; TODO deduplicate with pull
                           (if (> limit 1)
-                            [(fmap (bf/first #(assoc % ::ana/recursion-limit (dec limit) )) root)]
+                            [(fmap #(assoc % ::ana/recursion-limit (dec limit)) root)]
                             []))
                         (if (star-traversal? (extract direct-child))
                           [(first (unwrap direct-child))]
                           [direct-child])))))))))]
-    (fmap (comp inject-dynamic-bindings transform) point)))
+    (inject-dynamic-bindings (transform point))))
 
 (defprotocol SetScope
   (set-scope-value [w scope]))
@@ -389,10 +389,10 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (defn- hfqlt-equals [^HFQLT this ^HFQLT other]
   (and (instance? HFQLT this) (instance? HFQLT other)
-    (= (::ana/id (metas (runCofreeT this)))
-      (::ana/id (metas (runCofreeT other))))))
+    (= (::ana/id (fst (runCofreeT this)))
+      (::ana/id (fst (runCofreeT other))))))
 
-(defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (metas (runCofreeT hfqlt)))))
+(defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (fst (runCofreeT hfqlt)))))
 
 (defn- wrap-with-static-metadata [metas t] (->hfqlT (->EnvW metas (runCofreeT t))))
 (defn vary-static-meta [t f] (->hfqlT (bf/first f (runCofreeT t))))
@@ -400,9 +400,9 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn unfoldT
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra AST]
-   (let [[metas step :as t] (coalgebra AST)]
-     ;; (hoistCofreeT (fn [w] (->EnvW metas w)))
-     (wrap-with-static-metadata (assoc metas ::AST AST ::static-children (map (unfoldT coalgebra) (unwrap AST)))
+   (let [point (extract AST)
+         step (coalgebra AST)]
+     (wrap-with-static-metadata (assoc point ::AST AST ::static-children (map (unfoldT coalgebra) (unwrap AST)))
        (->hfqlT
          (store
            (fn peek [scope]
@@ -411,21 +411,21 @@ Pulling on non-maps (non associative) is perfectly fine.
              ;; built. And under * traversal IO will be forced to produce a new
              ;; list of children. FIXME, memoize the CofreeF instance and
              ;; rebuild it only if `value` or `children` did change.
-             #?(:clj (log/debug "Unwrapping" (::ana/symbolic-edge (or (::ana/edge metas) metas))))
+             ;; #?(:clj (log/debug "Unwrapping" (::ana/symbolic-edge (or (::ana/edge metas) metas))))
              (let [[value children] (runReader step scope)]
-               (->CofreeF (pair (assoc metas ::scope scope) value) ; TODO move to EnvW, as `value` is supposed to always be a Thunk comonad
-                 (if-not (multiplicity-many? t) ; if multiplicity one
+               (->CofreeF value
+                 (if-not (multiplicity-many? point) ; if multiplicity one
                    ;; don't use fmap under here - we want to enforce lazy children.
                    (map ; for each child, unfold it and seed it with next scope.
-                     (comp (seed (case (projection-type t) ; decide what's next scope.
+                     (comp (seed (case (projection-type point) ; decide what's next scope.
                                    ::ana/pull scope ; a "pull" point doesn't alter '% – it doesn't run anything. Only collects kvs.
                                    (assoc scope '% value)))
                        (unfoldT coalgebra))
                      children)
                    (if (empty? children) ; if recursion is bounded and over, * won't have more children
                      ()
-                     (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge metas) metas))))
-                                      (force-thunk value))] ; ⚠ will force-thunk all effects up to the root to compute children multiplicity
+                     (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge point) point))))
+                                      (force-thunk value))] ; ⚠ will force all effects up to the root to compute children multiplicity
                        (with-meta ; carry metadata over
                          (map ; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
                               ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
@@ -434,7 +434,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                              (fn [value_i] (thunk (*navigate* (force-thunk value) nil value_i))))
                            forced)
                          (meta forced))))))))
-           (::ana/lexical-env metas)))))))
+           (::ana/lexical-env point)))))))
 
 (defn seed
   "Docstirng is outdated – TODO revise
@@ -481,17 +481,17 @@ Pulling on non-maps (non associative) is perfectly fine.
   ([env t]
    (->hfqlT (set-scope-value (runCofreeT t) env))))
 
-(defmacro -hfql [hfql] `(let [ast# (fmap swap (ana/hfql ~hfql))]
+(defmacro -hfql [hfql] `(let [ast# (ana/hfql ~hfql)]
                           (unfoldT (partial hfqlT ast#) ast#)))
 
-(defn- -values [T] (map force-thunk (fmap snd (map extract (tree-seqT T)))))
+(defn- -values [T] (map force-thunk (map extract (tree-seqT T))))
 
 (tests
 
   (def _inc (fn [x] (prn 'IO! '_inc x) (inc x)))
 
   (let [% 1]
-    (-values (-hfql (_inc %))))
+    (-values (-hfql (_inc %)))) 
   := '(2)
 
   (-values (seed {'% 1} (-hfql _inc)))
@@ -504,13 +504,13 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-values (seed {'% {:a 1}} (-hfql :a)))
   := '(1)
 
-  (-values (seed {'% {:a 1, :b 2}} (-hfql [:a]) ))
+  (-values (seed {'% {:a 1, :b 2}} (-hfql [:a]) )) 
   := '({:a 1} 1)
 
   (-values (seed {'% {:a 1, :b 2}} (-hfql [:a *]) ))
   := '({:a 1, :b 2} 1 2)
 
-  (-values (seed {'% {:a 1, :b 3}} (-hfql {:a inc}) ))
+  (-values (seed {'% {:a 1, :b 3}} (-hfql {:a inc}) )) 
   := '(1 2)
 
   (-values (seed {'% {:a 1, :b 3}} (-hfql [{:a inc}])))
@@ -549,29 +549,29 @@ Pulling on non-maps (non associative) is perfectly fine.
   )
 
 (defn- pull-algebra [W children]
-  (let [point (extract W)]
+  (let [point (fst (runCofreeT W))]
     (case (projection-type point)
-      ::ana/pull (fmap (fn [_]
-                         (thunk
-                           (into {}
-                             (map (fn [point value]
-                                    (case (projection-type point)
-                                      ::ana/traversal (force-thunk value)
-                                      (pair (symbolic-edge point ::point-free true) (force-thunk value))))
-                               (map extract (unwrap W))
-                               (map snd children)))))
-                   point)
+      ::ana/pull
+      (thunk
+        (into {}
+          (map (fn [W value]
+                 (let [point (fst (runCofreeT W))]
+                   (case (projection-type point)
+                     ::ana/traversal (force-thunk value)
+                     (pair (symbolic-edge W ::point-free true) (force-thunk value)))))
+            (unwrap W)
+            children)))
       ::ana/traversal
-      (fmap (fn [_]
-              (thunk {(symbolic-edge point ::point-free true)
-                     (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
-                       (if (multiplicity-many? point)
-                         (map (comp force-thunk snd) children)
-                         (force-thunk (snd (first children))))
-                       ;; bounded recursion case, no more children, return value as-is.
-                       (force-thunk (snd point)))}))
-        point)
-      point)))
+      (thunk
+        (let [point (fst (runCofreeT W))]
+          {(symbolic-edge W ::point-free true)
+           (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
+             (if (multiplicity-many? point)
+               (map force-thunk children)
+               (force-thunk (first children)))
+             ;; bounded recursion case, no more children, return value as-is.
+             (force-thunk (extract W)))}))
+      (extract W))))
 
 (defn pull "Equivalent of `datomic.api/pull`. Reshape an HFQL tree `W` into a post-order version of the same tree.
   Lazy in theory, eager in practice.
@@ -602,37 +602,37 @@ Pulling on non-maps (non associative) is perfectly fine.
       #_(fst (extract p)))))
 
 (tests
-  (force-thunk (snd (extract (pull (seed {'% 1} (-hfql identity))))))
+  (force-thunk (extract (pull (seed {'% 1} (-hfql identity)))))
   := 1
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1}} (-hfql :a))))))
+  (force-thunk (extract (pull (seed {'% {:a 1}} (-hfql :a)))))
   := 1
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1, :b 2}} (-hfql [:a]))))))
+  (force-thunk (extract (pull (seed {'% {:a 1, :b 2}} (-hfql [:a])))))
   := {:a 1}
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1}} (-hfql [:a :b]))))))
+  (force-thunk (extract (pull (seed {'% {:a 1}} (-hfql [:a :b])))))
   := {:a 1, :b nil}
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1, :b 2}} (-hfql [:a :b]))))))
+  (force-thunk (extract (pull (seed {'% {:a 1, :b 2}} (-hfql [:a :b])))))
   := {:a 1, :b 2}
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1}} (-hfql [:a identity]))))))
+  (force-thunk (extract (pull (seed {'% {:a 1}} (-hfql [:a identity])))))
   := {:a 1, 'identity {:a 1}}
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1}} (-hfql [{:a inc}]))))))
+  (force-thunk (extract (pull (seed {'% {:a 1}} (-hfql [{:a inc}]))))) 
   := {:a 2}
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1}} (-hfql [{:a {inc inc}}]))))))
+  (force-thunk (extract (pull (seed {'% {:a 1}} (-hfql [{:a {inc inc}}])))))
   := {:a {'inc 3}}
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1}} (-hfql {identity :a}))))))
+  (force-thunk (extract (pull (seed {'% {:a 1}} (-hfql {identity :a})))))
   := {'identity 1}
 
-  (force-thunk (snd (extract (pull (seed {'% {:a 1}} (-hfql {identity [:a]}))))))
+  (force-thunk (extract (pull (seed {'% {:a 1}} (-hfql {identity [:a]})))))
   := {'identity {:a 1}}
 
-  (force-thunk (snd (extract (pull (-hfql (range 3))))))
+  (force-thunk (extract (pull (-hfql (range 3)))))
   := '(0 1 2)
 
   (-values (-hfql {(range 2) identity}))
@@ -641,34 +641,35 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-values (-hfql {(range 2) {* identity}}))
   := '((0 1) 0 1)
 
-  (force-thunk (snd (extract (pull (-hfql {(range 2) {* inc}})))))
+  (force-thunk (extract (pull (-hfql {(range 2) {* inc}}))))
   := '{(range 2) (1 2)}
 
-  (force-thunk (snd (extract (pull (-hfql {(range 2) {* {inc inc}}})))))
-  := '{(range 2) ({inc 2} {inc 3})})
+  (force-thunk (extract (pull (-hfql {(range 2) {* {inc inc}}}))))
+  := '{(range 2) ({inc 2} {inc 3})}
+  )
 
 #?(:clj
    (tests
-     (force-thunk (snd (extract (pull (-hfql {(ns-publics *ns*) {* val}})))))
+     (force-thunk (extract (pull (-hfql {(ns-publics *ns*) {* val}}) ))) 
      := {(list 'ns-publics *ns*) (vals (ns-publics *ns*))}
      ))
 
 #?(:clj
    (tests
-     (force-thunk (snd (extract (pull (-hfql {(ns-publics *ns*) {* {val symbol}}})))))
+     (force-thunk (extract (pull (-hfql {(ns-publics *ns*) {* {val symbol}}}))))
      := {(list 'ns-publics *ns*) (map #(hash-map 'val %) (map symbol (vals (ns-publics *ns*))))}
      ))
 
 #?(:clj
    (tests
-     (force-thunk (snd (extract (pull (-hfql {(ns-publics *ns*) {vals {* symbol}}})))))
+     (force-thunk (extract (pull (-hfql {(ns-publics *ns*) {vals {* symbol}}}))))
      := {(list 'ns-publics *ns*) {'vals (map symbol (vals (ns-publics *ns*)))}}
      ))
 
 #?(:clj
    (tests
      "Arguements tagged ^:symbolic do not template in resulting pull keys."
-     (force-thunk (snd (extract (pull (-hfql {(ns-publics ^:symbolic *ns*) {* val}})))))
+     (force-thunk (extract (pull (-hfql {(ns-publics ^:symbolic *ns*) {* val}}))))
      := {'(ns-publics *ns*) (vals (ns-publics *ns*))}
      ))
 
@@ -678,8 +679,7 @@ Pulling on non-maps (non associative) is perfectly fine.
      "Multiplicity many traversals stays lazy, even through pull."
      (->> (-hfql {(ns-publics *ns*) {* (fn [%] (tap "IO!") (val %))}})
        pull ; CofreeT
-       extract ; [metas, pulled value]
-       snd ; pulled value {ns-publics (...)}
+       extract ; pulled value {ns-publics (...)}
        force-thunk
        first ; map entry
        val ; (...)
@@ -693,16 +693,16 @@ Pulling on non-maps (non associative) is perfectly fine.
    )
 
 (tests
-  (force-thunk (snd (extract (seed {'% {:a 1}} (-hfql *)))))
+  (force-thunk (extract (seed {'% {:a 1}} (-hfql *))))
   := {:a 1}
 
-  (force-thunk (snd (extract (seed {'% {:a 1}} (-hfql :a)))))
+  (force-thunk (extract (seed {'% {:a 1}} (-hfql :a))))
   := 1
 
-  (force-thunk (snd (extract (seed {'% {:a 1}} (-hfql identity)))))
+  (force-thunk (extract (seed {'% {:a 1}} (-hfql identity))))
   := {:a 1}
 
-  (force-thunk (snd (extract (seed {'% {identity 'identity}} (-hfql identity)))))
+  (force-thunk (extract (seed {'% {identity 'identity}} (-hfql identity))))
   := 'identity
   )
 
@@ -773,19 +773,19 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   "recursive pull" ; datomic pull does detect cycles and return only :db/id at leaves.
-  (force-thunk (snd (extract (pull (seed '{% 1} (-hfql {inc [str {identity 2}]}))))))
+  (force-thunk (extract (pull (seed '{% 1} (-hfql {inc [str {identity 2}]})))))
   := '{inc {str "2", identity {inc {str "3", identity 3}}}})
 
 #?(:clj
    (tests
      "Unbounded pull will overflow"
-     (force-thunk (snd (extract (pull (seed {'% nil} (-hfql {identity ...}))))))
+     (force-thunk (extract (pull (seed {'% nil} (-hfql {identity ...})))))
      :throws java.lang.StackOverflowError
      ))
 
 (tests
   "recursive pull across star traversal"
-  (force-thunk (snd (extract (pull (seed {'% (range 3)} (-hfql {identity {* 2}}))))))
+  (force-thunk (extract (pull (seed {'% (range 3)} (-hfql {identity {* 2}})))))
   := '{identity ({identity 0} {identity 1} {identity 2})}
   )
 
@@ -831,7 +831,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 (tests
   "reseeding"
   (let [w (seed {'% 1} (-hfql {inc {inc {inc inc}}}) )]
-    (force-thunk (snd (extract w))) := 2
+    (force-thunk (extract w)) := 2
     (let [w2 (first (unwrap w))]
       [(-values w2)
        (-values (seed {'% 10} w2))])

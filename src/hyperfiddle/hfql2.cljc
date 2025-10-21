@@ -29,9 +29,9 @@
 
 (def seed co/seed)
 (def nav* extract)
-(defpointfree nav (comp force-thunk snd nav*))
+(defpointfree nav (comp force-thunk nav*))
 (defpointfree pull* (comp extract co/pull))
-(defpointfree pull (comp force-thunk snd pull*))
+(defpointfree pull (comp force-thunk pull*))
 (defpointfree next-steps unwrap)
 (defpointfree values (comp (fmap (comp force-thunk nav)) tree-seqT))
 
@@ -54,7 +54,7 @@
 (defn filtered? [object] (::filtered (meta object)))
 
 (defn unfold [ast] (unfoldT (partial hfqlT ast) ast))
-(defn hfql* [analyzed-hfql] #_(seed {}) (unfold (fmap swap analyzed-hfql)))
+(defn hfql* [analyzed-hfql] #_(seed {}) (unfold analyzed-hfql))
 (defmacro hfql [hfql-form] `(hfql* (ana/hfql ~hfql-form)))
 
 
@@ -347,7 +347,7 @@
 
 (defn wrap-in-pull [stepT]
   (seed (scope stepT)
-    (hfql* (ana/wrap-in-pull (fmap swap (::co/AST (metas stepT)))))))
+    (hfql* (ana/wrap-in-pull (::co/AST (metas stepT))))))
 
 (tests
   (pull (seed {'% 1} (hfql inc)))
@@ -361,22 +361,21 @@
         merged-form (vec (distinct (into (vec form-a) (ana/unquote* (::ana/form metas-b)))))]
     (assoc metas-a
       ::ana/lexical-env {}
-      ::ana/form (#'ana/quote merged-form)
-      ::ana/symbolic-edges (#'ana/quote merged-form))))
+      ::ana/form merged-form
+      ::ana/symbolic-edges merged-form
+      )))
 
 (tests
   (merge-pull-metas
-    (snd
-      (extract
-        (ana/analyze {'% 1} [:a :b])))
-    (snd
-      (extract
-        (ana/analyze {'% 2} [:a :c]))))
+    (extract
+      (ana/analyze {'% 1} [:a :b]))
+    (extract
+      (ana/analyze {'% 2} [:a :c])))
   := {:hyperfiddle.hfql1.analyzer/id _
       :hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
-      :hyperfiddle.hfql1.analyzer/form '(quote [:a :b :c]),
+      :hyperfiddle.hfql1.analyzer/form [:a :b :c],
       :hyperfiddle.hfql1.analyzer/lexical-env '{},
-      :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c])
+      :hyperfiddle.hfql1.analyzer/symbolic-edges [:a :b :c]
       :hyperfiddle.hfql1.analyzer/has-star? false}
   )
 
@@ -391,15 +390,15 @@
     (symbolic-edge* (metas hfqlT))))
 
 (defn- merge-pull-children [children-A children-B]
-  (let [keyf (comp symbolic-edge* snd extract)
+  (let [keyf (comp symbolic-edge* extract)
         a-edges (into #{} (map keyf children-A))]
     (into children-A (remove (comp a-edges keyf) children-B))))
 
 (defn- combine-pull [rose-a rose-b]
-  (let [metas (merge-pull-metas (snd (extract rose-a)) (snd (extract rose-b)))]
-    (fmap (fmap (fn [kv] (assoc kv ::ana/lexical-env (::ana/lexical-env metas))))
+  (let [metas (merge-pull-metas (extract rose-a) (extract rose-b))]
+    (fmap (fn [kv] (assoc kv ::ana/lexical-env (::ana/lexical-env metas)))
       (rose-tree
-        (pair (ana/unquote* (::ana/form metas)) metas)
+        metas
         (merge-pull-children
           (unwrap rose-a) (unwrap rose-b))))))
 
@@ -411,11 +410,10 @@
      (do
        (assert (= (::ana/type (metas hfqlT-a)) (::ana/type (metas hfqlT-b))))
        (seed (merge (scope hfqlT-a) (scope hfqlT-b))
-         (unfold (fmap swap
-                   (case (::ana/type (metas hfqlT-a))
-                     ::ana/pull (combine-pull (fmap swap (::co/AST (metas hfqlT-a))) (fmap swap (::co/AST (metas hfqlT-b))))
-                     ::ana/traversal (throw (ex-info "TODO" {}))
-                     (throw (ex-info "Can't combine." (::ana/type (metas hfqlT-a)))))))))))
+         (unfold (case (::ana/type (metas hfqlT-a))
+                   ::ana/pull (combine-pull (::co/AST (metas hfqlT-a)) (::co/AST (metas hfqlT-b)))
+                   ::ana/traversal (throw (ex-info "TODO" {}))
+                   (throw (ex-info "Can't combine." (::ana/type (metas hfqlT-a))))))))))
   ([hfqlT-a hfqlT-b & hfqlTs]
    (reduce combine (combine hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
 
@@ -430,9 +428,9 @@
     (dissoc ::co/AST))
   := {:hyperfiddle.hfql1.analyzer/id _
       :hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
-      :hyperfiddle.hfql1.analyzer/form '(quote [:a :b :c]),
+      :hyperfiddle.hfql1.analyzer/form [:a :b :c],
       :hyperfiddle.hfql1.analyzer/lexical-env {},
-      :hyperfiddle.hfql1.analyzer/symbolic-edges '(quote [:a :b :c]),
+      :hyperfiddle.hfql1.analyzer/symbolic-edges [:a :b :c],
       :hyperfiddle.hfql1.coalgebra/static-children _
       :hyperfiddle.hfql1.coalgebra/scope '{a 1, b 2}
       :hyperfiddle.hfql1.analyzer/has-star? false})
@@ -471,7 +469,7 @@
   (or (seq
         (map (fn [part] (or (identify part) part))
           (normalize-edge
-            (co/symbolic-edge (extract hfqlT) ::co/point-free false))))
+            (co/symbolic-edge hfqlT ::co/point-free false))))
     (identify (value-at-point hfqlT))))
 
 (defn- call-matches? [edgeA edgeB]

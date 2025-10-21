@@ -130,7 +130,7 @@
               (e/Reconcile
                 (if (#(or (nil? suggestedT) (= stepT suggestedT)))
                   (do (RenderMeta stepT)
-                      (dom/pre (dom/text (strx/pprint-str (snd (extract stepT))))))
+                      (dom/pre (dom/text (strx/pprint-str (extract stepT)))))
                   (Navigate sitemap (hfql/seed (assoc ((glitch-guard hfql/scope) stepT) '% value) suggestedT)))))))))))
 
 ;;;;;;;;;;;;;;;;
