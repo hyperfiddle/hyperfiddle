@@ -17,7 +17,7 @@
    [hyperfiddle.rcf :refer [tests tap %]]
    [hyperfiddle.hfql1.analyzer :as ana]
    [hyperfiddle.hfql1.utils :refer [has-meta?]]
-   [hyperfiddle.ct.experiments.thunk :refer [thunk thunk? force-thunk]])
+   [hyperfiddle.ct.experiments.thunk :as thunks :refer [thunk thunk? force-thunk]])
   #?(:clj (:import [hyperfiddle.ct.store Store]))
   #?(:cljs (:require-macros [hyperfiddle.hfql1.coalgebra :refer [-hfql]])))
 
@@ -56,7 +56,7 @@
           not-found))))
 
 (defn thunked "thunked :: (a -> b) -> a -> Thunk b"
-  ([f] (fn thunked-f [a] (thunked f a)))
+  ([f] (#?(:clj bound-fn :cljs fn) thunked-f [a] (thunked f a)))
   ([f a] (let [f (#?(:clj clojure.core/bound-fn*, :cljs identity) f)]
            ;; Note this is almost monadic bind for Thunks, except it accepts both thunks and non-thunks as initial value.
            (thunk (force-thunk (f (force-thunk a)))))))
@@ -130,33 +130,36 @@
   (let [key (get point ::ana/form)]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
-      (thunked
-        (fn [%]
-          #?(:clj (log/debug "[IO]" `getter key))
-          (*navigate* % key (get % key)))))))
+      (binding [thunks/*cache-strategy* ::thunks/weak]
+        (thunked
+          (fn [%]
+            #?(:clj (log/debug "[IO]" `getter key))
+            (*navigate* % key (get % key))))))))
 
 (defn- get-or-call [point]
   (mem-reader ; explicit reader for clarity
-    (thunked
-      (fn [%]
-        ;; (prn (dissoc point ::AST))
-        ;; (prn "get-or-call" (hash %) %)
-        (let [ifn (::ana/value point)]
-          (if (try (contains? % ifn) ; FIXME find a better check
-                   (catch #?(:clj Throwable, :cljs :default) _
-                     #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
-                     false))
-            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form point)))
-                (*navigate* % ifn (get % ifn)))
-            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ana/form point)))
-                (apply ifn [%]))))))))
+    (binding [thunks/*cache-strategy* ::thunks/weak]
+      (thunked
+        (fn [%]
+          ;; (prn (dissoc point ::AST))
+          ;; (prn "get-or-call" (hash %) %)
+          (let [ifn (::ana/value point)]
+            (if (try (contains? % ifn) ; FIXME find a better check
+                     (catch #?(:clj Throwable, :cljs :default) _
+                       #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+                       false))
+              (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form point)))
+                  (*navigate* % ifn (get % ifn)))
+              (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ana/form point)))
+                  (apply ifn [%])))))))))
 
 (defn- call [point]
   (mem-reader
-    (thunked
-      (fn [args]
-        #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge point)))
-        (apply (::ana/value point) args)))))
+    (binding [thunks/*cache-strategy* ::thunks/weak]
+      (thunked
+        (fn [args]
+          #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge point)))
+          (apply (::ana/value point) args))))))
 
 (defn- touch [object] (if (seqable? object) (doall object) object))
 (def ^:private star (mem-reader (thunked touch)))
@@ -412,26 +415,31 @@ Pulling on non-maps (non associative) is perfectly fine.
              ;; #?(:clj (log/debug "Unwrapping" (::ana/symbolic-edge (or (::ana/edge metas) metas))))
              (let [[value children] (runReader step scope)]
                (->CofreeF value
-                 (if-not (multiplicity-many? point) ; if multiplicity one
-                   ;; don't use fmap under here - we want to enforce lazy children.
-                   (map ; for each child, unfold it and seed it with next scope.
-                     (comp (seed (case (projection-type point) ; decide what's next scope.
-                                   ::ana/pull scope ; a "pull" point doesn't alter '% – it doesn't run anything. Only collects kvs.
-                                   (assoc scope '% value)))
-                       (unfoldT coalgebra))
-                     children)
-                   (if (empty? children) ; if recursion is bounded and over, * won't have more children
-                     ()
-                     (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge point) point))))
-                                      (force-thunk value))] ; ⚠ will force all effects up to the root to compute children multiplicity
-                       (with-meta ; carry metadata over
-                         (map ; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
-                              ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
-                           (comp (flip seed (unfoldT coalgebra (first children)))
-                             (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
-                             (fn [value_i] (thunk (safe-ccp-nav (force-thunk value) nil value_i)))) ; hard-wired navigate call – a fan-out is never a leaf.
-                           forced)
-                         (meta forced))))))))
+                 (let [value (binding [thunks/*cache-strategy* ::thunks/hard] ; cache branch values, discarded when no leaves are referencing it, as per lazy-seq semantics, recursively up to the root.
+                               (thunk (extract value)))]
+                   (if-not (multiplicity-many? point) ; if multiplicity one
+                     ;; don't use fmap under here - we want to enforce lazy children.
+                     (map ; for each child, unfold it and seed it with next scope.
+                       (comp (seed (case (projection-type point) ; decide what's next scope.
+                                     ::ana/pull scope ; a "pull" point doesn't alter '% – it doesn't run anything. Only collects kvs.
+                                     (assoc scope '% value)))
+                         (unfoldT coalgebra))
+                       children)
+                     (if (empty? children) ; if recursion is bounded and over, * won't have more children
+                       ()
+                       (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge point) point))))
+                                        (force-thunk 
+                                          value))] ; ⚠ will force all effects up to the root to compute children multiplicity
+                         (with-meta ; carry metadata over
+                           (map ; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
+                                        ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
+                             (comp (flip seed (unfoldT coalgebra (first children)))
+                               (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
+                               (fn [value_i]
+                                 (binding [thunks/*cache-strategy* ::thunks/weak] ; lazy-seq spine do not hold onto navigated values. Leaves does.
+                                   (thunk (safe-ccp-nav (extract value) nil value_i))))) ; hard-wired navigate call – a fan-out is never a leaf.
+                             forced)
+                           (meta forced)))))))))
            (::ana/lexical-env point)))))))
 
 (defn seed
