@@ -89,16 +89,18 @@
        (try
          (debug-exceptions `eager-search-BIG-O-N-SQUARE
            (if-not (str/blank? needle)
-             (sequence (comp (map first) ; short-circuit on first cell match per row.
-                         (remove nil?))
-               (for [rowT rowsT
-                     :let [rowT+ (hfql/augment-with-suggestions! rowT)]] ; forces a nav!
-                 (for [columnT (unwrap rowT+)
-                       :let [cell-value (hfql/nav columnT)]
-                       :when (search-matches cell-value needle)]
-                   rowT)))
+             (doall ; HACK prevent lazy-seq to escape this fn and cause electric to choke on `=` dedupe ; FIXME this needs streamy qseq
+               (sequence (comp (map first) ; short-circuit on first cell match per row.
+                           (remove nil?))
+                 (for [rowT rowsT
+                       :let [rowT+ (hfql/augment-with-suggestions! rowT)]] ; forces a nav!
+                   (for [columnT (unwrap rowT+)
+                         :let [cell-value (hfql/nav columnT)]
+                         :when (search-matches cell-value needle)]
+                     rowT))))
              rowsT))
-         (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t) [])))))
+         (catch InterruptedException t (prn 'search-BIG-O-N-SQUARE 'interrupted) (throw t))
+         (catch Throwable t (prn 'search-BIG-O-N-SQUARE (ex-message t) #_t) [])))))
 
 
 
