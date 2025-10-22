@@ -12,6 +12,7 @@
             [hyperfiddle.ct.monoid :refer [mappend]]
             [hyperfiddle.hfql1.analyzer :as ana]
             [hyperfiddle.hfql2 :as hfql]
+            [hyperfiddle.ct.experiments.thunk :as thunks]
             [hyperfiddle.rcf :refer [tests]]
             ))
 
@@ -35,7 +36,8 @@
     (let [thunk (extract cellT)]
       (when-not (realized? thunk)
         #?(:clj (log/trace "Running IO for sort over " (hfql/symbolic-edge cellT))))
-      (force thunk))))
+      (thunks/force-thunk thunk) ; TODO would be nice if force-thunk was retrocompatible with Delay
+      )))
 
 (def compare-cells "Take a comparator and transform it such that it receives comparable cell values instead of raw CofreeT objects."
   ((join bimap) (fmap comparable force-cell-value!)))
