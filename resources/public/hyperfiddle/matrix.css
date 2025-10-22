@@ -202,3 +202,16 @@ table.matrix[role=radiogroup]{
     }
 
 }
+
+/* column selection */
+/* This ensures column selection checkboxes nicely wrap around the matrix title and search field. */
+/* It works by giving the same line-height to all direct children of a <legend> above a matrix. */
+/*
+  Putting all title + search input + checkboxes in the same flex or grid container will either:
+  - prevent checkboxes from wrapping on window resize,
+  - cause the search input to lose focus when checkboxes are added/removed and the flex layout recomputes.
+*/
+fieldset:has(table.matrix) legend > * {
+    line-height: 1rlh;
+    display: inline-block;
+}

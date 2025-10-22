@@ -231,9 +231,10 @@
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_horizontal.css"})))
     (dom/props {:class "" #_"entity-children hyperfiddle-navigator6__block"})
     (let [stepT (e/server (Offload #(do (hfql/nav stepT) stepT) {:label 'run-query}))
-          legend (dom/legend (dom/props {:style {:display :flex, :flex-wrap :wrap}})
-                             (rendering/Step-Title stepT)
-                             dom/node)
+          [legend top-left] (dom/legend
+                               [dom/node (dom/span (dom/props {:style {:float :inline-start, :display :flex, :flex-wrap :wrap}})
+                                           (rendering/Step-Title stepT)
+                                           dom/node)])
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
           rowsT (e/server (do (prn "list rows"(hash stepT))
@@ -248,11 +249,12 @@
         (e/server rowsT)
         (e/fn [rowsT]
           (let [rowsT-count (e/server (bounded-count rowsT-count rowsT))]
-            (in legend
+            (in top-left
               (dom/span (dom/props {:style {:order -1}})
                         (dom/text (rendering/format-collection-count rowsT-count COLLECTION-LIMIT))))
             (e/amb
-              (in legend (dom/span (dom/props {:style {:order -2}}) (search/SearchInput! false)))
+              (in top-left (dom/span (dom/props {:style {:order -2}})
+                                   (search/SearchInput! false)))
               (sort/Sorted (e/server (map hfql/augment-with-suggestions! rowsT))
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection/select-pull-step) stepT))]
