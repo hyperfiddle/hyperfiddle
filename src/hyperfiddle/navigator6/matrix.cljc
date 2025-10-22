@@ -27,16 +27,32 @@
       (e/When t
         [(forms/after-ack t (partial after-ack event)) (value-fn event)]))))
 
+
+(defn- named? [x]
+  (or (string? x)
+    #?(:clj (instance? clojure.lang.Named x)
+       :cljs (implements? INamed x))))
+
+(defn- name-shortener [names]
+  (let [key-fn #(if (named? %) (name %) %)
+        groups (group-by key-fn names)
+        conflicts? (into #{} (map key (filter (fn [[_k v]] (>= (count v) 2)) groups)))]
+    (fn [x]
+      (if (conflicts? (key-fn x))
+        x
+        (key-fn x)))))
+
 (e/defn MatrixHeader [columnsT]
   (dom/thead
     (dom/tr
       (e/amb
         (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :style {:width "100%"}})
                 (Command (constantly [`Transpose!]) (dom/On* "click" identity nil) (constantly nil)))
-        (let [columns-index (e/server (into {} (map (juxt hfql/id identity)) columnsT))]
+        (let [shorten (e/server (name-shortener (map hfql/symbolic-edge columnsT)))
+              columns-index (e/server (into {} (map (juxt hfql/id identity)) columnsT))]
           (e/for [edge (e/diff (e/server (map hfql/id columnsT)))]
             (let [columnT (e/server (get columns-index edge))
-                  form (e/server (str (hfql/symbolic-edge columnT)))]
+                  form (e/server (str (shorten (hfql/symbolic-edge columnT))))]
               (dom/th (dom/props {:scope :col :title (e/server (hfql/describe-formatted columnT))})
                       (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)) ; TODO cleanup
                       (dom/text form)
@@ -185,7 +201,6 @@
                 (fn [event]
                   (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil))))))))))
 
-
 (e/defn ColumnPicker [stepT]
   (e/server
     (when-let [pull-step ((glitch-guard selection/select-pull-step) stepT)]
@@ -194,16 +209,17 @@
             static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
             suggested-columns (e/Snapshot (filter (comp ::hfql/suggested hfql/metas) childrenT))
             pre-checked (#(or (hfql/pull-has-star? stepT+) (empty? static-columns)))
+            shorten (name-shortener (map hfql/symbolic-edge childrenT))
             from-spec (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge static-columns)]
                                   (e/When
                                       (dom/span
-                                        (forms/Checkbox* true :label (e/server (str (hfql/symbolic-edge columnT)))
+                                        (forms/Checkbox* true :label (e/server (str (shorten (hfql/symbolic-edge columnT))))
                                           :title (e/server (hfql/describe-formatted columnT))))
                                     columnT)))
             suggested (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge suggested-columns)]
                                  (e/When
                                      (dom/span
-                                       (forms/Checkbox* pre-checked :label (e/server (str (hfql/symbolic-edge columnT)))
+                                       (forms/Checkbox* pre-checked :label (e/server (str (shorten (hfql/symbolic-edge columnT))))
                                          :title (e/server (hfql/describe-formatted columnT))))
                                    columnT)))]
         (mappend from-spec suggested)))))
