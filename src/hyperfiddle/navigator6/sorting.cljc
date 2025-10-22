@@ -10,7 +10,7 @@
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.monad :refer [join]]
             [hyperfiddle.ct.monoid :refer [mappend]]
-            [hyperfiddle.hfql1.analyzer :as ana]
+            [hyperfiddle.hfql2.analyzer :as ana]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.ct.experiments.thunk :as thunks]
             [hyperfiddle.rcf :refer [tests]]

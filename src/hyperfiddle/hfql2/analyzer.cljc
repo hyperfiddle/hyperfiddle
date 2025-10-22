@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql1.analyzer
+(ns hyperfiddle.hfql2.analyzer
   (:require [clojure.core :as cc]
             [contrib.data :refer [update-existing]]
             [contrib.walk :refer [prewalk]]
@@ -9,7 +9,7 @@
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.ct.rose-tree :refer [rose-tree coiter]]
             [clojure.string :as str])
-  #?(:cljs (:require-macros [hyperfiddle.hfql1.analyzer :refer [hfql resolve-direct-method]])))
+  #?(:cljs (:require-macros [hyperfiddle.hfql2.analyzer :refer [hfql resolve-direct-method]])))
 
 (defn- var-form? [form]
   (and (seq? form)
@@ -236,11 +236,11 @@
 
 (tests
   (aliased-form (ns-name *ns*) ::test) := "::test"
-  (aliased-form (ns-name *ns*) :hyperfiddle.hfql1.analyzer/test) := "::test"
+  (aliased-form (ns-name *ns*) :hyperfiddle.hfql2.analyzer/test) := "::test"
   (aliased-form (ns-name *ns*) :clojure.core/test) := "::cc/test"
   (aliased-form (ns-name *ns*) ::cc/test) := "::cc/test"
   (aliased-form (ns-name *ns*) `asdf) := 'asdf
-  (aliased-form (ns-name *ns*) 'hyperfiddle.hfql1.analyzer/asdf) := 'asdf
+  (aliased-form (ns-name *ns*) 'hyperfiddle.hfql2.analyzer/asdf) := 'asdf
 
   ;; (shorten-form 'clojure.core/str) := 'cc/str
   ;; (shorten-form `cc/str) := 'cc/str

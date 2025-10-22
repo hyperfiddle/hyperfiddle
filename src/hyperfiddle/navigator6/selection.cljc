@@ -2,7 +2,7 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.state :as state]
-            [hyperfiddle.hfql1.analyzer :as ana]
+            [hyperfiddle.hfql2.analyzer :as ana]
             [geoffreygaillard.predicates :as pred]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.navigator6.utils :as utils]
@@ -16,8 +16,8 @@
 (defn- symbolic-coordinates [cellT] (when cellT ; glitch-guard
                                       (list (hfql/symbolic-edge cellT) (hfql/identify (hfql/value-at-point cellT)))))
 
-;; (symbolic-cell-coordinates hyperfiddle.navigator6.matrix2/_cellT)
-;; (symbolic-row-coordinates hyperfiddle.navigator6.matrix2/_cellT)
+;; (symbolic-cell-coordinates hyperfiddle.navigator6.matrix/_cellT)
+;; (symbolic-row-coordinates hyperfiddle.navigator6.matrix/_cellT)
 
 (e/defn WithLocalSelection [state-key resolve-fn Body]
   (e/client

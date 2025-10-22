@@ -9,7 +9,7 @@
             [hyperfiddle.navigator6.state :as state :refer [with-local-state]]
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
-            [hyperfiddle.navigator6.matrix2 :refer [RenderMatrix]]
+            [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
             [hyperfiddle.navigator6.utils :refer [rebooting glitch-guard]]
             [contrib.css :as cssx]
             [dustingetz.str :as strx]
@@ -18,7 +18,7 @@
             [hyperfiddle.ct.bifunctor :refer [snd]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
-            [hyperfiddle.hfql1.analyzer :as ana]
+            [hyperfiddle.hfql2.analyzer :as ana]
             [dustingetz.loader :refer [Offload]])
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 

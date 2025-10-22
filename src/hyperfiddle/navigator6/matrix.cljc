@@ -1,4 +1,4 @@
-(ns hyperfiddle.navigator6.matrix2
+(ns hyperfiddle.navigator6.matrix
   (:require
    [clojure.math :as math]
    [contrib.data :refer [clamp]]
@@ -7,7 +7,7 @@
    [hyperfiddle.electric-forms5 :as forms]
    [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing]]
    [hyperfiddle.electric3 :as e]
-   [hyperfiddle.hfql1.analyzer :as ana]
+   [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.ct.cofree :refer [unwrap]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.hfql2 :as hfql]
@@ -236,12 +236,10 @@
                              dom/node)
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
-          rowsT (e/server (Offload
-                            #(do (prn "list rows"(hash stepT))
-                                 (if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
-                                   [stepT]
-                                   (unwrap stepT)))
-                            {:label 'list-rows}))
+          rowsT (e/server (do (prn "list rows"(hash stepT))
+                               (if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
+                                 [stepT]
+                                 (unwrap stepT))))
           rowsT-count (e/server (Offload #(bounded-count COLLECTION-LIMIT rowsT)
                                   {:label 'count-rows})) ; 𝓞(n)
           ]

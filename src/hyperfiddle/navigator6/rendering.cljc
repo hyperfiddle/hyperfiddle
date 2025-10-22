@@ -5,7 +5,7 @@
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric3 :as e]
-            [hyperfiddle.hfql1.analyzer :as ana :refer [unquote*]]
+            [hyperfiddle.hfql2.analyzer :as ana :refer [unquote*]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.extensions :as extensions]
@@ -63,7 +63,7 @@
 (e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
 
 (e/defn RenderTooltip* [tooltip-ident object edgeT value]
-  (let [tooltip-qualified-ident (hyperfiddle.hfql1.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
+  (let [tooltip-qualified-ident (hyperfiddle.hfql2.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
         Tooltip (Resolve tooltip-qualified-ident nil)]
     (e/Reconcile
       (when (some? Tooltip)

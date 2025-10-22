@@ -14,9 +14,9 @@
    [hyperfiddle.ct.rose-tree :refer [rose-tree]]
    [hyperfiddle.ct.store :refer [pos peeks]]
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
-   [hyperfiddle.hfql1.analyzer :as ana]
-   [hyperfiddle.hfql1.coalgebra :as co :refer [unfoldT hfqlT]]
-   [hyperfiddle.hfql1.utils :refer [has-meta?]]
+   [hyperfiddle.hfql2.analyzer :as ana]
+   [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT]]
+   [hyperfiddle.hfql2.utils :refer [has-meta?]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format]))
   #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql defpointfree]])))
@@ -371,12 +371,12 @@
       (ana/analyze {'% 1} [:a :b]))
     (extract
       (ana/analyze {'% 2} [:a :c])))
-  := {:hyperfiddle.hfql1.analyzer/id _
-      :hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
-      :hyperfiddle.hfql1.analyzer/form [:a :b :c],
-      :hyperfiddle.hfql1.analyzer/lexical-env '{},
-      :hyperfiddle.hfql1.analyzer/symbolic-edges [:a :b :c]
-      :hyperfiddle.hfql1.analyzer/has-star? false}
+  := {:hyperfiddle.hfql2.analyzer/id _
+      :hyperfiddle.hfql2.analyzer/type :hyperfiddle.hfql2.analyzer/pull,
+      :hyperfiddle.hfql2.analyzer/form [:a :b :c],
+      :hyperfiddle.hfql2.analyzer/lexical-env '{},
+      :hyperfiddle.hfql2.analyzer/symbolic-edges [:a :b :c]
+      :hyperfiddle.hfql2.analyzer/has-star? false}
   )
 
 (defn symbolic-edge* [metas]
@@ -426,14 +426,14 @@
         (hfql [:a :c])))
     (metas)
     (dissoc ::co/AST))
-  := {:hyperfiddle.hfql1.analyzer/id _
-      :hyperfiddle.hfql1.analyzer/type :hyperfiddle.hfql1.analyzer/pull,
-      :hyperfiddle.hfql1.analyzer/form [:a :b :c],
-      :hyperfiddle.hfql1.analyzer/lexical-env {},
-      :hyperfiddle.hfql1.analyzer/symbolic-edges [:a :b :c],
-      :hyperfiddle.hfql1.coalgebra/static-children _
-      :hyperfiddle.hfql1.coalgebra/scope '{a 1, b 2}
-      :hyperfiddle.hfql1.analyzer/has-star? false})
+  := {:hyperfiddle.hfql2.analyzer/id _
+      :hyperfiddle.hfql2.analyzer/type :hyperfiddle.hfql2.analyzer/pull,
+      :hyperfiddle.hfql2.analyzer/form [:a :b :c],
+      :hyperfiddle.hfql2.analyzer/lexical-env {},
+      :hyperfiddle.hfql2.analyzer/symbolic-edges [:a :b :c],
+      :hyperfiddle.hfql2.coalgebra/static-children _
+      :hyperfiddle.hfql2.coalgebra/scope '{a 1, b 2}
+      :hyperfiddle.hfql2.analyzer/has-star? false})
 
 ;; (defn filter-pull [pred pullT]
 ;;   (assert (= ::ana/pull (::ana/type (metas pullT))))

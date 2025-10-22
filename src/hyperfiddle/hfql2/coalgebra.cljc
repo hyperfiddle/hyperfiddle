@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql1.coalgebra
+(ns hyperfiddle.hfql2.coalgebra
   (:refer-clojure :exclude [extend resolve meta bound-fn*])
   (:require
    [clojure.core.protocols :as ccp]
@@ -15,11 +15,11 @@
    [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
    [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.rcf :refer [tests tap %]]
-   [hyperfiddle.hfql1.analyzer :as ana]
-   [hyperfiddle.hfql1.utils :refer [has-meta?]]
+   [hyperfiddle.hfql2.analyzer :as ana]
+   [hyperfiddle.hfql2.utils :refer [has-meta?]]
    [hyperfiddle.ct.experiments.thunk :as thunks :refer [thunk thunk? force-thunk]])
   #?(:clj (:import [hyperfiddle.ct.store Store]))
-  #?(:cljs (:require-macros [hyperfiddle.hfql1.coalgebra :refer [-hfql]])))
+  #?(:cljs (:require-macros [hyperfiddle.hfql2.coalgebra :refer [-hfql]])))
 
 (defn safe-ccp-nav [object key value]
   (if (satisfies? ccp/Navigable object)

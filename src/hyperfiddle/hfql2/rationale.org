@@ -1,0 +1,129 @@
+* What is it
+  - HFQL is a data navigation and querying utility.
+  - Given a symbolic query representation, HFQL produces navigation functions.
+  - The query language is an extension of Datomic Pull syntax.
+    - It is a goal for HFQL to support any valid Datomic pull expression.
+
+
+  - Technically, HFQL is
+    - a comonad: because HFQL-generated step functions carries and model the
+      navigation context, e.g. lexical scope, parent/sibling dependencies,
+      etc.
+    - a cofree comonad: because calling an HFQL generated function returns a
+      pair `[result continuation]`, where `continuation` is itself an HFQL
+      generated function, modeling "how to navigate further". It is possible
+      to extend the navigation plan without running it or reanalyzing it.
+    - a coalgebra producing a cofree comonad: because repeated applications
+      of `continuation` over `result` (coiteration) produces the whole cofree
+      structure. Eagerly realizing this structure gives us half of
+      datomic.api/pull. The other half is in charge of producing a nested structure.
+* Rules of HFQL – internal
+
+** Don't force an evaluation model ①
+   HFQL can be lazy or eager. But it's on the user to decide how to run it.
+   HFQL should produce values step by step and provide continuations for next
+   steps. The user can then run all eagerly or consume one step at a time.
+
+** Don't resolve ②
+   Resolving in clojure is easy, but not simple. Resolving in clojurescript is
+   neither at compile time, and impossible at runtime in practice. Gathering the
+   knowledge to resolve correctly (in context) causes headaches and makes code
+   brittle. Let the reader and compiler resolve for you, don't mess with the
+   natural resolving process, or be doomed to reimplement more parts of the
+   compiler than you'd like to. How?
+   ```
+   (defmacro capture-form+val [form]
+   `{:form '~form, :evaluated ~form})
+   ```
+
+** Don't eval ③
+   Eval is resolve's angry big brother. Eval in clojure is easy, but so hard to
+   get right out of dummy cases that it's not practical. Eval in cljs is
+   borderline impossible out of toy projects. Eval does resolve, so it requires
+   at least as much context as resolve. It also requires knowledge of bindings
+   (e.g. lexicals, ...). Just like resolve, collecting all those and calling
+   eval just-the-right-way will make you rewrite a non negligible part of an
+   interpreter. How to avoid eval? Your code already run inside of eval, so
+   instead of calling a new eval context, leverage the current one. Don't
+   capture code and then inject a runtime interpreter, instead rewrite code and
+   let it be interpreted by the current -already running- interpreter :
+
+   ```
+   (defmacro applicative-let [bindings & body]
+     ; don't do that
+     `(eval-ordered-let '~bindings '~body)
+     ; instead do
+     `(let [~@(toposort bindings)]
+       ~@body))
+   ```
+
+** Capture all you can ④
+   The need for resolve or eval often indicates a lack of information, and an
+   attempt at recovering it. By capturing as much as you can at compile time and
+   passing it to runtime, you can minimize the need to reconstruct information.
+   Never throw away/forget information. Example:
+   ```
+   (defmacro capture [form]
+     `(with-meta ~form ; will be evaluated
+        {'~'&env ~&env, ; pay attention to quoting
+         '~'&form '~&form, ; meta is preserved and contains e.g. line/col
+         :ns (ns-name *ns*) ; some objects are not valid at read time (cljs) and must be turned into their symbolic form (e.g. #namespace[user])
+       }))
+   ```
+
+** Pass raw forms to userland ⑤
+
+   Some values must be wrapped to be annotated. Keywords are famously annoying
+   to annotate because they don't support metadata, compare by reference
+   equality, and cannot be subclassed (no they really cannot, even if
+   Keyword.class isn't final). Wrapping a keyword (e.g. with a deftype) will
+   work for all use cases but two: `case` and `=`.
+   - `case` expands to a low level lookup table with direct reference equality
+     check. And can't be customized or overloaded.
+   - `=` will call Keyword/.equals. So (= wrapped-foo :foo) will return true,
+     but (= :foo wrapped-foo) will return false, breaking equality symmetry.
+
+   As a consequence of using a wrapper type, an `unwrap` function will appear
+   (also often named `original-form`, or `form`). Calling `unwrap` is essential
+   complexity. Forcing users to call `unwrap` is leaking internals, and turning
+   essential complexity into accidental complexity. Having to call `unwrap` as a
+   user, knowing when to call it, and why, is a real burden.
+
+   How to mitigate? Pass two values to userland: the already-unwrapped one
+   first, and the wrapped one (or even better: it's annotations directly) as an
+   extra, optional value.
+
+   ```
+   ; don't
+   (user-callback wrapped-foo-kw)
+   ; do
+   (user-callback
+     (unwrap wrapped-foo-kw)
+     (meta wrapped-foo-kw))
+   ```
+
+   Idea: One could even cheat and overload `cc/meta` to look for a a value in
+   dynamic scope.
+
+** Don't assume information will be available ⑥
+   Clojure read is destructive. One example is keyword alias expansion: it
+   happens at read time. At compile time (macro time) the original keyword form
+   (the one made of chars in source file on disk) is already gone, and we can't
+   tell if the keywords was fully qualified or aliased. ns-alias is available,
+   sure, but the presence of a matching alias doesn't necessarily mean the
+   keyword was aliased. It could have been fully qualified.
+
+** Always quote (meta &form) ⑦
+   You can never know what's in there, libraries and devtools may mess with it,
+   and it's never meant to be evaluated (e.g. :tag, or :arglists).
+
+** Avoid large macros, use many small ones ⑧
+   This advice is specific to HFQL. Avoid large macros taking one form and doing
+   all transforms at once. Instead use many small macros so to collect as much
+   &form instances as possible, and so augment source knowledge. You'll get more
+   granular source mapping, less coupling and better testing. Remember
+   macroexpand is a pre-walk: having a top-level macro sprinkle small ones over
+   the form won't produce source mapping metadata on the sprinkled &forms.
+
+** Don't use dynamic scope with lazy traversals ⑨
+   Instead macroexpand to lexical scopes and close over it.

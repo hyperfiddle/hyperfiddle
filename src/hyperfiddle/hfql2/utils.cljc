@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql1.utils
+(ns hyperfiddle.hfql2.utils
   (:require
    [hyperfiddle.rcf :refer [tests]]))
 
