@@ -176,9 +176,13 @@
       :cljs f ; TODO
       )))
 
-(defn leaf [Ra]
-  (->> (reader (fn [env] ((bound-fn* {#'*navigate* right} (runReader Ra)) env)))
-    (fmap (fn [v] (pair v ())))))
+(defn leaf
+  ([point] (partial leaf point))
+  ([point Ra]
+   (->> (if (= false (::leaf point)) ; FIXME wart – should always navigate unless the renderer disables it.
+          Ra
+          (reader (fn [env] ((bound-fn* {#'*navigate* right} (runReader Ra)) env))))
+     (fmap (fn [v] (pair v ()))))))
 
 (declare seed)
 
@@ -252,16 +256,16 @@ Pulling on non-maps (non associative) is perfectly fine.
         children (unwrap hfql)
         transform
         (case (projection-type point)
-          ::ana/symbol  (comp leaf focus-% getter)
-          ::ana/keyword (comp leaf focus-% getter)
-          ::ana/string  (comp leaf focus-% getter)
-          ::ana/literal (comp leaf focus-% getter)
-          ::ana/fn      (comp leaf focus-% get-or-call)
-          ::ana/var     (comp leaf (focus-arguments point) call)
-          ::ana/quoted-var (comp leaf focus-% getter)
-          ::ana/call    (comp leaf (focus-arguments point) call)
-          ::ana/lambda  (comp leaf (focus-arguments point) call)
-          ::ana/star    (comp leaf focus-% (constantly star))
+          ::ana/symbol  (comp (leaf point) focus-% getter)
+          ::ana/keyword (comp (leaf point) focus-% getter)
+          ::ana/string  (comp (leaf point) focus-% getter)
+          ::ana/literal (comp (leaf point) focus-% getter)
+          ::ana/fn      (comp (leaf point) focus-% get-or-call)
+          ::ana/var     (comp (leaf point) (focus-arguments point) call)
+          ::ana/quoted-var (comp (leaf point) focus-% getter)
+          ::ana/call    (comp (leaf point) (focus-arguments point) call)
+          ::ana/lambda  (comp (leaf point) (focus-arguments point) call)
+          ::ana/star    (comp (leaf point) focus-% (constantly star))
           ::ana/recur   (constantly (mem-reader (fn [env] (pair env [root]))))
           ::ana/pull
           (constantly
@@ -290,7 +294,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                         [])))))))
           ::ana/traversal
           (let [edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
-                                           :else (ana/hydrate [(::ana/edge point) ()])  ; FIXME wart, should be handled by the analyzer
+                                           :else (ana/hydrate [(assoc (::ana/edge point) ::leaf false) ()])  ; FIXME wart, should be handled by the analyzer
                                            ))]
             (constantly
               (mem-reader

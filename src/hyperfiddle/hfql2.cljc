@@ -699,7 +699,7 @@ identifier, though it might not be serializable."
   Also see `realize`.
   "
   [aseq]
-  (if true #_(chunked-seq? aseq)
+  (if (or (chunked-seq? aseq) (vector? aseq)) ; calling seq on a vector produces a chunked-seq
     (with-meta
       (lazy-seq
         (when-let [s (seq aseq)]
