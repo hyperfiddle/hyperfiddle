@@ -192,7 +192,7 @@
       (let [stepT+ (hfql/augment-with-suggestions! pull-step)
             childrenT (remove (comp ::ana/recursive-child hfql/metas) (unwrap stepT+))
             static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
-            suggested-columns (filter (comp ::hfql/suggested hfql/metas) childrenT)
+            suggested-columns (e/Snapshot (filter (comp ::hfql/suggested hfql/metas) childrenT))
             pre-checked (#(or (hfql/pull-has-star? stepT+) (empty? static-columns)))
             from-spec (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge static-columns)]
                                   (e/When
