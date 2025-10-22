@@ -391,7 +391,9 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- hfqlt-equals [^HFQLT this ^HFQLT other]
   (and (instance? HFQLT this) (instance? HFQLT other)
     (= (::ana/id (fst (runCofreeT this)))
-      (::ana/id (fst (runCofreeT other))))))
+      (::ana/id (fst (runCofreeT other))))
+    (= (pos (snd (runCofreeT this)))
+      (pos (snd (runCofreeT other))))))
 
 (defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (fst (runCofreeT hfqlt)))))
 

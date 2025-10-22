@@ -23,10 +23,7 @@
   (e/client
     (binding [*local-selection (e/server (let [selection-state (get state/*local-state state-key)
                                                resolve-fn ((e/capture-fn) resolve-fn)]
-                                           (doto
-                                               (Offload #(resolve-fn selection-state) ; FIXME doesn't select
-                                                 {:label 'resolve-selected-object})
-                                             (->> (prn "resolved")))))]
+                                           (Offload #(resolve-fn selection-state) {:label 'resolve-selected-object})))]
       (->> (Body)
         (utils/InterceptCommand `SetSelection!
           (e/fn [[_ Getter]]
@@ -63,20 +60,19 @@
     #_(throw (ex-info "No pull child" {:type (::ana/type (hfql/metas stepT))}))))
 
 (defn resolve-selected-object-BIG-O-N [[column row] bindings childrenT]
-  (let [next-int (partial swap! (atom 0) inc)]
-    #?(:clj
-       (debug-exceptions `resolve-selected-object
-         (with-bindings bindings
-           ;; (prn "resolve-selected-object-BIG-O-N" column row)
-           [column
-            (when (> (bounded-count 10000 (unwrap childrenT)) 10000) ; FIXME HACK don't scan large collections. We must find a way to support selection over arbitrary large collections – probably by enforcing selected objects to be globally resolvable.
-              (when (and row (some? childrenT))
-                (or
-                  (when (and (some? row) (= row (hfql/identify (hfql/value-at-point childrenT))))
-                    childrenT)
-                  (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
-                    (hfql/find-child-by #(do (prn (next-int) (= row (hfql/identify (hfql/value-at-point %))))) childrenT)
-                    (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT)))))))])))))
+  #?(:clj
+     (debug-exceptions `resolve-selected-object
+       (with-bindings bindings
+         ;; (prn "resolve-selected-object-BIG-O-N" column row)
+         [column
+          (when (> 10000 (bounded-count 10000 (unwrap childrenT))) ; FIXME HACK don't scan large collections. We must find a way to support selection over arbitrary large collections – probably by enforcing selected objects to be globally resolvable.
+            (when (and row (some? childrenT))
+              (or
+                (when (and (some? row) (= row (hfql/identify (hfql/value-at-point childrenT))))
+                  childrenT)
+                (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
+                  (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
+                  (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT)))))))]))))
 
 (defn get-rows-container [stepT]
   (case (::ana/type (hfql/metas stepT))
