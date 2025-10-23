@@ -89,29 +89,38 @@
       v)))
 
 (def css
-"
+  "
+.data-loader{ --loader-color: green; }
+:has(> .data-loader){
+  --loader-color: green; /* default */
+  will-change: outline-color;
+}
 
-:has(>.data-loader){--color: orange; will-change: outline-color;}
-:has(>.data-loader[data-loader-status=interrupted]){--color: crimson;}
-:has(>.data-loader[data-loader-status=done]){--color: green; /*animation: data-loader-fade-out 1s ease-out forwards;*/}
+.data-loader[data-loader-status=running]
+, :has(> .data-loader[data-loader-status=running]) {--loader-color: orange;}
+
+.data-loader[data-loader-status=interrupted]
+, :has(> .data-loader[data-loader-status=interrupted]):not(:has(> .data-loader[data-loader-status=running])){
+  --loader-color: crimson;
+}
 
 @keyframes data-loader-fade-out{
-  from { outline-color: var(--color); }
+  from { outline-color: var(--loader-color); }
   to   { outline-color: transparent; }
 }
 
 .data-loader + :is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]):first-of-type
- { border-top: 1px var(--color) solid; }
+ { border-top: 1px var(--loader-color) solid; }
 .data-loader + :is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]):last-of-type
- { border-bottom: 1px var(--color) solid; }
+ { border-bottom: 1px var(--loader-color) solid; }
 
 .data-loader + :not(:is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]))
- { border: 1px var(--color) solid; }
+ { border: 1px var(--loader-color) solid; }
 
 .data-loader{
   /*pointer-events: none;*/
   box-sizing: border-box;
-  background-color: var(--color);
+  background-color: var(--loader-color);
   color: white;
   padding-left: 0.5rem;
   font-size: 0.75rem;
@@ -135,8 +144,8 @@
   border-radius: 0;
   border: none;
   border-top-left-radius: 3px;
-  border-bottom: 1px var(--color) solid;
-  background-color: var(--color);
+  border-bottom: 1px var(--loader-color) solid;
+  background-color: var(--loader-color);
   color: white;
   border: none;
 }
