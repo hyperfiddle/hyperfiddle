@@ -214,13 +214,13 @@
                                   (e/When
                                       (dom/span
                                         (forms/Checkbox* true :label (e/server (str (shorten (hfql/symbolic-edge columnT))))
-                                          :title (e/server (hfql/describe-formatted columnT))))
+                                          :title (e/server (str (hfql/describe-formatted columnT)))))
                                     columnT)))
             suggested (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge suggested-columns)]
                                  (e/When
                                      (dom/span
                                        (forms/Checkbox* pre-checked :label (e/server (str (shorten (hfql/symbolic-edge columnT))))
-                                         :title (e/server (hfql/describe-formatted columnT))))
+                                         :title (e/server (str (hfql/describe-formatted columnT)))))
                                    columnT)))]
         (mappend from-spec suggested)))))
 

@@ -644,7 +644,9 @@ identifier, though it might not be serializable."
 
 (defmulti describe describe-dispatch-fn)
 (defmethod describe :default [_] nil)
-(defmethod describe ::ana/symbol [stepT] (metas stepT))
+(defmethod describe ::ana/symbol  [stepT] (metas stepT))
+(defmethod describe ::ana/keyword [stepT] (metas stepT))
+(defmethod describe ::ana/string  [stepT] (metas stepT))
 (defn- describe-call [metas] (assoc metas ::symbolic-edge (symbolic-edge* metas)))
 (defmethod describe ::ana/call   [stepT] (describe-call (metas stepT)))
 (defmethod describe ::ana/traversal [stepT] (describe-call (::ana/edge (metas stepT))))
@@ -666,13 +668,20 @@ identifier, though it might not be serializable."
   (let [{::ana/keys [form form-resolved var]} (describe hfqlT)]
     (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" (or form-resolved form) (some-> var meta :arglists) (some-> var meta :doc))))
 
+(defmethod describe-formatted ::ana/keyword [hfqlT] (::ana/form (describe hfqlT)))
+(defmethod describe-formatted ::ana/string  [hfqlT] (::ana/form (describe hfqlT)))
+(defmethod describe-formatted ::ana/lambda  [hfqlT] (symbolic-edge hfqlT))
+
 (defmethod describe-formatted ::ana/traversal [hfqlT]
   (let [{::keys [symbolic-edge] ::ana/keys [var]} (describe hfqlT)]
     (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" symbolic-edge (some-> var meta :arglists) (some-> var meta :doc))))
 
 (comment
+  (describe (hfql :db/ident))
+  (describe-formatted (hfql :db/ident))
   (describe (get dustingetz.namespace-explorer/sitemap `all-ns))
-  (describe-formatted (get dustingetz.namespace-explorer/sitemap `all-ns)))
+  (describe-formatted (get dustingetz.namespace-explorer/sitemap `all-ns))
+  )
 
 ;;; Misc
 
