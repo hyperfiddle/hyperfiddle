@@ -18,7 +18,7 @@
 (defmethod update-state ::route [_ route depth f & args]
   (into
     (conj (into [] (take depth) route)
-      (apply f (read-state ::route route depth) args))
+      (apply f (read-state ::route route depth) args)) ; TODO post-walk tidy pass, pruning nil values up to the root
     (drop (inc depth) route)))
 
 (e/defn HandleReplaceState! [f & args]

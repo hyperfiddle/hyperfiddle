@@ -15,6 +15,7 @@
             [dustingetz.str :as strx]
             [clojure.pprint]
             [dustingetz.loader :as loader]
+            [hyperfiddle.ct.function :refer [flip]]
             [hyperfiddle.ct.bifunctor :refer [snd]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
@@ -107,7 +108,7 @@
                           (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
                         (e/amb
                           (e/call (ResolveRenderer sitemap stepT) ; call renderer for current point
-                            (e/server ((glitch-guard inject-dynamic-bindings) e/*bindings* stepT)))
+                            (e/server ((glitch-guard (flip inject-dynamic-bindings)) stepT e/*bindings*)))
                           (let [next-childT (e/server (do #_(prn "local selection" selection/*local-selection)
                                                           (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
                             (e/Reconcile
@@ -117,13 +118,13 @@
                                     (Navigate sitemap next-childT)))))
                             (e/amb)))))))))))))))
 
-(e/defn RenderMeta [stepT]
-  (e/server
-    (when-some [m (hfql/metas stepT)]
-      (dom/details
-        (dom/props {:open true})
-        (dom/summary (dom/text "Meta"))
-        (dom/pre (dom/text (strx/pprint-str m)))))))
+;; (e/defn RenderMeta [stepT]
+;;   (e/server
+;;     (when-some [m ((glitch-guard hfql/metas) stepT)]
+;;       (dom/details
+;;         (dom/props {:open true})
+;;         (dom/summary (dom/text "Meta"))
+;;         (dom/pre (dom/text (strx/pprint-str m)))))))
 
 (e/defn RenderValue [sitemap stepT]
   (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
@@ -134,10 +135,8 @@
             (let [value ((glitch-guard hfql/nav) stepT)
                   suggestedT (hfql/suggest value)]
               (e/Reconcile
-                (if (#(or (nil? suggestedT) (= stepT suggestedT)))
-                  (do (RenderMeta stepT)
-                      (dom/pre (dom/text (strx/pprint-str (extract stepT)))))
-                  (Navigate sitemap (hfql/seed (assoc ((glitch-guard hfql/scope) stepT) '% value) suggestedT)))))))))))
+                (when-not (#(or (nil? suggestedT) (= stepT suggestedT)))
+                  (Navigate sitemap ((glitch-guard (flip hfql/seed)) suggestedT (assoc ((glitch-guard hfql/scope) stepT) '% value))))))))))))
 
 ;;;;;;;;;;;;;;;;
 ;; Entrypoint ;;
