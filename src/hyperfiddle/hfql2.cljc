@@ -485,7 +485,14 @@
       (call-matches? symbolic-edge (normalize-edge child-edge))
       )))
 
-(defn find-child-by [pred hfqlT] (first (filter pred (unwrap hfqlT))))
+(defn find-child-by [pred hfqlT]
+  (->> (unwrap hfqlT)
+    (eduction
+      #?(:clj (halt-when (fn [_] (Thread/interrupted)))
+         :cljs (map identity))
+      (filter pred))
+    (first)))
+
 (defn find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
 
 ;; (defn focus-subtree [hfqlT] (seed (scope hfqlT) (hfql* (fmap swap (::co/AST (metas hfqlT))))))

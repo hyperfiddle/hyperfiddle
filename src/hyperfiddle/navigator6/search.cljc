@@ -93,7 +93,9 @@
                (sequence (comp (map first) ; short-circuit on first cell match per row.
                            (remove nil?))
                  (for [rowT rowsT
-                       :let [rowT+ (hfql/augment-with-suggestions! rowT)]] ; forces a nav!
+                       :while (not (Thread/interrupted)) ; ensure search terminates ASAP on Thread discard.
+                       :let [rowT+ (hfql/augment-with-suggestions! rowT)] ; forces a nav!
+                       ]
                    (for [columnT (unwrap rowT+)
                          :let [cell-value (hfql/nav columnT)]
                          :when (search-matches cell-value needle)]

@@ -1,7 +1,8 @@
 (ns dustingetz.loader
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms5 :as forms]))
+            [hyperfiddle.electric-forms5 :as forms]
+            [missionary.core :as m]))
 
 (defn now-ms []
   #?(:clj (System/currentTimeMillis)
@@ -81,9 +82,9 @@
   (apply f args))
 
 (e/defn Offload
-  [f & {:keys [label node delay-ms] :or {delay-ms 0}}]
+  [f & {:keys [label node delay-ms executor] :or {delay-ms 0, executor m/blk}}]
   (e/server
-    (let [[v< status interrupt!] (e/call (Interruptible e/Offload-reset) (partial timed (partial delayed delay-ms f)))
+    (let [[v< status interrupt!] (e/call (Interruptible (e/fn [f] (e/Offload-reset f executor))) (partial timed (partial delayed delay-ms f)))
           [v start end] (e/join v<)]
       (OffloadUI node label f start end status interrupt!)
       v)))

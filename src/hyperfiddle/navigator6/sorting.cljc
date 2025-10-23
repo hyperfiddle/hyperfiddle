@@ -14,6 +14,7 @@
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.ct.experiments.thunk :as thunks]
             [hyperfiddle.rcf :refer [tests]]
+            [dustingetz.loader :refer [Offload]]
             ))
 
 (defmulti comparable type)
@@ -81,12 +82,20 @@
 
   )
 
+(defn interruptible-comparator [cmp]
+  #?(:cljs cmp
+     :clj (fn [a b]
+            (when (Thread/interrupted)
+              (throw (InterruptedException. "Sort interrupted")))
+            (cmp a b))))
+
 (defn sort-rows-by-columns "TODO support multi-column sort." [columnT-specs rowsT]
   (try
     (let [[columnT direction] (first columnT-specs)] ; TODO support multi-column sort
       (if (nil? direction)
         rowsT ; no sort, or default sort, bypass.
-        (sort-by (hfql/find-cell-by-column columnT) (compare-cells (compare-nils-last (directional-comparator direction))) rowsT)))
+        (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-nils-last (directional-comparator direction)))) rowsT)))
+    #?(:clj (catch InterruptedException ex (throw ex)))
     (catch #?(:clj Throwable, :cljs :default) ex
       (println " Failed to sort" (ex-message ex) #_ex)
       rowsT)))
@@ -98,7 +107,7 @@
     (let [!sort-spec (e/server (atom [])) ; (e/Snapshot (DefaultSort rowsT)) ; will eagerly compute all cells in first column
           sort-spec (e/server (e/watch !sort-spec))]
       #_(e/server (prn "sort-spec" sort-spec) nil)
-      (->> (Body (e/server (sort-rows-by-columns sort-spec rowsT)))
+      (->> (Body (e/server (Offload #(sort-rows-by-columns sort-spec rowsT) {:label 'sort})))
         (forms/Interpreter {`Sort! (e/fn [Getter direction]
                                      (e/server ((constantly nil) direction Getter)) ; HACK must touch both args on server, otherwise the `case` do not run.
                                      (case (e/server (reset! !sort-spec [[(Getter) direction]]) nil)
