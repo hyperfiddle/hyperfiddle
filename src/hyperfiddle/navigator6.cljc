@@ -47,11 +47,17 @@
                   nil
                   recursive-child)
                 stepT)
+              stepT)))
+        (expand-collection [stepT]
+          (let [val-at-point (hfql/nav stepT)]
+            (prn "val at point" val-at-point)
+            (if (coll? val-at-point)
+              (hfql/seed {'% val-at-point} (hfql/hfql {* [*]}))
               stepT)))]
   (defn- select-next-child [sitemap stepT [column rowT]]
     (if rowT
       (or (when column
-            (try (hfql/find-child column (hfql/augment-with-suggestions! rowT)) (catch #?(:clj Throwable, :cljs :default) _ nil)))
+            (try (expand-collection (hfql/find-child column (hfql/augment-with-suggestions! rowT))) (catch #?(:clj Throwable, :cljs :default) _ nil)))
         (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
           (hfql/seed (hfql/scope rowT)))
         (select-eventual-recursion-point rowT))
