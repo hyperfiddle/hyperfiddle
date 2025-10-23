@@ -246,7 +246,7 @@
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_vertical.css"})))
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_horizontal.css"})))
     (dom/props {:class "" #_"entity-children hyperfiddle-navigator6__block"})
-    (let [stepT (e/server (Offload #(do (hfql/nav stepT) stepT) {:label 'run-query}))
+    (let [stepT (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) stepT) {:label 'run-query}))
           [legend top-left] (dom/legend
                                [dom/node (dom/span (dom/props {:style {:float :inline-start, :display :flex, :flex-wrap :wrap}})
                                            (rendering/Step-Title stepT)
@@ -254,9 +254,9 @@
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
           rowsT (e/server (do (prn "list rows"(hash stepT))
-                               (if (= ::ana/pull (::ana/type (hfql/metas stepT))) ; FIXME smell
-                                 [stepT]
-                                 (unwrap stepT))))
+                              (#(if (= ::ana/pull (::ana/type ((glitch-guard hfql/metas) stepT))) ; FIXME smell
+                                  [stepT]
+                                  ((glitch-guard unwrap) stepT)))))
           rowsT-count (e/server (Offload #(bounded-count COLLECTION-LIMIT rowsT)
                                   {:label 'count-rows})) ; 𝓞(n)
           ]
