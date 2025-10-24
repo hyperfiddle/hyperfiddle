@@ -3,7 +3,7 @@
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.hfql0 #?(:clj :as :cljs :as-alias) hfql]
             [hyperfiddle.entrypoint :refer [Index]]
-            [hyperfiddle.router4 :as router]
+            [hyperfiddle.router5 :as router]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.incseq :as i]
 

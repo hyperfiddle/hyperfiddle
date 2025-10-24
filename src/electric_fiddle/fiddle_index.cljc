@@ -5,7 +5,7 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric-forms5 :refer [Input TablePicker*]]
-            [hyperfiddle.router4 :as r]
+            [hyperfiddle.router5 :as r]
             [hyperfiddle.rcf :refer [tests]]))
 
 (defn ns-segments [ns-name-str] (clojure.string/split ns-name-str #"\."))

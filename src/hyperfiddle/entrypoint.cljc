@@ -1,7 +1,7 @@
 (ns hyperfiddle.entrypoint
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.router4 :as r]
+            [hyperfiddle.router5 :as r]
             #?(:clj [hyperfiddle.hfql0 :as hfql])))
 
 (e/declare apps)

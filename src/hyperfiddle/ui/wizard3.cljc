@@ -3,7 +3,7 @@
    [hyperfiddle.electric-dom3 :as dom]
    [hyperfiddle.electric-forms5 :as forms]
    [hyperfiddle.electric3 :as e]
-   [hyperfiddle.router4 :as r]))
+   [hyperfiddle.router5 :as r]))
 
 ;; (e/defn WizardStepper []
 ;;   (step/stepper
