@@ -1,5 +1,6 @@
 (ns hyperfiddle.navigator6.rendering
   (:require [clojure.string :as str]
+            [clojure.pprint :refer [cl-format]]
             [contrib.data :refer [#?(:clj array?)]]
             [dustingetz.str :as strx]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
@@ -125,14 +126,8 @@
    :post [(string? %)]}
   (debug-exceptions `format-collection-count
     (let [reached-max-in-memory-lenght? (>= coll-count COLLECTION-LIMIT)]
-      (str " ("
-        (when reached-max-in-memory-lenght?
-          ">=") ; FIXME we'd like to display ">" instead
-        coll-count
-        " items"
-        (when reached-max-in-memory-lenght?
-          " · truncated")
-        ")"))))
+      (cl-format nil "(~:[~;≥~]~d item~:p~:[~; · truncated~])"
+        reached-max-in-memory-lenght? coll-count reached-max-in-memory-lenght?))))
 
 (defn format-query-meta [query-meta] (some-> query-meta not-empty dustingetz.str/pprint-str))
 
