@@ -55,7 +55,9 @@
 
 (defn unfold [ast] (unfoldT (partial hfqlT ast) ast))
 (defn hfql* [analyzed-hfql] #_(seed {}) (unfold analyzed-hfql))
-(defmacro hfql [hfql-form] `(hfql* (ana/hfql ~hfql-form)))
+(defmacro hfql
+  ([hfql-form] `(hfql* (ana/hfql ~hfql-form)))
+  ([hfql-form x] `(seed {~''% ~x} (hfql ~hfql-form))))
 
 
 
