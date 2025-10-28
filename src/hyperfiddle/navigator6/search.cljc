@@ -37,7 +37,7 @@
   [pred rows-count rows Body & {::keys [limit] :or {limit 10000}}]
   (e/client
     (let [filtered (e/server (e/Reconcile (cond
-                                            (and (not (hfql/filtered? rows)) (< rows-count limit))
+                                            (e/Reconcile (and (not (hfql/filtered? rows)) (< rows-count limit)))
                                             (Offload #(pred rows *local-search) {:label 'in-memory-search})
                                             :else
                                             (with-meta (take limit rows) (meta rows)))))]
@@ -90,18 +90,17 @@
          (debug-exceptions `eager-search-BIG-O-N-SQUARE
            (if-not (str/blank? needle)
              (doall ; HACK prevent lazy-seq to escape this fn and cause electric to choke on `=` dedupe ; FIXME this needs streamy qseq
-               (sequence (comp (map first) ; short-circuit on first cell match per row.
+               (sequence (comp
+                           (halt-when (fn [_] (.isInterrupted (Thread/currentThread)))) ; ensure search terminates ASAP on Thread interrupt
+                           (map first) ; short-circuit on first cell match per row.
                            (remove nil?))
                  (for [rowT rowsT
-                       :while (not (Thread/interrupted)) ; ensure search terminates ASAP on Thread discard.
-                       :let [rowT+ (hfql/augment-with-suggestions! rowT)] ; forces a nav!
-                       ]
+                       :let [rowT+ (hfql/augment-with-suggestions! rowT)]] ; forces a nav!
                    (for [columnT (unwrap rowT+)
                          :let [cell-value (hfql/nav columnT)]
                          :when (search-matches cell-value needle)]
                      rowT))))
              rowsT))
-         (catch InterruptedException t (prn 'search-BIG-O-N-SQUARE 'interrupted) (throw t))
          (catch Throwable t (prn 'search-BIG-O-N-SQUARE (ex-message t) #_t) [])))))
 
 

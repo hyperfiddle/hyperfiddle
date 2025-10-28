@@ -490,7 +490,7 @@
 (defn find-child-by [pred hfqlT]
   (->> (unwrap hfqlT)
     (eduction
-      #?(:clj (halt-when (fn [_] (Thread/interrupted)))
+      #?(:clj (halt-when (fn [_] (.isInterrupted (Thread/currentThread))))
          :cljs (map identity))
       (filter pred))
     (first)))
