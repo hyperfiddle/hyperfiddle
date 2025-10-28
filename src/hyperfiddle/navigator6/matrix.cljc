@@ -122,27 +122,28 @@
                   ;; This extra row is empty at the end of the collection, and we don't want it to show up at all. So we hide it with CSS.
                   :data-empty (str (e/server (nil? rowT)))})
       (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
-      (RowHandle row-group-id rowT)
-      (let [cellsT (e/server ((maybe unwrap) rowT))
-            selected-colsT (e/server (set (mapv hfql/id columnsT)))
-            cellsT (e/server (filterv #(selected-colsT (hfql/id %)) cellsT))
-            ]
-        (e/server ;; trade off:
-          ;; e/for on client = ultra smooth row positioning but glitchy row content
-          ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
-          (e/for [index (IndexRing limitH offsetH)]
-            (MatrixCell index (e/server (nth cellsT index nil)))))))))
+      (let [rowT (e/server (e/Offload #(hfql/augment-with-suggestions! rowT)))]
+        (RowHandle row-group-id rowT)
+        (let [cellsT (e/server ((maybe unwrap) rowT))
+              selected-colsT (e/server (set (mapv hfql/id columnsT)))
+              cellsT (e/server (filterv #(selected-colsT (hfql/id %)) cellsT))
+              ]
+          (e/server ;; trade off:
+            ;; e/for on client = ultra smooth row positioning but glitchy row content
+            ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
+            (e/for [index (IndexRing limitH offsetH)]
+              (MatrixCell index (e/server (nth cellsT index nil))))))))))
 
 (e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
   (e/client
     (dom/tbody
-      (let [fast-nth (e/server (utils/caching-nth rowsT))
-            row-group-id (random-uuid)]
+      (let [row-group-id (random-uuid)]
         (e/server ;; trade off:
           ;; e/for on client = ultra smooth row positioning but glitchy row content
           ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
-          (e/for [index (IndexRing limitV offsetV)]
-            (MatrixRow row-group-id columnsT index (e/server (fast-nth index nil)) offsetH limitH)))))))
+          (let [subrowsT (drop offsetV rowsT)]
+            (e/for [index (IndexRing limitV offsetV)]
+              (MatrixRow row-group-id columnsT index (e/server (nth subrowsT (- index offsetV) nil)) offsetH limitH))))))))
 
 #?(:cljs
    (defn- find-clicked-cell-or-row [^js dom-event]
@@ -257,8 +258,8 @@
                               (#(if (= ::ana/pull (::ana/type ((glitch-guard hfql/metas) stepT))) ; FIXME smell
                                   [stepT]
                                   ((glitch-guard unwrap) stepT)))))
-          rowsT-count (e/server (Offload #(bounded-count COLLECTION-LIMIT rowsT)
-                                  {:label 'count-rows})) ; 𝓞(n)
+          rowsT-count (e/server (e/Offload #(bounded-count COLLECTION-LIMIT rowsT)
+                                  #_{:label 'count-rows})) ; 𝓞(n)
           ]
       (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
         rowsT-count
@@ -271,7 +272,7 @@
             (e/amb
               (in top-left (dom/span (dom/props {:style {:order -2}})
                                    (search/SearchInput! false)))
-              (sort/Sorted (e/server (map hfql/augment-with-suggestions! rowsT))
+              (sort/Sorted (e/server rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection/select-pull-step) stepT))]
                     (Matrix columnsT rowsT-count rowsT :transpose? transpose?, :single? single?)))))))))))

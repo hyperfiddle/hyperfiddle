@@ -92,7 +92,8 @@
     (let [[columnT direction] (first columnT-specs)] ; TODO support multi-column sort
       (if (nil? direction)
         rowsT ; no sort, or default sort, bypass.
-        (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-nils-last (directional-comparator direction)))) rowsT)))
+        (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-nils-last (directional-comparator direction))))
+          (map hfql/augment-with-suggestions! rowsT))))
     #?(:clj (catch missionary.Cancelled ex (throw ex)))
     (catch #?(:clj Throwable, :cljs :default) ex
       (println " Failed to sort" (ex-message ex) #_ex)
