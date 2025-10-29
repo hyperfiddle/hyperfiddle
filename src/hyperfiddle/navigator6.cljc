@@ -12,10 +12,12 @@
             [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
             [hyperfiddle.navigator6.utils :refer [rebooting glitch-guard]]
             [contrib.css :as cssx]
+            [contrib.data :refer [#?(:clj array?)]]
             [dustingetz.str :as strx]
             [clojure.pprint]
             [dustingetz.loader :as loader]
             [hyperfiddle.ct.function :refer [flip]]
+            [hyperfiddle.ct.maybe :refer [just nothing from-maybe]]
             [hyperfiddle.ct.bifunctor :refer [snd]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
@@ -42,29 +44,32 @@
 
 (defn- multiplicity-many-value? [object] ; TODO promote to HFQL
   ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
-  (or (sequential? object) (set? object)))
+  (or (sequential? object) (set? object) #?(:clj (contrib.data/array? object))))
 
-(letfn [(select-eventual-recursion-point [stepT]
-          (when stepT
+(letfn [(select-recursion-point [stepT] ":: stepT → Maybe (stepT | nil)" ; because we want a different default based on no stepT vs no children
+          (if stepT
             (if (::ana/recursion-point (hfql/metas stepT))
               (if-let [recursive-child (first (filter (comp ::ana/recursive-child hfql/metas) (unwrap stepT)))]
-                (if (empty? (unwrap recursive-child))
-                  nil
-                  recursive-child)
-                stepT)
-              stepT)))
+                (just (if (empty? (unwrap recursive-child))
+                        nil
+                        recursive-child))
+                (just stepT))
+              (just stepT))
+            nothing))
         (expand-collection [stepT]
           (let [val-at-point (hfql/nav stepT)]
-            (if (multiplicity-many-value? val-at-point)
-              (hfql/seed {'% val-at-point} (hfql/hfql {* [*]}))
-              stepT)))]
+            (if (>= (::ana/recursion-limit (hfql/metas stepT)) 1)
+              (if (multiplicity-many-value? val-at-point)
+                (from-maybe (hfql/hfql {* [*]} val-at-point) (select-recursion-point stepT))
+                stepT)
+              (hfql/hfql identity val-at-point))))]
   (defn- select-next-child [sitemap stepT [column rowT]]
     (if rowT
       (or (when column
             (try (expand-collection (hfql/find-child column (hfql/augment-with-suggestions! rowT))) (catch #?(:clj Throwable, :cljs :default) _ nil)))
         (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
           (hfql/seed (hfql/scope rowT)))
-        (select-eventual-recursion-point rowT))
+        (from-maybe rowT (select-recursion-point rowT)))
       (when column
         (try (hfql/find-child column (hfql/augment-with-suggestions! stepT)) (catch #?(:clj Throwable, :cljs :default) _ nil))))))
 
@@ -88,8 +93,6 @@
         (Offload #((glitch-guard render-type) hfqlT) {:label 'ResolveRenderer})
         (e/Partial RenderValue sitemap))
       (e/fn [& _]))))
-
-(defn maybe [f] (fn [x] (when x (f x))))
 
 (defn inject-dynamic-bindings [e-bindings stepT]
   (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))
