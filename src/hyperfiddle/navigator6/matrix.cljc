@@ -206,10 +206,10 @@
   (e/server
     (when-let [pull-step ((glitch-guard selection/select-pull-step) stepT)]
       (let [stepT+ (hfql/augment-with-suggestions! pull-step)
-            childrenT (remove (comp ::ana/recursive-child hfql/metas) (unwrap stepT+))
+            childrenT (remove (comp ::ana/recursive-child hfql/metas) ((glitch-guard unwrap) stepT+))
             static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
             suggested-columns (e/Snapshot (filter (comp ::hfql/suggested hfql/metas) childrenT))
-            pre-checked (#(or (hfql/pull-has-star? stepT+) (empty? static-columns)))
+            pre-checked (#(or ((glitch-guard hfql/pull-has-star?) stepT+) (empty? static-columns)))
             shorten (name-shortener (map hfql/symbolic-edge childrenT))
             from-spec (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge static-columns)]
                                   (e/When
