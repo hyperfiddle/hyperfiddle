@@ -84,7 +84,6 @@
                         :role :radio
                         :tabindex "0"
                         :aria-selected (e/server (cell-selected? cellT selection/*local-selection))})
-            (e/server (def _cellT cellT) nil)
             (let [GetCellT (e/server (utils/Delay cellT))
                   event (dom/On* "click" identity nil) ; TODO hoist
                   [token err] (e/Token event)]
