@@ -181,7 +181,7 @@
   ([point Ra]
    (->> (if (= false (::leaf point)) ; FIXME wart – should always navigate unless the renderer disables it.
           Ra
-          (reader (fn [env] ((bound-fn* {#'*navigate* right} (runReader Ra)) env))))
+          (reader (fn [env] ((bound-fn* {#_#_#'*navigate* right} (runReader Ra)) env))))
      (fmap (fn [v] (pair v ()))))))
 
 (declare seed)
