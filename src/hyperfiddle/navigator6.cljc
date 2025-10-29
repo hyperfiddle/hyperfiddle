@@ -103,7 +103,7 @@
             (rebooting id ; glitch guard – It's important to reboot on both peers or glitch may happen on one and not the other.
               (prn "rebooting" id)
               (e/Reconcile
-                (e/When ((complement zero?) id) ; guard navigate on nil
+                (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
                   (with-local-state ::state/route ; injects *local-state and interpret state write commands
                     (with-local-search ::search   ; injects *local-search and interpret search commands
                       (with-local-selection ::selection ; injects *local-selection and interpret selection commands
@@ -133,7 +133,7 @@
   (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
     (rebooting id
       (e/Reconcile
-        (when ((complement zero?) id)
+        (when ((complement (fnil zero? 0)) id)
           (e/server
             (let [value ((glitch-guard hfql/nav) stepT)
                   suggestedT (hfql/suggest value)]
