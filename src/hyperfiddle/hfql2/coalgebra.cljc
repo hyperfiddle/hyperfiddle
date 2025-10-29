@@ -154,12 +154,17 @@
                   (apply ifn [%])))))))))
 
 (defn- call [point]
-  (mem-reader
-    (binding [thunks/*cache-strategy* ::thunks/weak]
-      (thunked
-        (fn [args]
-          #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge point)))
-          (apply (::ana/value point) args))))))
+  (let [call! (if (= ::ana/keyword-fn (::ana/kind point))
+                (let [key (::ana/form-resolved point)]
+                  #(*navigate* %1 key (get %1 key)))
+                (let [f (::ana/value point)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
+                  #(apply f %&)))]
+    (mem-reader
+      (binding [thunks/*cache-strategy* ::thunks/weak]
+        (thunked
+          (fn [args]
+            #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge point)))
+            (apply call! args)))))))
 
 (defn- touch [object] (if (seqable? object) (doall object) object))
 (def ^:private star (mem-reader (thunked touch)))

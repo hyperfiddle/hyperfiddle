@@ -301,7 +301,7 @@
                                  ::parameters '(%)
                                  ::value form}]
                        (if-let [kw (get-kw-fn-form-kw form)]
-                         (merge base (select-keys (φ env kw) #{::symbolic-edge ::form-resolved ::form-short}))
+                         (merge base (select-keys (φ env kw) #{::symbolic-edge ::form-resolved ::form-short}) {::kind ::keyword-fn})
                          base))
          ::call      (let [[f & params] form] ; symbolic – quoted by defmacro
                        {::symbolic-edge form ; symbolic – interpreter will template later
