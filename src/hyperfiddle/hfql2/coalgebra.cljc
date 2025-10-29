@@ -291,7 +291,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                     (mappend kids star-kids
                       (if recur-point
                         (let [limit (or (::ana/recursion-limit (extract recur-point)) (::ana/recursion-limit (extract root)))] ; TODO deduplicate with traversal
-                          (if (> limit 1)
+                          (if (pos? limit)
                             [(->> root ; TODO fuse
                                (fmap #(assoc % ::ana/recursion-limit (dec limit)))
                                (fmap #(assoc % ::ana/recursive-child true)))]
@@ -308,7 +308,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                     (let [direct-child (first children)]
                       (if (recursion-point? hfql)
                         (let [limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract root)))] ; TODO deduplicate with pull
-                          (if (> limit 1)
+                          (if (pos? limit)
                             [(fmap #(assoc % ::ana/recursion-limit (dec limit)) root)]
                             []))
                         (if (star-traversal? (extract direct-child))
@@ -778,7 +778,13 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   "recursive nav – bounded"
-  (-values (seed '{% 1} (-hfql {inc [str {identity 3}]})))
+  (-values (seed '{% 1} (-hfql {inc [str {identity 0}]})))
+  := '(2 {str "2", identity 2} "2" 2)
+
+  (-values (seed '{% 1} (-hfql {inc [str {identity 1}]})))
+  := '(2 {str "2", identity 2} "2" 2 3 {str "3", identity 3} "3" 3)
+
+  (-values (seed '{% 1} (-hfql {inc [str {identity 2}]})))
   := '(2 {str "2", identity 2} "2" 2 3 {str "3", identity 3} "3" 3 4 {str "4", identity 4} "4" 4)
   )
 
@@ -790,7 +796,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   "recursive pull" ; datomic pull does detect cycles and return only :db/id at leaves.
-  (force-thunk (extract (pull (seed '{% 1} (-hfql {inc [str {identity 2}]})))))
+  (force-thunk (extract (pull (seed '{% 1} (-hfql {inc [str {identity 1}]})))))
   := '{inc {str "2", identity {inc {str "3", identity 3}}}})
 
 #?(:clj
@@ -802,13 +808,13 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   "recursive pull across star traversal"
-  (force-thunk (extract (pull (seed {'% (range 3)} (-hfql {identity {* 2}})))))
+  (force-thunk (extract (pull (seed {'% (range 3)} (-hfql {identity {* 1}})))))
   := '{identity ({identity 0} {identity 1} {identity 2})}
   )
 
 (tests
   "pull re-navigation on recursive pull"
-  (-values (pull (seed '{% 1} (-hfql {inc [str {identity 2}]}))))
+  (-values (pull (seed '{% 1} (-hfql {inc [str {identity 1}]}))))
   := '({inc {str "2", identity {inc {str "3", identity 3}}}}
        {str "2", identity {inc {str "3", identity 3}}}
        "2"
@@ -820,7 +826,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   "bounded recursion"
-  (-values (seed {'% 1} (-hfql {inc [str 3]})))
+  (-values (seed {'% 1} (-hfql {inc [str 2]})))
   := '(2 {str "2"} "2" 3 {str "3"} "3" 4 {str "4"} "4")
 
   "unbounded recursion"
@@ -828,7 +834,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   := '(2 {str "2"} "2" 3 {str "3"} "3" 4 {str "4"} "4")
 
   "bounded pull"
-  (-values (pull (seed {'% 1} (-hfql {inc [str 3]}))))
+  (-values (pull (seed {'% 1} (-hfql {inc [str 2]}))))
   := '({inc {str "2", inc {str "3", inc {str "4"}}}}
        {str "2", inc {str "3", inc {str "4"}}}
        "2"
