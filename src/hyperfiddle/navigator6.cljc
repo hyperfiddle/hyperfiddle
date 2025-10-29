@@ -40,6 +40,10 @@
     (ident? router-query) (list router-query)
     :else router-query))
 
+(defn- multiplicity-many-value? [object] ; TODO promote to HFQL
+  ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
+  (or (sequential? object) (set? object)))
+
 (letfn [(select-eventual-recursion-point [stepT]
           (when stepT
             (if (::ana/recursion-point (hfql/metas stepT))
@@ -51,8 +55,7 @@
               stepT)))
         (expand-collection [stepT]
           (let [val-at-point (hfql/nav stepT)]
-            (prn "val at point" val-at-point)
-            (if (coll? val-at-point)
+            (if (multiplicity-many-value? val-at-point)
               (hfql/seed {'% val-at-point} (hfql/hfql {* [*]}))
               stepT)))]
   (defn- select-next-child [sitemap stepT [column rowT]]
