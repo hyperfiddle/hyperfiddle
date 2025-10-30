@@ -100,17 +100,21 @@
   #?(:cljs cmp
      :clj (fn [a b] (m/!) (cmp a b))))
 
+(def COLLECTION-LIMIT 10000)
+
 (defn sort-rows-by-columns "TODO support multi-column sort." [columnT-specs rowsT]
-  (try
-    (let [[columnT direction] (first columnT-specs)] ; TODO support multi-column sort
-      (if (nil? direction)
-        rowsT ; no sort, or default sort, bypass.
-        (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-fallback-to-identity (compare-nils-last (directional-comparator direction)))))
-          (map hfql/augment-with-suggestions! rowsT))))
-    #?(:clj (catch missionary.Cancelled ex (throw ex)))
-    (catch #?(:clj Throwable, :cljs :default) ex
-      (println " Failed to sort" (ex-message ex) #_ex)
-      rowsT)))
+  (if (>= (bounded-count COLLECTION-LIMIT rowsT) COLLECTION-LIMIT)
+    rowsT
+    (try
+      (let [[columnT direction] (first columnT-specs)] ; TODO support multi-column sort
+        (if (nil? direction)
+          rowsT ; no sort, or default sort, bypass.
+          (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-fallback-to-identity (compare-nils-last (directional-comparator direction)))))
+            (map hfql/augment-with-suggestions! rowsT)))) ; TODO only augment with sorted column(s), if not already present
+      #?(:clj (catch missionary.Cancelled ex (throw ex)))
+      (catch #?(:clj Throwable, :cljs :default) ex
+        (println " Failed to sort" (ex-message ex) #_ex)
+        rowsT))))
 
 (e/defn DefaultSort [rowsT] [[(first (unwrap (first rowsT))) '<]])
 
