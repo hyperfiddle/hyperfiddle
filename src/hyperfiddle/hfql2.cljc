@@ -520,12 +520,17 @@
 
 (def id (comp ::ana/id metas))
 
+(defn find-cell-by-column* "Lookup a cell in a set of cells."
+  ([columnT] (partial find-cell-by-column* columnT))
+  ([columnT cellTs]
+   (when columnT
+     (let [identity (id columnT)]
+       (first (filter #(= identity (id %)) cellTs))))))
+
 (defn find-cell-by-column "Lookup a column in a row."
   ([columnT] (partial find-cell-by-column columnT))
   ([columnT rowT]
-   (let [identity (id columnT)]
-     (first (filter #(= identity (id %))
-              (unwrap rowT))))))
+   (find-cell-by-column* columnT (unwrap rowT))))
 
 (comment
   (def _rows (unwrap (seed {'% (clojure.java.io/file ".")} (dustingetz.file-explorer/sitemap `dustingetz.file-explorer/dir-list))))

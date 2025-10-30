@@ -131,7 +131,7 @@
             ;; e/for on client = ultra smooth row positioning but glitchy row content
             ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
             (e/for [index (IndexRing limitH offsetH)]
-              (MatrixCell index (e/server (nth cellsT index nil))))))))))
+              (MatrixCell index (e/server (hfql/find-cell-by-column* (nth columnsT index nil) cellsT))))))))))
 
 (e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
   (e/client
