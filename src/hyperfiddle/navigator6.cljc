@@ -58,7 +58,7 @@
             nothing))
         (expand-collection [stepT]
           (let [val-at-point (hfql/nav stepT)]
-            (if (>= (::ana/recursion-limit (hfql/metas stepT)) 1)
+            (if (>= (::ana/recursion-limit (hfql/metas stepT) 0) 1)
               (if (multiplicity-many-value? val-at-point)
                 (from-maybe (hfql/hfql {* [*]} val-at-point) (select-recursion-point stepT))
                 stepT)

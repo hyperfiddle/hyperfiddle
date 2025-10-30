@@ -303,7 +303,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                             (pull-peek-at-immediate-kids! env)))
                     (mappend kids star-kids
                       (if recur-point
-                        (let [limit (or (::ana/recursion-limit (extract recur-point)) (::ana/recursion-limit (extract root)))] ; TODO deduplicate with traversal
+                        (let [limit (or (::ana/recursion-limit (extract recur-point)) (::ana/recursion-limit (extract root)) 0)] ; TODO deduplicate with traversal
                           (if (pos? limit)
                             [(->> root ; TODO fuse
                                (fmap #(assoc % ::ana/recursion-limit (dec limit)))
@@ -320,7 +320,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                   (pair (extract (seed (force-thunk env) edgeT))
                     (let [direct-child (first children)]
                       (if (recursion-point? hfql)
-                        (let [limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract root)))] ; TODO deduplicate with pull
+                        (let [limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract root)) 0)] ; TODO deduplicate with pull
                           (if (pos? limit)
                             [(fmap #(assoc % ::ana/recursion-limit (dec limit)) root)]
                             []))
