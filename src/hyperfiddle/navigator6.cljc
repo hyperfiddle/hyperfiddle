@@ -46,6 +46,7 @@
   ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
   (or (sequential? object) (set? object) #?(:clj (contrib.data/array? object))))
 
+;; TODO refactor this fn. Logic is convoluted.
 (letfn [(select-recursion-point [stepT] ":: stepT → Maybe (stepT | nil)" ; because we want a different default based on no stepT vs no children
           (if stepT
             (if (::ana/recursion-point (hfql/metas stepT))
@@ -57,12 +58,18 @@
               (just stepT))
             nothing))
         (expand-collection [stepT]
-          (let [val-at-point (hfql/nav stepT)]
-            (if (>= (::ana/recursion-limit (hfql/metas stepT) 0) 1)
-              (if (multiplicity-many-value? val-at-point)
-                (from-maybe (hfql/hfql {* [*]} val-at-point) (select-recursion-point stepT))
-                stepT)
-              (hfql/hfql identity val-at-point))))]
+          (let [val-at-point (hfql/nav stepT)
+                recursive? (::ana/recursion-point (hfql/metas stepT))
+                can-recur? (>= (::ana/recursion-limit (hfql/metas stepT) 0) 1)
+                many? (multiplicity-many-value? val-at-point)
+                ]
+            (cond
+              (and recursive? can-recur? many?) (from-maybe (hfql/hfql {* [*]} val-at-point) (select-recursion-point stepT))
+              (and recursive? (not can-recur?) many?) (hfql/hfql {* [*]} val-at-point) ; loses static columns from recursion
+              (and (not recursive?) many?) (hfql/hfql {* [*]} val-at-point)
+              (not many?) stepT
+              :else (throw (ex-info "Unknown case" {:state [recursive? can-recur? many?]})))
+            ))]
   (defn- select-next-child [sitemap stepT [column rowT]]
     (if rowT
       (or (when column
