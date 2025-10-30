@@ -63,7 +63,7 @@
 (defn as-coll [v] (if (or (array? v) (coll? v)) v [v])) ; TODO removeme, glitch guard
 
 (e/defn RenderInlineColl [_object edge value]
-  (let [pretty-v (str-inline-coll (as-coll value) *server-pretty)
+  (let [pretty-v (e/Offload #(str-inline-coll (as-coll value) *server-pretty))
         symbolic-link-href (::hfql/link (meta edge))]
     (e/Reconcile
       (if (some? symbolic-link-href)
