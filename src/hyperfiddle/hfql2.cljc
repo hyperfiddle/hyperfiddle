@@ -576,7 +576,7 @@ identifier, though it might not be serializable."
 
 (defn identifiable? [object]
   #_(extends? Identifiable (type object))
-  #?(:clj (extends? Identifiable object)
+  #?(:clj (extends? Identifiable (type object))
      :cljs (and (not (nil? object))
              (object? object)
              (satisfies? Identifiable object))))

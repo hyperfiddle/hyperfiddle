@@ -44,6 +44,19 @@
 (def compare-cells "Take a comparator and transform it such that it receives comparable cell values instead of raw CofreeT objects."
   ((join bimap) (fmap comparable force-cell-value!)))
 
+(defn- compare-fallback-to-identity
+  "Take a comparator and transform it such that if comparison throws, comparison
+  is tried again onto objects identities. If compared objects do not implement
+  Identifiable, the thrown error is propagated."
+  [comparator]
+  (fn [a b]
+    (try
+      (comparator a b)
+      (catch #?(:clj Throwable, :cljs :default) ex
+        (if (and (hfql/identifiable? a) (hfql/identifiable? b))
+          (comparator (hfql/identify a) (hfql/identify b))
+          (throw ex))))))
+
 (defn directional-comparator
   "Take '< or '> and return a comparator comparing any two values in resp. ascending or descending order.
   Note < and > functions (not quoted) only work on numbers and so can only be used as a comparator for numbers.
@@ -92,7 +105,7 @@
     (let [[columnT direction] (first columnT-specs)] ; TODO support multi-column sort
       (if (nil? direction)
         rowsT ; no sort, or default sort, bypass.
-        (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-nils-last (directional-comparator direction))))
+        (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-fallback-to-identity (compare-nils-last (directional-comparator direction)))))
           (map hfql/augment-with-suggestions! rowsT))))
     #?(:clj (catch missionary.Cancelled ex (throw ex)))
     (catch #?(:clj Throwable, :cljs :default) ex
