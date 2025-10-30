@@ -581,7 +581,15 @@ identifier, though it might not be serializable."
 
 (extend-protocol Suggestable
   #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
-  (-suggest [m] (hfql* (ana/analyze {} (vec (keys m)))))
+  (-suggest [m]
+    (co/vary-static-meta
+      (hfql {* [key val]})
+      #(assoc % ::value-type :map))) ; UI may interpret this to customize table layout
+  #?(:clj clojure.lang.AMapEntry, :cljs MapEntry)
+  (-suggest [_]
+    (co/vary-static-meta
+      (hfql [key val])
+      #(assoc % ::value-type :map-entry))) ; UI may interpret this to customize table layout
   #?(:clj Object, :cljs default)
   (-suggest [_] (hfql [identity identify type]))
   nil (-suggest [_]))
