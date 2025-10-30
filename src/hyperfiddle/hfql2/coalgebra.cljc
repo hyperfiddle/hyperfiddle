@@ -276,7 +276,20 @@ Pulling on non-maps (non associative) is perfectly fine.
           (constantly
             (mem-reader
               (fn [env]
-                (let [[[star?] kids] (group-by-pred (comp star? extract) children)
+                (let [[[star?] kids] (if (empty? children)
+                                       ;; This conditional makes it impossible to express a pull expression that "selects nothing" aka "pulls nothing".
+                                       ;; We haven't found a use case for `[]` in UIs. It produces empty tables.
+                                       ;; We don't know if there's a use case for `[]` at the REPL.
+                                       ;; Therefore, we define `[]` to behave as `[*]` so to improve DX by favoring a
+                                       ;; REPL-like, hot-code-reload driven, exploratory workflow. Even though `[]` vs
+                                       ;; `[*]` are not defined as algebraically equivalent.
+                                       ;; Monoïdal rules are:
+                                       ;; - although `[] ≅ [*]`, `[] ≠ [*]`,
+                                       ;; - therefore `[:a] ⊗ [] = [:a] ≇ [:a *]`,
+                                       ;; - commutatively `[] ⊗ [:a] = [:a] ≇ [* :a]` – Note this would mess table column order up,
+                                       ;; - and `[] ⊗ [] = [] ≅ [*]`.
+                                       [[true] ()]
+                                       (group-by-pred (comp star? extract) children))
                       dynamic-keys (when star? (star-keys (get env '%)))
                       star-kids (let [static-keys (set (map (comp symbolic-edge extract) kids))
                                       remaining-star-keys (remove static-keys dynamic-keys)]
