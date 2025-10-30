@@ -35,6 +35,12 @@
                 :else coll-of-same-type
                 )))))
 
+#?(:clj (defn str-insert-before-last[^String s ^Character c]
+          (let [sb (StringBuilder. s)
+                len (.length sb)]
+            (.insert sb (dec len) c)
+            (.toString sb))))
+
 #?(:clj
    (defn- str-inline-coll [coll server-pretty]
      (try
@@ -46,7 +52,10 @@
                         str
                         (str/replace (str \newline) (str \space))
                         (str/trim)))]
-           (cond-> base (> coll-count 1) (str " " coll-count " elements"))))
+           (cond-> base
+             (> coll-count 1) (str-insert-before-last \…)
+             (> coll-count 1) (str " " coll-count " elements")
+             )))
        (catch Throwable t ; glitch guard
          (ex-message t)))))
 
