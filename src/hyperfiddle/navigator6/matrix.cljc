@@ -5,7 +5,7 @@
    [contrib.missionary-contrib :as mx]
    [hyperfiddle.electric-dom3 :as dom]
    [hyperfiddle.electric-forms5 :as forms]
-   [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing]]
+   [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing #?(:cljs resize-observer)]]
    [hyperfiddle.electric3 :as e]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.ct.cofree :refer [unwrap]]
@@ -176,26 +176,28 @@
      (set! (.-scrollLeft table-node) 0)
      (swap! !transpose not)))
 
-(e/defn Matrix [columnsT rowsT-count rowsT & {:keys [transpose? single? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
+(e/defn Matrix [columnTs rowTs-count rowTs & {:keys [transpose? single? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
       (let [!transpose (atom true)
-            transpose (e/watch !transpose)]
+            transpose (e/watch !transpose)
+            columnTs-count (e/server (count columnTs))]
         (reset! !transpose (boolean transpose?))
         (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "single"} single?)]
                     :style {:--row-height (str row-height "px")
                             :--column-width (str column-width "px")
-                            :--row-count rowsT-count
-                            :--column-count (e/server (count columnsT))}})
+                            :--row-count rowTs-count
+                            :--column-count columnTs-count}})
         (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
                             `Noop (e/fn [] [::forms/ok])}
           (e/amb
-            (MatrixHeader columnsT)
-            (let [[offsetV limitV offsetH limitH] (bounds-by-axis transpose (Scroll-window 24 rowsT-count dom/node {:column-width column-width}))]
-              (MatrixBody columnsT rowsT
-                offsetV (min rowsT-count limitV)
-                offsetH (min (e/server (count columnsT)) limitH)))
+            (MatrixHeader columnTs)
+            (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
+                  [offsetV limitV offsetH limitH] (bounds-by-axis transpose (Scroll-window 24 rowTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))}))]
+              (MatrixBody columnTs rowTs
+                offsetV (min rowTs-count limitV)
+                offsetH (min columnTs-count limitH)))
             (e/amb
               (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
                 (fn [event]
