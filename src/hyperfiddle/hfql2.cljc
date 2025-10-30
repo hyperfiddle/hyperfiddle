@@ -404,7 +404,7 @@
         (merge-pull-children
           (unwrap rose-a) (unwrap rose-b))))))
 
-(defn combine
+(defn combine ; TODO replace with `union`
   ([hfqlT] hfqlT)
   ([hfqlT-a hfqlT-b]
    (if (nil? hfqlT-b)
@@ -418,6 +418,12 @@
                    (throw (ex-info "Can't combine." (::ana/type (metas hfqlT-a))))))))))
   ([hfqlT-a hfqlT-b & hfqlTs]
    (reduce combine (combine hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
+
+;; TODO
+(defn- union [a b]) ; unwrap children from both `a` and `b`, and glue them together. Do not call into `analyze`.
+(defn- zoom ; do we want/need full Van Laarhoven-style lenses?
+  "Zoom into a CofreeT through a lens-like projection."
+  [edge t] #_(extend t (fn [ctx] (derive getter ctx))))
 
 (tests
   (->
