@@ -1,7 +1,7 @@
 (ns hyperfiddle.ct.experiments.file
   (:require
    [clojure.java.io]
-   [hyperfiddle.ct.bifunctor :refer [pair snd]]
+   [hyperfiddle.ct.pair :refer [pair snd]]
    [hyperfiddle.ct.cofree :refer [->CofreeF cofree CofreeFunctor headF synthesize tailF tree-seqT unwrap]]
    [hyperfiddle.ct.comonad :refer [extract]]
    [hyperfiddle.ct.functor :refer [fmap]])

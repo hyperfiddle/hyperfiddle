@@ -5,7 +5,8 @@
   (:refer-clojure :exclude [extend])
   (:require [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.ct.functor :refer [Functor fmap ->Identity runIdentity]]
-            [hyperfiddle.ct.bifunctor :refer [Bifunctor pair pair? fst snd bimap]]
+            [hyperfiddle.ct.bifunctor :refer [Bifunctor bimap]]
+            [hyperfiddle.ct.pair :refer [pair pair? fst snd]]
             [hyperfiddle.ct.monoid :refer [mappend mempty]]
             [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend liftW comonad-law-1 comonad-law-2 comonad-law-3]]
             ))

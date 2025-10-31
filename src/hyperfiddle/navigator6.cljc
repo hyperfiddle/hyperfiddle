@@ -18,7 +18,6 @@
             [dustingetz.loader :as loader]
             [hyperfiddle.ct.function :refer [flip]]
             [hyperfiddle.ct.maybe :refer [just nothing from-maybe]]
-            [hyperfiddle.ct.bifunctor :refer [snd]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2.analyzer :as ana]

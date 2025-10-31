@@ -7,7 +7,8 @@
    #?(:clj [clojure.tools.logging :as log])
    [hyperfiddle.ct.function :refer [flip]]
    [hyperfiddle.ct.functor :refer [Functor fmap]]
-   [hyperfiddle.ct.bifunctor :as bf :refer [Bifunctor IPair fst snd pair]]
+   [hyperfiddle.ct.bifunctor :as bf :refer [Bifunctor]]
+   [hyperfiddle.ct.pair :refer [IPair fst snd pair]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend -extract]]
    [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tree-seqT]]

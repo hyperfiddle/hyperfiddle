@@ -38,56 +38,30 @@
        (first f (second g p))
        (throw (ex-info "Object is not an instance of Bifunctor" {:object p}))))))
 
-(defprotocol IPair
-  (fst [pair] "fst :: (a, b) -> a.  Extract the first component of a pair.")
-  (snd [pair] "snd :: (a, c) -> b. Extract the second component of a pair."))
+(extend-protocol Bifunctor
+  #?(:clj clojure.lang.Fn, :cljs function)
+  (-bimap [h f g] (fn [a b] (h (f a) (g b))))
+  #?(:clj clojure.lang.AMapEntry :cljs MapEntry)
+  (-bimap [entry f g] (clojure.core/first {(f (key entry)) (g (val entry))})))
 
-(defn pair [a b] (clojure.core/first {a b}))
-(defn pair? [p] (satisfies? IPair p))
-
-(defn &&& "Like `juxt`, but takes exactly two functions and return a concrete pair instead of a generic vector.
-  &&& :: (a -> b) -> (a -> c) -> a -> (b, c).
-  Given two functions, apply both to a single argument to form a pair. A specialised version Control.Arrow.&&&."
-  ;; In haskell, this is defined in Data.Tuple.Extra as a specialized version of Control.Arrow.&&&.
-  ;; I decided to put it in Bifunctor because I didn't want to mimic haskell
-  ;; namespaces just for the sake of it. Also this specialized version is
-  ;; specific to tuples and functions, and I decided to define pairs in
-  ;; Bifunctor, so it makes sense to keep this fn next to it.
-  ;; It can be moved elsewhere if needed.
-  ([f] (partial &&& f))
-  ([f g] (partial &&& f g))
-  ([f g a]
-   ;; future work: implement in term of arrows/category as
-   ;; f &&& g = arr (\b -> (b, b)) >>> f *** g
-   ;; Where:
-   ;; - arr is the arrow lifter
-   ;; - >>> is g ∘ f
-   ;; - *** is bimap
-   ;; https://hackage-content.haskell.org/package/extra-1.8/docs/Data-Tuple-Extra.html#v:-38--38--38-
-   (pair (f a) (g a))))
-
-(extend-type #?(:clj clojure.lang.AMapEntry :cljs MapEntry)
-  IPair
-  (fst [entry] (key entry))
-  (snd [entry] (val entry))
-  Bifunctor
-  (-bimap [entry f g] (clojure.core/first {(f (fst entry)) (g (snd entry))})))
-
-(defrecord PairWithMeta [a b]
-  IPair
-  (fst [_] a)
-  (snd [_] b)
-  Bifunctor
-  (-bimap [pair f g] (PairWithMeta. (f (fst pair)) (g (snd pair)))))
-
-(defn pair-with-meta [a b] (->PairWithMeta a b))
-
-#_(extend-type #?(:clj clojure.lang.IPersistentVector, :cljs PersistentVector)
-  IPair
-  (fst [vector] (clojure.core/first vector))
-  (snd [vector] (clojure.core/second vector))
-  Bifunctor
-  (-bimap [vector f g] (-> vector (update 0 f) (update 1 g))))
+;; minimal impl for tests
+(defn- pair [a b] (clojure.core/first {a b})
+  #_(reify
+    #?@(:clj [java.util.Map$Entry
+              (getKey [_] a)
+              (getValue [_] b)]
+        :cljs [IMapEntry
+               (-key [_] a)
+               (-val [_] b)])
+    Functor
+    (-fmap [_ f] (pair a (f b)))
+    Bifunctor
+    (-bimap [h f g] (pair (f (key h)) (g (val h))))
+    #?@(:clj [Object
+              (equals [_ other] (and (= a (key other)) (= b (val other))))
+              (hashCode [_] (hash [a b]))]
+        :cljs [IEquiv
+               (-equiv [_ other] (and (= a (key other)) (= b (val other))))])))
 
 (tests
   "second ≡ fmap"
@@ -132,34 +106,4 @@
   (second (comp str inc) (pair 1 2))
   := (second str (second inc (pair 1 2))))
 
-(defn swap "swap :: (a,b) -> (b, a). Swap the components of a pair." [p] (pair (snd p) (fst p)))
 
-(tests
-  (fst (pair 1 2)) := 1
-  (snd (pair 1 2)) := 2
-  (fst (swap (pair 1 2))) := 2
-  (snd (swap (pair 1 2))) := 1)
-
-(defn curry "curry :: ((a, b) -> c) -> a -> b -> c. Convert an uncurried function to a curried function."
-  ([f] (partial curry f))
-  ([f x] (partial curry f x))
-  ([f x y] (f (pair x y))))
-
-(defn uncurry "uncurry :: (a -> b -> c) -> ((a, b) -> c). Converts a curried function to a function on pairs."
-  ([f] (partial uncurry f))
-  ([f pair]
-   (f (fst pair) (snd pair))))
-
-(tests
-  (((curry fst) 1) 2)
-  := 1
-  ((uncurry +) (pair 1 2))
-  := 3
-
-  ((uncurry str) (swap (pair 1 2)))
-  := "21")
-
-
-(extend-protocol Bifunctor #?(:clj clojure.lang.Fn, :cljs function)
-  (-bimap [h f g] (fn [a b] (h (f a) (g b))))
-  )

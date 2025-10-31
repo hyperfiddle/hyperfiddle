@@ -2,7 +2,7 @@
   (:refer-clojure :exclude [peek -peek extend])
   (:require [hyperfiddle.ct.functor :refer [Functor fmap]]
             [hyperfiddle.ct.comonad :refer [Comonad extend extract duplicate comonad-law-1 comonad-law-2 comonad-law-3]]
-            [hyperfiddle.ct.bifunctor :refer [pair &&&]]
+            [hyperfiddle.ct.pair :refer [pair &&&]]
             [hyperfiddle.rcf :refer [tests]]
             #?(:clj [clojure.tools.logging])
             ))

@@ -4,7 +4,7 @@
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.electric3 :as e]
-            [hyperfiddle.ct.bifunctor :refer [snd]]
+            [hyperfiddle.ct.pair :refer [snd]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.state :as state]

@@ -5,7 +5,7 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.ct.functor :refer [fmap]]
-            [hyperfiddle.ct.bifunctor :refer [snd bimap]]
+            [hyperfiddle.ct.bifunctor :refer [bimap]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.monad :refer [join]]
