@@ -161,8 +161,8 @@
 
 (tests
   "pull syntax"
-  (values (seed {'% {:a 1}} (hfql []) ))
-  := '({})
+  (values (seed {'% {:a 1}} (hfql []) )) ; [] ≅ [*]
+  := '({:a 1} 1)
 
   (values (seed {'% {:a 1, :b 2}} (hfql [:a])))
   := '({:a 1} 1)
