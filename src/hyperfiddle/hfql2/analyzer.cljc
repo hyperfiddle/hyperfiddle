@@ -1,10 +1,10 @@
 (ns hyperfiddle.hfql2.analyzer
   (:require [clojure.core :as cc]
             [contrib.data :refer [update-existing]]
-            [contrib.walk :refer [prewalk]]
+            [contrib.walk :refer [prewalk postwalk]]
             [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.ct.functor :refer [fmap]]
-            [hyperfiddle.ct.bifunctor :as bf :refer [pair pair? pair-with-meta fst snd]]
+            [hyperfiddle.ct.pair :refer [pair pair? fst snd]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.ct.rose-tree :refer [rose-tree coiter]]
@@ -104,30 +104,28 @@
     ;; TODO? method sym
     :else                 (throw (ex-info "unknown form" {:form form}))))
 
-(defn- reshape-traversals [hfql]
+(defn- reshape-traversals-down [hfql]
   (case (projection-type hfql)
-    ::pull (with-meta (into [] (mapcat (fn [hfql] (if (= ::traversals (projection-type hfql)) (seq hfql) [hfql]))) hfql)
-             (meta hfql))
-    ::call (reduced hfql)
-    ::lambda (reduced hfql)
-    ::literal (reduced hfql)
-    ::quoted-var (reduced hfql)
-    ::traversals (if (= 1 (count hfql))
-                   (if-let [metas (meta hfql)]
-                     (with-meta (apply pair-with-meta (first hfql)) metas)
-                     (first hfql))
-                   (with-meta (into [] hfql) (meta hfql)))
-    (::traversal ::star ::recur ::symbol ::keyword ::string ::fn ::var)
+    ::call (reduced (reduced hfql))
+    ::lambda (reduced (reduced hfql))
+    ::literal (reduced (reduced hfql))
+    ::quoted-var (reduced (reduced hfql))
+    (::pull ::traversals ::traversal ::star ::recur ::symbol ::keyword ::string ::fn ::var)
     hfql))
 
-(tests
-  (reshape-traversals {:a 1, :b 2})
-  := [[:a 1] [:b 2]]
-  (reshape-traversals {:a 1})
-  := [:a 1]
-  (reshape-traversals [{:a 1, :b 2}])
-  := [[:a 1] [:b 2]]
-  )
+(defn- reshape-traversals-up [hfql]
+  (if (reduced? hfql)
+    (unreduced hfql)
+    (case (projection-type hfql)
+      ::pull (into [] (mapcat (fn [hfql] (if (and (vector? hfql) (not (pair? hfql))) hfql [hfql])) hfql))
+      ::traversals (if (= 1 (count hfql))
+                     (if-let [metas (meta hfql)]
+                       (vary-meta (apply pair (first hfql)) merge metas)
+                       (first hfql))
+                     (with-meta (into [] hfql) (meta hfql)))
+      (::call ::lambda ::literal ::quoted-var) (throw (ex-info "Encountered invalid AST node." {:value hfql}))
+      (::traversal ::star ::recur ::symbol ::keyword ::string ::fn ::var)
+      hfql)))
 
 (defn- lexical? [env sym] (contains? env sym))
 
@@ -380,7 +378,7 @@
 (defn analyze
   "Unfold an HFQL symbolic expression into an AST, gathering a maximum of static knowledge about expressions."
   ([env] (partial analyze env))
-  ([env hfql] (unfold (φ env) ψ (prewalk reshape-traversals hfql))))
+  ([env hfql] (unfold (φ env) ψ (postwalk reshape-traversals-up (prewalk reshape-traversals-down hfql)))))
 
 (comment
   (analyze {} [])
