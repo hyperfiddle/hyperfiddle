@@ -588,7 +588,8 @@ identifier, though it might not be serializable."
   #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
   (-suggest [m]
     (co/vary-static-meta
-      (hfql {* [key val]})
+      ;; (hfql {* [key val]}) ; not compatible – `combine` can only combine two pulls
+      (hfql* (ana/analyze {} (vec (keys m))))
       #(assoc % ::value-type :map))) ; UI may interpret this to customize table layout
   #?(:clj clojure.lang.AMapEntry, :cljs MapEntry)
   (-suggest [_]
