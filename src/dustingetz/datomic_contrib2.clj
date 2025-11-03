@@ -18,7 +18,10 @@
       [(unqualify (:db/valueType !e))
        (unqualify (:db/cardinality !e))
        (unqualify (:db/unique !e))
-       (if (:db/isComponent !e) :component)])))
+       (if (:db/isComponent !e) :component)
+       (if (:db/index !e) :indexed)
+       (if (:db/fulltext !e) :fulltext)
+       ])))
 
 (tests
   (easy-attr @test-db :db/ident) := [:keyword :one :identity nil]
