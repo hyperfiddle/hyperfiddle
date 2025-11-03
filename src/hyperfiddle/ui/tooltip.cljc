@@ -93,7 +93,7 @@
   border-radius: 0.25rem;
   border: 1px lightgray solid;
   box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); /* tw-shadow-lg */
-  white-space: pre;
+  white-space: pre-wrap;
   transform: translateX(1.5em);
 }
 
