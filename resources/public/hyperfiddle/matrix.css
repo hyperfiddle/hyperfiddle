@@ -215,3 +215,8 @@ fieldset:has(table.matrix) legend > * {
     line-height: 1rlh;
     display: inline-block;
 }
+
+
+fieldset:has(table.matrix.map) legend > :has(input + label){
+    display:none;
+}

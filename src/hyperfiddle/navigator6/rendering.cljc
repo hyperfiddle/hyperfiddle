@@ -138,6 +138,11 @@
       (cl-format nil "(~:[~;≥~]~d item~:p~:[~; · truncated~])"
         reached-max-in-memory-lenght? coll-count reached-max-in-memory-lenght?))))
 
+(defn format-map-entries-count [coll-count COLLECTION-LIMIT]
+  (-> (format-collection-count coll-count COLLECTION-LIMIT)
+    (str/replace "items" "entries")
+    (str/replace "item" "entry")))
+
 (defn format-query-meta [query-meta] (some-> query-meta not-empty dustingetz.str/pprint-str))
 
 

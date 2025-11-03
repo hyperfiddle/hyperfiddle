@@ -60,6 +60,20 @@
     (hfql/wrap-in-pull stepT)
     #_(throw (ex-info "No pull child" {:type (::ana/type (hfql/metas stepT))}))))
 
+(defn resolve-selected-object-BIG-O-1 [[column row] bindings childrenT]
+  (when childrenT
+    (def _childrenT childrenT)
+    (when row
+      (let [val-at-point (hfql/value-at-point childrenT)]
+        (or (and (= row (hfql/identify val-at-point)) ; direct identity equality case
+              childrenT)
+          (and (map? val-at-point) ; map lookup case
+            (not (= ::ana/many (::ana/multiplicity (hfql/metas childrenT))))
+            (case column
+              key (hfql/hfql key (find val-at-point row))
+              (hfql/hfql val (find val-at-point row)) ; mapentry is not interesting on its own, shortcut to val
+              )))))))
+
 (defn resolve-selected-object-BIG-O-N [[column row] bindings childrenT]
   #?(:clj
      (debug-exceptions `resolve-selected-object
@@ -69,8 +83,7 @@
           (when childrenT
             (when row
               (or
-                (when (and (some? row) (= row (hfql/identify (hfql/value-at-point childrenT))))
-                  childrenT)
+                (resolve-selected-object-BIG-O-1 [column row] bindings childrenT)
                 (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
                   (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
                   (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT)))))))]))))
@@ -81,4 +94,3 @@
                       stepT
                       (get-rows-container (first (unwrap stepT))))
     stepT))
-

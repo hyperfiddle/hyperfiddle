@@ -72,7 +72,10 @@
   (defn- select-next-child [sitemap stepT [column rowT]]
     (if rowT
       (or (when column
-            (try (expand-collection (hfql/find-child column (hfql/augment-with-suggestions! rowT))) (catch #?(:clj Throwable, :cljs :default) _ nil)))
+            (try (expand-collection (or (hfql/find-child column (try (hfql/augment-with-suggestions! rowT)
+                                                                     (catch #?(:clj Throwable, :cljs :default) _ rowT)))
+                                      rowT))
+                 (catch #?(:clj Throwable, :cljs :default) _ (prn _))))
         (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
           (hfql/seed (hfql/scope rowT)))
         (from-maybe rowT (select-recursion-point rowT)))

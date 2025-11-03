@@ -547,6 +547,7 @@
   (-identify [o])) ; local-symbolize
 
 (extend-protocol Identifiable
+  #?(:clj clojure.lang.AMapEntry, :cljs MapEntry) (-identify [entry] (key entry))
   #?(:clj Object, :cljs default) (-identify [_])
   nil (-identify [_]))
 

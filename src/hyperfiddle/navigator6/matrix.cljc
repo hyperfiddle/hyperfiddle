@@ -176,7 +176,7 @@
      (set! (.-scrollLeft table-node) 0)
      (swap! !transpose not)))
 
-(e/defn Matrix [columnTs rowTs-count rowTs & {:keys [transpose? single? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
+(e/defn Matrix [columnTs rowTs-count rowTs & {:keys [transpose? single? is-map? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
@@ -184,7 +184,7 @@
             transpose (e/watch !transpose)
             columnTs-count (e/server (count columnTs))]
         (reset! !transpose (boolean transpose?))
-        (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "single"} single?)]
+        (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "single"} single?) ({true "map"} is-map?)]
                     :style {:--row-height (str row-height "px")
                             :--column-width (str column-width "px")
                             :--row-count rowTs-count
@@ -242,23 +242,33 @@
 
   )
 
+(defn- reshape-maps [transpose? single? stepT]
+  (when stepT
+    (let [value (hfql/value-at-point stepT)]
+      (if (map? value)
+        [true false false (hfql/hfql {* [key val]} (seq value) #_(map #(zipmap [:key :val] %) (seq value)))]
+        [false transpose? single? stepT]))))
+
 (e/defn RenderMatrix [stepT & [transpose? single?]]
   (dom/fieldset
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix.css"})))
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_vertical.css"})))
     (e/client (dom/link (dom/props {:rel :stylesheet, :href "/hyperfiddle/matrix_horizontal.css"})))
     (dom/props {:class "" #_"entity-children hyperfiddle-navigator6__block"})
-    (let [stepT (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) stepT) {:label 'run-query}))
+    (let [... (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) (reshape-maps transpose? single? stepT)) {:label 'run-query}))
+          is-map? (e/server (nth ... 0))
+          transpose? (e/server (nth ... 1)) ; workaround sited destructuring
+          single? (e/server (nth ... 2))
+          stepT (e/server (nth ... 3))
           [legend top-left] (dom/legend
-                               [dom/node (dom/span (dom/props {:style {:float :inline-start, :display :flex, :flex-wrap :wrap}})
-                                           (rendering/Step-Title stepT)
-                                           dom/node)])
+                              [dom/node (dom/span (dom/props {:style {:float :inline-start, :display :flex, :flex-wrap :wrap}})
+                                                  (rendering/Step-Title stepT)
+                                                  dom/node)])
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
-          rowsT (e/server (do (prn "list rows"(hash stepT))
-                              (#(if (= ::ana/pull (::ana/type ((glitch-guard hfql/metas) stepT))) ; FIXME smell
-                                  [stepT]
-                                  ((glitch-guard unwrap) stepT)))))
+          rowsT (e/server (#(if (= ::ana/pull (::ana/type ((glitch-guard hfql/metas) stepT))) ; FIXME smell
+                              [stepT]
+                              ((glitch-guard unwrap) stepT))))
           rowsT-count (e/server (e/Offload #(bounded-count COLLECTION-LIMIT rowsT)
                                   #_{:label 'count-rows})) ; 𝓞(n)
           ]
@@ -269,11 +279,13 @@
           (let [rowsT-count (e/server (bounded-count rowsT-count rowsT))]
             (in top-left
               (dom/span (dom/props {:style {:order -1}})
-                        (dom/text (rendering/format-collection-count rowsT-count COLLECTION-LIMIT))))
+                        (dom/text (#(if is-map?
+                                      (rendering/format-map-entries-count rowsT-count COLLECTION-LIMIT)
+                                      (rendering/format-collection-count rowsT-count COLLECTION-LIMIT))))))
             (e/amb
               (in top-left (dom/span (dom/props {:style {:order -2}})
                                    (search/SearchInput! false)))
               (sort/Sorted (e/server rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection/select-pull-step) stepT))]
-                    (Matrix columnsT rowsT-count rowsT :transpose? transpose?, :single? single?)))))))))))
+                    (Matrix columnsT rowsT-count rowsT :transpose? transpose?, :single? single? :is-map? is-map?)))))))))))
