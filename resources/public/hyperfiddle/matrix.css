@@ -73,7 +73,7 @@ table.matrix{
 /* prevent raw text to escape cell */
 table.matrix{
     :is(th, td):not(:has(*)){
-        contain: strict;
+        contain: content;
         white-space: nowrap;
         text-overflow: ellipsis;
         overflow: hidden;
