@@ -586,6 +586,8 @@ identifier, though it might not be serializable."
 (defprotocol Suggestable :extend-via-metadata true
              (-suggest [o]))
 
+(def DEFAULT-SUGGESTION (hfql [identity identify type]))
+
 (extend-protocol Suggestable
   #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
   (-suggest [m]
@@ -599,7 +601,7 @@ identifier, though it might not be serializable."
       (hfql [key val])
       #(assoc % ::value-type :map-entry))) ; UI may interpret this to customize table layout
   #?(:clj Object, :cljs default)
-  (-suggest [_] (hfql [identity identify type]))
+  (-suggest [_] DEFAULT-SUGGESTION)
   nil (-suggest [_]))
 
 #?(:clj (extend-type Class
@@ -636,7 +638,10 @@ identifier, though it might not be serializable."
 
 (defn- suggest-at-point! [hfqlT]
   (if-let [suggestedT (suggest (force-thunk (value-at-point hfqlT)))]
-    (hoistCofreeT (bf/first #(assoc % ::suggested true)) suggestedT) ; recursively map over CofreeT structure - lazily
+    (let [default? (= DEFAULT-SUGGESTION suggestedT)]
+      (hoistCofreeT (bf/first #(cond-> (assoc % ::suggested true)
+                                 default? (assoc ::default true)))
+        suggestedT)) ; recursively map over CofreeT structure - lazily
     hfqlT))
 
 (let [id (comp ::ana/id metas)
@@ -644,10 +649,12 @@ identifier, though it might not be serializable."
   (defn augment-with-suggestions! [hfqlT]
     (when hfqlT
       (if-let [suggestedT (suggest-at-point! hfqlT)]
-        (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))]
-          (hoistCofreeT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
-                                    (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
-            (combine hfqlT suggestedT)))  ; FIXME looses static metadata :(
+        (if (and (::default (metas suggestedT)) (seq (children-ids hfqlT))) ; default was suggested but there are static columns, don't render defaults
+          hfqlT
+          (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))]
+            (hoistCofreeT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
+                                      (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
+              (combine hfqlT suggestedT))))  ; FIXME looses static metadata :(
         hfqlT))))
 
 (comment
