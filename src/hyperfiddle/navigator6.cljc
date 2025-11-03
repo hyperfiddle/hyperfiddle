@@ -108,7 +108,7 @@
 
 (e/defn Navigate [sitemap stepT]
   (e/client
-    (dom/div ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
+    (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
       (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
         (rebooting id ; glitch guard
           (e/server

@@ -46,3 +46,8 @@ html:has(.hyperfiddle-datomic-browser-demo-attributes, .hyperfiddle-datomic-brow
 body.electric-fiddle { height: 100dvh; box-sizing: border-box; }
 :not(body):has(.hyperfiddle-electric-forms5__table-picker) { height: 100%; }
 */
+
+/* Attributes and attribute-detail pages have a larger table */
+:is(.dustingetz-datomic-browser2-attributes, .attribute-detail) > * /* dummy div hack */ > fieldset table{
+     block-size: 66vh;
+}
