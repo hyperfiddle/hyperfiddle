@@ -53,7 +53,7 @@
           (e/for [edge (e/diff (e/server (map hfql/id columnsT)))]
             (let [columnT (e/server (get columns-index edge))
                   form (e/server (str (shorten (hfql/symbolic-edge columnT))))]
-              (dom/th (dom/props {:scope :col :title (e/server (hfql/describe-formatted columnT))})
+              (dom/th (dom/props {:scope :col :title (str (e/server (hfql/describe-formatted columnT)))})
                       (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)) ; TODO cleanup
                       (dom/text form)
                       (e/client
