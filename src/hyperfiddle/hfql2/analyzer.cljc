@@ -479,3 +479,8 @@
 ;;   )
 
 
+(defn free-call? [point]
+  (case (::type point)
+    ::call (empty? (filter #{'%} (::parameters point)))
+    ::traversal (free-call? (::edge point))
+    false))

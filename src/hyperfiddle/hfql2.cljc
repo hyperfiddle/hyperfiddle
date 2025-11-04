@@ -8,6 +8,7 @@
    [hyperfiddle.rcf :refer [tests]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.functor :refer [fmap]]
+   [hyperfiddle.ct.function :refer [flip]]
    [hyperfiddle.ct.bifunctor :as bf]
    [hyperfiddle.ct.pair :refer [pair fst snd swap]]
    [hyperfiddle.ct.comonad :refer [extract]]
@@ -38,9 +39,12 @@
 
 (defpointfree scope (comp pos snd runCofreeT))
 (defpointfree value-at-point (comp force-thunk '% scope))
+(defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
 (defpointfree metas (comp fst runCofreeT))
 (defpointfree pull-has-star? (comp ::ana/has-star? metas))
+(defpointfree free-call? (comp ana/free-call? metas))
+(defpointfree fullfilled? (some-fn seeded? free-call?))
 
 (declare unchunk-seq)
 (defn navigable [nav-fn object]

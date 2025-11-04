@@ -2,19 +2,19 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router5 :as r]
-            [hyperfiddle.hfql2 :as hfql]))
+            [hyperfiddle.hfql2 :as hfql]
+            [contrib.data :refer [filter-vals]]))
 
 (e/declare apps)
 
 #?(:clj
    (defn build-nav-links [sitemap defaults]
-     ;; (->> (hfql/context-free-edges sitemap)
-     ;;   (map hfql/resolved-form)
-     ;;   (sort-by hfql/edge-name)
-     ;;   (concat defaults)
-     ;;   (distinct))
-     defaults
-     ))
+     (->> sitemap
+       (filter-vals hfql/fullfilled?)
+       (keys)
+       (sort)
+       (concat defaults)
+       (distinct))))
 
 (e/defn Index [sitemapT defaults]
   (dom/nav
