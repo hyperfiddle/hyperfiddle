@@ -17,7 +17,8 @@
  :deps/prep-lib {:alias :build :fn prep :ensure "target/classes"}
  :paths ["src" "resources" "target/classes"]
 
- :deps {com.hyperfiddle/electric {:local/root "../electric"}
+ :deps {org.clojure/clojure {:mvn/version "1.12"}
+        com.hyperfiddle/electric {:local/root "../electric"}
         com.hyperfiddle/hyperfiddle-contrib {:local/root "../hyperfiddle-contrib"}
 
         com.hyperfiddle/heroicons-electric {:mvn/version "8a08de7"} ; for hyperfiddle.ui components
