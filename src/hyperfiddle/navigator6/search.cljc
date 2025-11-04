@@ -9,6 +9,7 @@
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.navigator6.utils :as utils]
+            [hyperfiddle.navigator6.generator :refer [generator yield]]
             [dustingetz.loader :refer [Offload]]
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.search :refer [with-local-search]]))
@@ -85,25 +86,26 @@
 
 #?(:clj
    (defn eager-search-BIG-O-N-SQUARE []
-     (fn [rowsT needle]
-       (try
-         (debug-exceptions `eager-search-BIG-O-N-SQUARE
-           (if-not (str/blank? needle)
-             (doall ; HACK prevent lazy-seq to escape this fn and cause electric to choke on `=` dedupe ; FIXME this needs streamy qseq
-               (sequence (comp
-                           (halt-when (fn [_] (.isInterrupted (Thread/currentThread)))) ; ensure search terminates ASAP on Thread interrupt
-                           (map first) ; short-circuit on first cell match per row.
-                           (remove nil?))
-                 (for [rowT rowsT
-                       :let [rowT+ (hfql/augment-with-suggestions! rowT)]] ; forces a nav!
-                   (for [columnT (unwrap rowT+)
-                         :let [cell-value (hfql/nav columnT)]
-                         :when (search-matches cell-value needle)]
-                     rowT))))
-             rowsT))
-         (catch Throwable t (prn 'search-BIG-O-N-SQUARE (ex-message t) #_t) [])))))
-
-
+     (fn [rowTs needle]
+       (if (str/blank? needle)
+         rowTs
+         (try
+           (doall
+             (generator
+               (loop [[rowT & rowTs] rowTs]
+                 (when-not (.isInterrupted (Thread/currentThread))
+                   (when rowT
+                     (let [rowT+ (hfql/augment-with-suggestions! rowT)]
+                       (loop [[columnT & columnTs] (unwrap rowT+)]
+                         (when-not (.isInterrupted (Thread/currentThread))
+                           (when columnT
+                             (let [cell-value (hfql/nav columnT)]
+                               (if (search-matches cell-value needle)
+                                 (yield rowT)
+                                 (recur columnTs)))))))
+                     (recur rowTs))))))
+           (catch Throwable t
+             (prn 'search-BIG-O-N-SQUARE (ex-message t) #_t)))))))
 
 ;; #?(:clj
 ;;    (defn eager-search-kvs-BIG-O-N-SQUARE []
