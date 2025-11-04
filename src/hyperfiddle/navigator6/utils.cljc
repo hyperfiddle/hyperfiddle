@@ -2,11 +2,16 @@
   (:refer-clojure :exclude [Delay])
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms])
-  #?(:cljs (:require-macros [hyperfiddle.navigator6.utils :refer [in rebooting]])))
+  #?(:cljs (:require-macros [hyperfiddle.navigator6.utils :refer [in rebooting freezing]])))
+
+(defmacro freezing [lexical-syms & body]
+  `(let [~@(interleave lexical-syms (map #(list `e/Snapshot %) lexical-syms))]
+     ~@body))
 
 (defmacro rebooting [sym & body] `(e/for [~sym (e/diff-by identity (e/as-vec ~sym))]
                                     #_(println "Rebooting on " ~sym)
-                                    ~@body))
+                                    (let [~sym (e/Snapshot ~sym)]
+                                      ~@body)))
 
 (defmacro in [dom-node & body] `(binding [dom/node ~dom-node] ~@body))
 

@@ -10,7 +10,7 @@
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
             [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
-            [hyperfiddle.navigator6.utils :refer [rebooting glitch-guard]]
+            [hyperfiddle.navigator6.utils :refer [rebooting freezing glitch-guard]]
             [contrib.css :as cssx]
             [contrib.data :refer [#?(:clj array?)]]
             [dustingetz.str :as strx]
@@ -112,8 +112,7 @@
       (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
         (rebooting id ; glitch guard
           (e/server
-            (rebooting id ; glitch guard – It's important to reboot on both peers or glitch may happen on one and not the other.
-              (prn "rebooting" id)
+            (freezing [sitemap stepT]
               (e/Reconcile
                 (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
                   (with-local-state ::state/route ; injects *local-state and interpret state write commands
@@ -144,14 +143,16 @@
 (e/defn RenderValue [sitemap stepT]
   (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
     (rebooting id
-      (e/Reconcile
-        (when ((complement (fnil zero? 0)) id)
-          (e/server
-            (let [value ((glitch-guard hfql/nav) stepT)
-                  suggestedT (hfql/suggest value)]
-              (e/Reconcile
-                (when-not (#(or (nil? suggestedT) (= stepT suggestedT)))
-                  (Navigate sitemap ((glitch-guard (flip hfql/seed)) suggestedT (assoc ((glitch-guard hfql/scope) stepT) '% value))))))))))))
+      (e/server
+        (freezing [sitemap stepT]
+          (e/Reconcile
+            (when ((complement (fnil zero? 0)) id)
+              (e/server
+                (let [value ((glitch-guard hfql/nav) stepT)
+                      suggestedT (hfql/suggest value)]
+                  (e/Reconcile
+                    (when-not (#(or (nil? suggestedT) (= stepT suggestedT)))
+                      (Navigate sitemap ((glitch-guard (flip hfql/seed)) suggestedT (assoc ((glitch-guard hfql/scope) stepT) '% value))))))))))))))
 
 ;;;;;;;;;;;;;;;;
 ;; Entrypoint ;;
