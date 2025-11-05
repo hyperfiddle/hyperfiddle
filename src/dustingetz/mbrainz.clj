@@ -3,8 +3,9 @@
             #_[hyperfiddle.electric3 :as e] ; not allowed in .clj
             [hyperfiddle.rcf :refer [tests]]))
 
-(def mbrainz-uri "datomic:dev://localhost:4334/mbrainz-1968-1973")
-(def test-conn (delay (d/connect mbrainz-uri)))
+(def mbrainz-lite-uri "datomic:dev://localhost:4334/mbrainz-1968-1973")
+(def mbrainz-full-uri "datomic:dev://localhost:4334/mbrainz-full")
+(def test-conn (delay (d/connect mbrainz-lite-uri)))
 (def test-db (delay (d/db @test-conn)))
 (def lennon 527765581346058) ; datomic pro
 (def pour-lamour 17592186058336)
@@ -18,3 +19,5 @@
   := {:db/id pour-lamour,
       :abstractRelease/name "Pour l’amour des sous / Parle au patron, ma tête est malade",
       :abstractRelease/artistCredit "Jean Yanne & Michel Magne"})
+
+(comment (datomic.api/get-database-names "datomic:dev://localhost:4334/*"))
