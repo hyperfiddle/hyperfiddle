@@ -1,7 +1,9 @@
 (ns hyperfiddle.navigator6.utils
   (:refer-clojure :exclude [Delay])
   (:require [hyperfiddle.electric3 :as e]
-            [hyperfiddle.electric-forms5 :as forms])
+            [hyperfiddle.electric-forms5 :as forms]
+            [missionary.core :as m])
+  #?(:clj (:import [java.util.concurrent.locks LockSupport]))
   #?(:cljs (:require-macros [hyperfiddle.navigator6.utils :refer [in rebooting freezing]])))
 
 (defmacro freezing [lexical-syms & body]
@@ -67,3 +69,21 @@
                                 (F command)
                                 command)))
     commands))
+
+#?(:clj
+   (defn ^:no-doc sleep-hard
+     "Debugging utility. Pause for `ms` milliseconds. Ignores interrupts during the pause. Restores interrupt status afterwards."
+     [^long ms]
+     (let [deadline (+ (System/nanoTime) (* 1000000 (long ms)))]
+       (loop [interrupted? false]
+         (let [remaining (- deadline (System/nanoTime))]
+           (if (pos? remaining)
+             (do
+               (LockSupport/parkNanos remaining)
+               (recur (or interrupted? (Thread/interrupted))))
+             (when interrupted?
+               (.interrupt (Thread/currentThread)))))))))
+
+
+(defn -noempty [<x] (m/eduction (remove hyperfiddle.incseq/empty-diff?) <x))
+(e/defn  ^:no-doc Swallow-empty-diffs "Don't touch this" [x] (e/join (-noempty (e/pure x))))
