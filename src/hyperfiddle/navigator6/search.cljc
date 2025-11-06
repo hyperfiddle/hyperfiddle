@@ -8,6 +8,7 @@
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.state :as state]
+            [hyperfiddle.navigator6.rendering :refer [*server-pretty]]
             [hyperfiddle.navigator6.utils :as utils]
             [hyperfiddle.navigator6.generator :refer [generator yield]]
             [dustingetz.loader :refer [Offload]]
@@ -35,19 +36,22 @@
 
 
 (e/defn Filtered
-  [pred rows-count rows Body & {::keys [limit] :or {limit 10000}}]
+  [pred rows-count rowTs columnTs Body & {::keys [limit] :or {limit 10000}}]
   (e/client
     (let [filtered (e/server (e/Reconcile (cond
-                                            (e/Reconcile (and (not (hfql/filtered? rows)) (< rows-count limit)))
-                                            (Offload #(pred rows *local-search) {:label 'in-memory-search})
+                                            (e/Reconcile (and (not (hfql/filtered? rowTs)) (< rows-count limit)))
+                                            (Offload #(pred *server-pretty rowTs columnTs *local-search) {:label 'in-memory-search})
                                             :else
-                                            (with-meta (take limit rows) (meta rows)))))]
+                                            (with-meta (take limit rowTs) (meta rowTs)))))]
       (Body filtered))))
 
 
 
-(defmulti search-matches (fn [object _needle] (type object)))
-(defmethod search-matches :default [object needle] (strx/any-matches? [object] needle))
+(defmulti search-matches (fn [object _needle & [_pretty-print-map]] (type object)))
+(defmethod search-matches :default [object needle & [pretty-print-map]]
+  (if-let [pretty-print (get pretty-print-map (type object))]
+    (strx/any-matches? (pretty-print object) needle)
+    (strx/any-matches? [object] needle)))
 
 (defn- prefix-filterer
   "Take a filtering predicate pred :: String -> Any -> Bool and return a function f :: String -> [Any] -> [Any].
@@ -86,23 +90,29 @@
 
 #?(:clj
    (defn eager-search-BIG-O-N-SQUARE []
-     (fn [rowTs needle]
-       (if (str/blank? needle)
-         rowTs
+     ;; TODO move to parallel search using missionary
+     (fn [pretty-print-map rowTs columnTs needle]
+       (cond
+         (str/blank? needle) rowTs
+         (empty? columnTs) ()
+         :else
          (try
            (doall
              (generator
                (loop [[rowT & rowTs] rowTs]
-                 (when-not (.isInterrupted (Thread/currentThread))
-                   (when rowT
-                     (let [rowT+ (hfql/augment-with-suggestions! rowT)]
-                       (loop [[columnT & columnTs] (unwrap rowT+)]
-                         (when-not (.isInterrupted (Thread/currentThread))
-                           (when columnT
-                             (let [cell-value (hfql/nav columnT)]
-                               (if (search-matches cell-value needle)
-                                 (yield rowT)
-                                 (recur columnTs)))))))
+                 (when rowT
+                   (when-not (.isInterrupted (Thread/currentThread))
+                     (let [rowT+ (hfql/augment-with-suggestions! rowT)
+                           cellTs (unwrap rowT+)]
+                       (loop [[columnT & columnTs] columnTs]
+                         (when columnT
+                           (if-let [cellT (hfql/find-cell-by-column* columnT cellTs)]
+                             (when-not (.isInterrupted (Thread/currentThread))
+                               (let [cell-value (hfql/nav cellT)]
+                                 (if (search-matches cell-value needle pretty-print-map)
+                                   (yield rowT)
+                                   (recur columnTs))))
+                             (recur columnTs)))))
                      (recur rowTs))))))
            (catch Throwable t
              (prn 'search-BIG-O-N-SQUARE (ex-message t) #_t)))))))

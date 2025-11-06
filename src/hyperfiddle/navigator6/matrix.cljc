@@ -288,6 +288,7 @@
       (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
         rowsT-count
         (e/server rowsT)
+        (e/server columnsT)
         (e/fn [rowsT]
           (let [rowsT-count (e/server (bounded-count rowsT-count rowsT))]
             (in top-left
