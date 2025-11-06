@@ -50,7 +50,7 @@
 (defmulti search-matches (fn [object _needle & [_pretty-print-map]] (type object)))
 (defmethod search-matches :default [object needle & [pretty-print-map]]
   (if-let [pretty-print (get pretty-print-map (type object))]
-    (strx/any-matches? (pretty-print object) needle)
+    (strx/includes-str? (pretty-print object) needle)
     (strx/any-matches? [object] needle)))
 
 (defn- prefix-filterer
