@@ -13,6 +13,7 @@
             [hyperfiddle.navigator6.generator :refer [generator yield]]
             [dustingetz.loader :refer [Offload]]
             [missionary.core :as m]
+            [contrib.missionary-contrib :as mx]
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.search :refer [with-local-search]]))
   )
@@ -188,3 +189,19 @@
 ;;                [columnsT rowsT]))
 ;;            (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t)
 ;;                   [columnsT rowsT]))))))
+
+
+#?(:clj
+   (defn eager-search-BIG-O-N-SQUARE-streamy []
+     (fn [pretty-print-map rowTs columnTs needle]
+       (m/relieve {}
+         (mx/throttle 100
+           (m/reductions {} [0 ()]
+             (cond
+               (str/blank? needle) (m/ap [(bounded-count 10000 rowTs) (with-meta (take 10000 rowTs) (meta rowTs))])
+               (empty? columnTs) (m/ap [0 ()])
+               :else
+               (->> (eager-search-BIG-O-N-SQUARE< pretty-print-map rowTs columnTs needle)
+                 (m/eduction (take 10000))
+                 (m/reductions (fn [[num-rows rows] row] [(inc num-rows) (conj rows row)]) [0 []])))))))))
+
