@@ -123,72 +123,31 @@
         (m/eduction (resequence))))))
 
 #?(:clj
-   (defn eager-search-BIG-O-N-SQUARE-2 []
+   (defn eager-search-BIG-O-N-SQUARE< [pretty-print-map rowTs columnTs needle]
+     (pfilter
+       (fn [rowT]
+         (when-not (.isInterrupted (Thread/currentThread))
+           (let [rowT+ (hfql/augment-with-suggestions! rowT)
+                 cellTs (unwrap rowT+)]
+             (loop [columnTs columnTs]
+               (if (seq columnTs)
+                 (if-let [cellT (hfql/find-cell-by-column* (first columnTs) cellTs)]
+                   (when-not (.isInterrupted (Thread/currentThread))
+                     (if (search-matches (hfql/nav cellT) needle pretty-print-map)
+                       true
+                       (recur (rest columnTs))))
+                   (recur (rest columnTs)))
+                 false)))))
+       (m/seed rowTs))))
+
+#?(:clj
+   (defn eager-search-BIG-O-N-SQUARE []
      (fn [pretty-print-map rowTs columnTs needle]
-       (m/? (m/reduce conj [] (pfilter
-                                (fn [rowT]
-                                  (when-not (.isInterrupted (Thread/currentThread))
-                                    (let [rowT+ (hfql/augment-with-suggestions! rowT)
-                                          cellTs (unwrap rowT+)]
-                                      (loop [columnTs columnTs]
-                                        (if (seq columnTs)
-                                          (if-let [cellT (hfql/find-cell-by-column* (first columnTs) cellTs)]
-                                            (when-not (.isInterrupted (Thread/currentThread))
-                                              (if (search-matches (hfql/nav cellT) needle pretty-print-map)
-                                                true
-                                                (recur (rest columnTs))))
-                                            (recur (rest columnTs)))
-                                          false)))))
-                                (m/seed rowTs)))))))
-
-(comment
-  #?(:clj
-     (defn eager-search-BIG-O-N-SQUARE []
-       ;; TODO move to parallel search using missionary
-       (fn [pretty-print-map rowTs columnTs needle]
-         (cond
-           (str/blank? needle) rowTs
-           (empty? columnTs) ()
-           :else
-           (try
-             (doall
-               (generator
-                 (loop [[rowT & rowTs] rowTs]
-                   (when rowT
-                     (when-not (.isInterrupted (Thread/currentThread))
-                       (let [rowT+ (hfql/augment-with-suggestions! rowT)
-                             cellTs (unwrap rowT+)]
-                         (loop [[columnT & columnTs] columnTs]
-                           (when columnT
-                             (if-let [cellT (hfql/find-cell-by-column* columnT cellTs)]
-                               (when-not (.isInterrupted (Thread/currentThread))
-                                 (let [cell-value (hfql/nav cellT)]
-                                   (if (search-matches cell-value needle pretty-print-map)
-                                     (yield rowT)
-                                     (recur columnTs))))
-                               (recur columnTs)))))
-                       (recur rowTs))))))
-             (catch Throwable t
-               (prn 'search-BIG-O-N-SQUARE (ex-message t) #_t))))))))
-
-;; #?(:clj
-;;    (defn eager-search-kvs-BIG-O-N-SQUARE []
-;;      (let [_do-filter (prefix-filterer (fn [needle pair] (search-matches (snd pair) needle)))]
-;;        (fn [columnsT rowsT _hfql-bindings search _sort-spec]
-;;          (try
-;;            (debug-exceptions `eager-search-kvs-BIG-O-N-SQUARE
-;;              (if (not-empty search)
-;;                (let [kvs (for [rowT rowsT
-;;                                columnT columnsT
-;;                                :let [cell-value (delay (hfql/nav (hfql/seed (hfql/scope rowT) columnT)))]
-;;                                :when (or (search-matches (hfql/symbolic-edge columnT) search)
-;;                                        (search-matches (force cell-value) search))]
-;;                            [rowT columnT])]
-;;                  [(distinct (map second kvs))
-;;                   (dedupe (map first kvs))])
-;;                [columnsT rowsT]))
-;;            (catch Throwable t (prn 'eager-pull-search-sort (ex-message t) #_t)
-;;                   [columnsT rowsT]))))))
+       (cond
+         (str/blank? needle) rowTs
+         (empty? columnTs) ()
+         :else
+         (m/? (m/reduce conj [] (eager-search-BIG-O-N-SQUARE< pretty-print-map rowTs columnTs needle)))))))
 
 
 #?(:clj

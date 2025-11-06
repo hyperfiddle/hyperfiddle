@@ -285,7 +285,7 @@
           rowsT-count (e/server (e/Offload #(bounded-count COLLECTION-LIMIT rowsT)
                                   #_{:label 'count-rows})) ; 𝓞(n)
           ]
-      (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE-2))
+      (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
         rowsT-count
         (e/server rowsT)
         (e/server columnsT)
