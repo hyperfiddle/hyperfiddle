@@ -17,7 +17,7 @@
  :deps/prep-lib {:alias :build :fn prep :ensure "target/classes"}
  :paths ["src" "resources" "target/classes"]
 
- :deps {org.clojure/clojure {:mvn/version "1.12"}
+ :deps {org.clojure/clojure {:mvn/version "1.12.3"}
         com.hyperfiddle/electric {:local/root "../electric"}
         com.hyperfiddle/hyperfiddle-contrib {:local/root "../hyperfiddle-contrib"}
 
