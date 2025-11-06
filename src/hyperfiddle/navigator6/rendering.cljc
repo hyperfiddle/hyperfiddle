@@ -40,10 +40,18 @@
          (let [coll-count (count coll)
                base (binding [*print-length* 1, *print-level* 2]
                       ;; `symbol` removes double quotes from the strings inside the collection
-                      (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
-                        str
-                        (str/replace (str \newline) (str \space))
-                        (str/trim)))]
+                      (if (map? coll)
+                        (if (empty? coll)
+                          "{}"
+                          (let [[[k v] _] (seq coll)]
+                            (str "{"
+                              ((get server-pretty (class k) strx/pprint-str) k)
+                              ((get server-pretty (class v) strx/pprint-str) v)
+                              "}")))
+                        (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
+                          str
+                          (str/replace (str \newline) (str \space))
+                          (str/trim))))]
            (cond-> base
              (> coll-count 1) (str-insert-before-last \…)
              (> coll-count 1) (str " " coll-count " elements")
