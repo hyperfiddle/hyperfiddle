@@ -112,10 +112,10 @@
                 (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
           (e/amb)))
 
-(e/defn MatrixRow [row-group-id columnsT index rowT offsetH limitH]
+(e/defn MatrixRow [row-group-id columnsT row-index rowT offsetH limitH]
   (e/client
     (dom/tr
-      (dom/props {:style {:--row-index index}
+      (dom/props {:style {:--row-index row-index}
                   ;; TODO improve – we have an extra nil row at the bottom when scrolling to the far bottom of a table.
                   ;; Because we render limit + 1 row for smooth scrolling experience (top and bottom rows are always clipped on scroll)
                   ;; This extra row is empty at the end of the collection, and we don't want it to show up at all. So we hide it with CSS.
@@ -123,26 +123,39 @@
       (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
       (let [rowT (e/server (e/Offload #(hfql/augment-with-suggestions! rowT)))]
         (RowHandle row-group-id rowT)
-        (let [cellsT (e/server ((maybe unwrap) rowT))
-              selected-colsT (e/server (set (mapv hfql/id columnsT)))
-              cellsT (e/server (filterv #(selected-colsT (hfql/id %)) cellsT))
+        (let [cellsT (e/server (e/Offload (fn [] (let [cellsT ((maybe unwrap) rowT)
+                                                      selected-colsT (set (mapv hfql/id columnsT))]
+                                                  (filterv #(selected-colsT (hfql/id %)) cellsT)))))
               ]
-          (e/server ;; trade off:
+          (e/client ;; trade off:
             ;; e/for on client = ultra smooth row positioning but glitchy row content
             ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
-            (e/for [index (IndexRing limitH offsetH)]
-              (MatrixCell index (e/server (hfql/find-cell-by-column* (nth columnsT index nil) cellsT))))))))))
+            (e/for [col-index (IndexRing limitH offsetH)]
+              (MatrixCell col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
 
 (e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
   (e/client
     (dom/tbody
       (let [row-group-id (random-uuid)]
-        (e/server ;; trade off:
+        (e/client ;; trade off:
           ;; e/for on client = ultra smooth row positioning but glitchy row content
           ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
-          (let [subrowsT (drop offsetV rowsT)]
-            (e/for [index (IndexRing limitV offsetV)]
-              (MatrixRow row-group-id columnsT index (e/server (nth subrowsT (- index offsetV) nil)) offsetH limitH))))))))
+          (e/for [index (IndexRing limitV offsetV)]
+            (MatrixRow row-group-id columnsT
+              ;; HACK pick your second level of trade off:
+              ;; Option 1 - instant scroll, no server roundtrip.
+              ;; Rows will scroll as fast as the browser's main js thread allows it. Cell content will be inconsistent under load.
+              ;; The worse the network quality, the less consistent.
+              index
+              ;; Option 2 – more consistency, slower scroll – round-trip the row index.
+              ;; In-browser scroll will still happen as fast as JS allows it, but rows will be off-viewport until the server echoes the row-index.
+              ;; If the server is busy, e.g. under load due to many rows × columns, or if network is slow, continuous time semantics will "relieve"
+              ;; the row index at almost the same rate as the inconsistent cells' content.
+              ;; The server will then echo a final big message containing both latest row indexes and latest cells content.
+              ;; Not sure if this behavior is just luck or an emergent, fundamental aspect of the system.
+              #_(e/server (identity index))
+              ;; trades scroll speed for consistency, but slightly better than siting the entire e/for
+              (e/server (e/Offload #(nth rowsT index nil))) offsetH limitH)))))))
 
 #?(:cljs
    (defn- find-clicked-cell-or-row [^js dom-event]

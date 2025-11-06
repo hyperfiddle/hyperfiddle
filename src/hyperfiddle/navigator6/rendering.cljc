@@ -11,18 +11,10 @@
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.extensions :as extensions]
             [hyperfiddle.navigator6.selection :as selection]
-            [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard]]
+            [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard Swallow-empty-diffs]]
             [hyperfiddle.router5 :as router]))
 
 (e/declare *server-pretty)
-
-#?(:clj
-   (defn- pretty-value [x server-pretty]
-     (debug-exceptions `pretty-value
-       (case x
-         ::not-found ""
-         ::empty-cell ""
-         ((get server-pretty (class x) pr-str) x)))))
 
 #?(:clj (defn- map-keep-coll [f coll]
           (debug-exceptions `map-keep-coll
@@ -59,6 +51,15 @@
        (catch Throwable t ; glitch guard
          (ex-message t)))))
 
+#?(:clj
+   (defn- pretty-value [x server-pretty]
+     (debug-exceptions `pretty-value
+       (case x
+         ::not-found ""
+         ::empty-cell ""
+         (if (or (set? x) (sequential? x) (array? x) (map? x))
+           (str-inline-coll x server-pretty)
+           ((get server-pretty (class x) pr-str) x))))))
 
 (defn as-coll [v] (if (or (array? v) (coll? v)) v [v])) ; TODO removeme, glitch guard
 
@@ -66,7 +67,7 @@
   (let [pretty-v (e/Offload #(str-inline-coll (as-coll value) *server-pretty))
         symbolic-link-href (::hfql/link (meta edge))]
     (e/Reconcile
-      (if (some? symbolic-link-href)
+      (if (Swallow-empty-diffs (some? symbolic-link-href))
         (router/link ['. [symbolic-link-href]] (dom/text pretty-v))
         (dom/text pretty-v))) ))
 
@@ -76,7 +77,7 @@
   (let [tooltip-qualified-ident (hyperfiddle.hfql2.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
         Tooltip (Resolve tooltip-qualified-ident nil)]
     (e/Reconcile
-      (when (some? Tooltip)
+      (when (Swallow-empty-diffs (some? Tooltip))
         (let [show? (dom/Mouse-over?)]
           (dom/props
             {:data-tooltip
@@ -90,19 +91,20 @@
                       nil))
     object edgeT value))
 
+(defn- link-href [object edgeT value]
+  (let [denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) (hfql/identify value), '%v (or (hfql/identify value) value)}]
+    (when-let [symbolic-link-href (unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
+      (replace denv symbolic-link-href))))
+
 (e/defn DefaultCellRenderer [object edgeT value]
   (RenderTooltip ::hfql/Tooltip object edgeT value)
-  (e/Reconcile
-    (if (#(or (set? value) (sequential? value) (array? value)))
-      (RenderInlineColl object edgeT value)
-      (do (e/client (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))) ; FIXME not showing up
-          (let [pretty-v (pretty-value value *server-pretty)
-                denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) (hfql/identify value), '%v (#(or (hfql/identify value) value))}
-                symbolic-link-href (unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
-            (e/Reconcile
-              (if (some? symbolic-link-href)
-                (router/link ['. [(replace denv symbolic-link-href)]] (dom/text pretty-v))
-                (dom/text pretty-v))) )))))
+  (let [pretty-v (e/Offload #(pretty-value value *server-pretty))]
+    (e/Reconcile
+      #_(e/client (e/drain (e/Tap-diffs (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))))) ; FIXME not showing up
+      (let [link-href (link-href object edgeT value)]
+        (if (Swallow-empty-diffs (some? link-href))
+          (router/link ['. [link-href]] (dom/text pretty-v))
+          (dom/text pretty-v))))))
 
 (e/declare Render)
 (e/defn RenderCell [object edgeT value]
@@ -119,11 +121,11 @@
 
 (e/defn Render [object edge value] (RenderCell object edge value))
 (e/defn Render* [stepT]
-  (Render (force ((glitch-guard hfql/value-at-point) stepT))
+  (Render (e/Offload #(force ((glitch-guard hfql/value-at-point) stepT)))
     stepT
-    (#(if stepT
-        (hfql/nav (get-leafT stepT))
-        ::empty-cell))))
+    (e/Offload #(if stepT
+                  (hfql/nav (get-leafT stepT))
+                  ::empty-cell))))
 
 
 
