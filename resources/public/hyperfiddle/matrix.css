@@ -180,6 +180,9 @@ table.matrix[role=radiogroup]{
             border-top-right-radius: 6px;
             border-bottom-right-radius: 6px;
         }
+        a{
+            color: inherit;
+        }
     }
     
     tr:has(input[type=radio]:checked:not([aria-busy=true])){
@@ -195,7 +198,13 @@ table.matrix[role=radiogroup]{
     }
     
     td[aria-selected=true]{
-        box-shadow: inset 0 0 0 .125em var(--color-selected);
+        color: var(--row-text-color);
+        background: var(--row-background-color);
+        box-shadow: inset 0 0 0 .0625em white
+                   , 0 0 0 .0625em var(--color-selected);
+        a {
+            color: inherit;
+        }
     }
     td[aria-busy=true]{
         box-shadow: inset 0 0 0 .125em var(--color-pending);
