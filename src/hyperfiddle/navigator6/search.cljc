@@ -12,6 +12,7 @@
             [hyperfiddle.navigator6.utils :as utils]
             [hyperfiddle.navigator6.generator :refer [generator yield]]
             [dustingetz.loader :refer [Offload]]
+            [missionary.core :as m]
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.search :refer [with-local-search]]))
   )
@@ -88,34 +89,86 @@
             (= needle last-needle)) @!last-filtered
           :else (vreset! !last-filtered (filter do-filter pulled)))))))
 
+(defn run-tasks
+  ([flow] (run-tasks 1 flow))
+  ([par flow] (m/ap (m/? (m/?> par flow)))))
+
 #?(:clj
-   (defn eager-search-BIG-O-N-SQUARE []
-     ;; TODO move to parallel search using missionary
+   (defn resequence []
+     (fn [rf]
+       (let [buffer (java.util.HashMap.)
+             !next (volatile! 0)]
+         (fn
+           ([] (rf))
+           ([res] (rf res))
+           ([res [i pass? x]]
+            (.put buffer i [pass? x])
+            (loop []
+              (if-some [[pass? x] (.remove buffer @!next)]
+                (do
+                  (when pass? (rf res x))
+                  (vswap! !next inc)
+                  (recur))
+                res))))))))
+
+#?(:clj
+   (defn pfilter
+     ([pred flow]
+      (pfilter pred (.. Runtime getRuntime availableProcessors) flow))
+     ([pred par flow]
+      (->> flow
+        (m/eduction (map-indexed (fn [i x] (m/via m/blk [i (boolean (pred x)) x]))))
+        (run-tasks par)
+        (m/eduction (resequence))))))
+
+#?(:clj
+   (defn eager-search-BIG-O-N-SQUARE-2 []
      (fn [pretty-print-map rowTs columnTs needle]
-       (cond
-         (str/blank? needle) rowTs
-         (empty? columnTs) ()
-         :else
-         (try
-           (doall
-             (generator
-               (loop [[rowT & rowTs] rowTs]
-                 (when rowT
-                   (when-not (.isInterrupted (Thread/currentThread))
-                     (let [rowT+ (hfql/augment-with-suggestions! rowT)
-                           cellTs (unwrap rowT+)]
-                       (loop [[columnT & columnTs] columnTs]
-                         (when columnT
-                           (if-let [cellT (hfql/find-cell-by-column* columnT cellTs)]
-                             (when-not (.isInterrupted (Thread/currentThread))
-                               (let [cell-value (hfql/nav cellT)]
-                                 (if (search-matches cell-value needle pretty-print-map)
-                                   (yield rowT)
-                                   (recur columnTs))))
-                             (recur columnTs)))))
-                     (recur rowTs))))))
-           (catch Throwable t
-             (prn 'search-BIG-O-N-SQUARE (ex-message t) #_t)))))))
+       (m/? (m/reduce conj [] (pfilter
+                                (fn [rowT]
+                                  (when-not (.isInterrupted (Thread/currentThread))
+                                    (let [rowT+ (hfql/augment-with-suggestions! rowT)
+                                          cellTs (unwrap rowT+)]
+                                      (loop [columnTs columnTs]
+                                        (if (seq columnTs)
+                                          (if-let [cellT (hfql/find-cell-by-column* (first columnTs) cellTs)]
+                                            (when-not (.isInterrupted (Thread/currentThread))
+                                              (if (search-matches (hfql/nav cellT) needle pretty-print-map)
+                                                true
+                                                (recur (rest columnTs))))
+                                            (recur (rest columnTs)))
+                                          false)))))
+                                (m/seed rowTs)))))))
+
+(comment
+  #?(:clj
+     (defn eager-search-BIG-O-N-SQUARE []
+       ;; TODO move to parallel search using missionary
+       (fn [pretty-print-map rowTs columnTs needle]
+         (cond
+           (str/blank? needle) rowTs
+           (empty? columnTs) ()
+           :else
+           (try
+             (doall
+               (generator
+                 (loop [[rowT & rowTs] rowTs]
+                   (when rowT
+                     (when-not (.isInterrupted (Thread/currentThread))
+                       (let [rowT+ (hfql/augment-with-suggestions! rowT)
+                             cellTs (unwrap rowT+)]
+                         (loop [[columnT & columnTs] columnTs]
+                           (when columnT
+                             (if-let [cellT (hfql/find-cell-by-column* columnT cellTs)]
+                               (when-not (.isInterrupted (Thread/currentThread))
+                                 (let [cell-value (hfql/nav cellT)]
+                                   (if (search-matches cell-value needle pretty-print-map)
+                                     (yield rowT)
+                                     (recur columnTs))))
+                               (recur columnTs)))))
+                       (recur rowTs))))))
+             (catch Throwable t
+               (prn 'search-BIG-O-N-SQUARE (ex-message t) #_t))))))))
 
 ;; #?(:clj
 ;;    (defn eager-search-kvs-BIG-O-N-SQUARE []
