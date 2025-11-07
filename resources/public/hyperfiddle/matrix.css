@@ -154,11 +154,12 @@ table.matrix .matrix__diagonal {
 
 /* selection */
 table.matrix[role=radiogroup]{
-    --color-selected: #0264E2; /* MacOs finder color */
+    --color-selected:  #0264E2; /* MacOs finder color */
     --color-pending: oklch(95% 0.15 100);
     --row-selected-background: none;
     --row-background-color: var(--color-selected); 
     --row-text-color: white;
+    --item-selected-border-radius: 6px;
     cursor: default;
 
     tr:has(input[type=radio]:is(:checked,[aria-busy=true])){
@@ -173,12 +174,12 @@ table.matrix[role=radiogroup]{
         */
         
         th:first-child{
-            border-top-left-radius: 6px;
-            border-bottom-left-radius: 6px;
+            border-top-left-radius: var(--item-selected-border-radius);
+            border-bottom-left-radius: var(--item-selected-border-radius);
         }
         td:last-child{
-            border-top-right-radius: 6px;
-            border-bottom-right-radius: 6px;
+            border-top-right-radius: var(--item-selected-border-radius);
+            border-bottom-right-radius: var(--item-selected-border-radius);
         }
         a{
             color: inherit;
@@ -187,7 +188,7 @@ table.matrix[role=radiogroup]{
     
     tr:has(input[type=radio]:checked:not([aria-busy=true])){
         th, td {
-            background: var(--row-background-color);
+           background: var(--row-background-color);
         }
     }
     tr:has(input[type=radio][aria-busy=true]:checked){
@@ -200,8 +201,7 @@ table.matrix[role=radiogroup]{
     td[aria-selected=true]{
         color: var(--row-text-color);
         background: var(--row-background-color);
-        box-shadow: inset 0 0 0 .0625em white
-                   , 0 0 0 .0625em var(--color-selected);
+        border-radius: var(--item-selected-border-radius);
         a {
             color: inherit;
         }
