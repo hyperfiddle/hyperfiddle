@@ -99,7 +99,7 @@
     (if hfqlT
       (get {::pull (e/fn [stepT] (RenderMatrix stepT :transpose? true, :single? true))
             ::star RenderMatrix}
-        (Offload #((glitch-guard render-type) hfqlT) {:label 'ResolveRenderer})
+        (e/Offload #((glitch-guard render-type) hfqlT))
         (e/Partial RenderValue sitemap))
       (e/fn [& _]))))
 
