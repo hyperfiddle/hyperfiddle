@@ -78,6 +78,25 @@
           (= (hfql/identify (hfql/value-at-point cellT))
             (hfql/identify (hfql/value-at-point selected-cellT))))))))
 
+(def INTERRACTIVE-DOM-ELEMENT-SELECTOR
+  "Elements matching this selector will be considered interactive. Interactions
+  with interactive elements won't be interpreted by the Matrix. E.g. clicking on
+  a link or button in a cell won't select the cell. Users may mark any element
+  as interactive with the `data-role=widget` attribute. Users must not use
+  `role=widget` directly. It can mess with browsers' internal logic and damages
+  accessibility. See https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/widget_role."
+  "[data-role=\"widget\"],button,a[href],input,select,textarea,[role=\"button\"],[contenteditable=\"\"],[contenteditable=\"true\"]")
+
+#?(:cljs
+   (defn- cell-ignore-click-on-interactive-content [^js event]
+     (when-let [target (.-target event)]
+       (if (or (.matches target INTERRACTIVE-DOM-ELEMENT-SELECTOR)
+             (when-let [hit (.closest target INTERRACTIVE-DOM-ELEMENT-SELECTOR)]
+               (.. event -currentTarget (contains hit))))
+         nil
+         event))))
+
+
 (e/defn MatrixCell [index cellT]
   (e/client
     (dom/td (dom/props {:style {:--cell-index index}
@@ -85,7 +104,7 @@
                         :tabindex "0"
                         :aria-selected (e/server (cell-selected? cellT selection/*local-selection))})
             (let [GetCellT (e/server (utils/Delay cellT))
-                  event (dom/On* "click" identity nil) ; TODO hoist
+                  event (dom/On* "click" cell-ignore-click-on-interactive-content nil) ; TODO hoist
                   [token err] (e/Token event)]
               (e/Reconcile
                 (when token
