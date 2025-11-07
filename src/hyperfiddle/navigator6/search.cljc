@@ -95,22 +95,32 @@
   ([par flow] (m/ap (m/? (m/?> par flow)))))
 
 #?(:clj
-   (defn resequence []
-     (fn [rf]
-       (let [buffer (java.util.HashMap.)
-             !next (volatile! 0)]
-         (fn
-           ([] (rf))
-           ([res] (rf res))
-           ([res [i pass? x]]
-            (.put buffer i [pass? x])
-            (loop []
-              (if-some [[pass? x] (.remove buffer @!next)]
-                (do
-                  (when pass? (rf res x))
-                  (vswap! !next inc)
-                  (recur))
-                res))))))))
+   (defn resequence-by
+     ([kf] (resequence-by kf (.. Runtime getRuntime availableProcessors)))
+     ([kf par]
+      (fn [rf]
+        (let [^longs !head-pointer (long-array 1)
+              init-cap (int (Math/ceil (/ (double (max 1 par)) 0.75)))
+              ^java.util.HashMap buffer (java.util.HashMap. init-cap)]
+          (aset !head-pointer 0 0)
+          (fn
+            ([] (rf))
+            ([res] (rf res))
+            ([res value]
+             (let [current-head-pointer (aget !head-pointer 0)
+                   current-index (long (kf value))]
+               (if (== current-index current-head-pointer)
+                 (loop [head-pointer (unchecked-inc current-index)
+                        res (rf res value)]
+                   (if-some [value (.remove buffer head-pointer)]
+                     (recur (unchecked-inc head-pointer) (rf res value))
+                     (do
+                       (aset !head-pointer 0 head-pointer)
+                       res)))
+                 (do (.put buffer current-index value)
+                     res))))))))))
+
+#?(:clj (defn resequence [] (resequence-by #(nth % 0))))
 
 #?(:clj
    (defn pfilter
@@ -120,7 +130,11 @@
       (->> flow
         (m/eduction (map-indexed (fn [i x] (m/via m/blk [i (boolean (pred x)) x]))))
         (run-tasks par)
-        (m/eduction (resequence))))))
+        (m/eduction (resequence) (filter #(nth % 1)) (map #(nth % 2)))))))
+
+(comment
+  (m/? (m/reduce conj (pfilter #(do (Thread/sleep (rand-int 100)) (odd? %)) (m/seed (range 100)))))
+  )
 
 #?(:clj
    (defn eager-search-BIG-O-N-SQUARE< [pretty-print-map rowTs columnTs needle]
