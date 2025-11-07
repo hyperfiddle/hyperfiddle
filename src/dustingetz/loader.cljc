@@ -91,37 +91,60 @@
 
 (def css
   "
-.data-loader{ --loader-color: green; }
-:has(> .data-loader){
-  --loader-color: green; /* default */
-  will-change: outline-color;
+input.data-loader__enabled:not(:checked) ~ * {
+  --data-loader-display: none;
+  --data-loader-color: revert;
+  --data-loader-border-width: revert;
+  --data-loader-border-style: revert;
+}
+
+.data-loader__enabled :is(.data-loader, :has(> .data-loader))
+, input.data-loader__enabled:checked ~ *
+{
+  --data-loader-color: green; /* default */
 }
 
 .data-loader[data-loader-status=running]
-, :has(> .data-loader[data-loader-status=running]) {--loader-color: orange;}
+, :has(> .data-loader[data-loader-status=running])
+{
+  --data-loader-color: orange;
+}
 
 .data-loader[data-loader-status=interrupted]
-, :has(> .data-loader[data-loader-status=interrupted]):not(:has(> .data-loader[data-loader-status=running])){
-  --loader-color: crimson;
+, :has(> .data-loader[data-loader-status=interrupted]):not(:has(> .data-loader[data-loader-status=running]))
+{
+  --data-loader-color: crimson;
 }
 
-@keyframes data-loader-fade-out{
-  from { outline-color: var(--loader-color); }
-  to   { outline-color: transparent; }
+:is(.data-loader__enabled, input.data-loader__enabled:checked ~ *)
+{
+  .data-loader + :is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]):first-of-type
+  {
+    border-top-width: var(--data-loader-border-width, 1px);
+    border-top-color: var(--data-loader-color);
+    border-top-style: var(--data-loader-border-style, solid);
+  }
+
+  .data-loader + :is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]):last-of-type
+  {
+    border-bottom-width: var(--data-loader-border-width, 1px);
+    border-bottom-color: var(--data-loader-color);
+    border-bottom-style: var(--data-loader-border-style, solid);
+  }
+
+  .data-loader + :not(:is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]))
+  {
+    border-width: var(--data-loader-border-width, 1px);
+    border-color: var(--data-loader-color);
+    border-style: var(--data-loader-border-style, solid);
+  }
 }
-
-.data-loader + :is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]):first-of-type
- { border-top: 1px var(--loader-color) solid; }
-.data-loader + :is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]):last-of-type
- { border-bottom: 1px var(--loader-color) solid; }
-
-.data-loader + :not(:is(li,td,tr,option,[role=cell],[role=gridcell],[role=row],[role=listitem],[role=menuitem],[role=option],[role=section],[role=tab],[role=treeitem]))
- { border: 1px var(--loader-color) solid; }
 
 .data-loader{
+  display: var(--data-loader-display, block);
   /*pointer-events: none;*/
   box-sizing: border-box;
-  background-color: var(--loader-color);
+  background-color: var(--data-loader-color);
   color: white;
   padding-left: 0.5rem;
   font-size: 0.75rem;
@@ -135,7 +158,7 @@
 }
 
 
-:has(>.data-loader):hover > .data-loader { display: block; }
+:has(>.data-loader):hover > .data-loader { display: var(--data-loader-display, block); }
 
 .data-loader > button{
   width: 1.1rem;
@@ -145,8 +168,8 @@
   border-radius: 0;
   border: none;
   border-top-left-radius: 3px;
-  border-bottom: 1px var(--loader-color) solid;
-  background-color: var(--loader-color);
+  border-bottom: 1px var(--data-loader-color) solid;
+  background-color: var(--data-loader-color);
   color: white;
   border: none;
 }
@@ -164,7 +187,7 @@
 
 /* Tweaks */
 
-legend:has(.data-loader){ border: 2px #e9e9e9 groove; }
+legend:has(.data-loader){ border: 2px #e9e9e9 var(--data-loader-border-style, groove); }
 
 .data-loader[data-loader-status] ~ *:not(.data-loader) td[data-empty=true]::before { content: \"⏳\"; }
 
