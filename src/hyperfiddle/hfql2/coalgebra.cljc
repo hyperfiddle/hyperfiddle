@@ -421,7 +421,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (fst (runCofreeT hfqlt)))))
 
 (defn- wrap-with-static-metadata [metas t] (->hfqlT (->EnvW metas (runCofreeT t))))
-(defn vary-static-meta [t f] (->hfqlT (bf/first f (runCofreeT t))))
+(defn vary-static-meta [t f & args] (->hfqlT (bf/first #(apply f % args) (runCofreeT t))))
 
 (defn unfoldT
   ([coalgebra] (partial unfoldT coalgebra))
