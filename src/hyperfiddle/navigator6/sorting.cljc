@@ -18,12 +18,6 @@
             [missionary.core :as m]
             ))
 
-(defmulti comparable type)
-(defmethod comparable :default [x] x)
-#?(:clj (defmethod comparable java.lang.Class [^Class x] (.getName x)))
-(defmethod comparable #?(:clj clojure.lang.Symbol :cljs cljs.core.Symbol) [sym] (str sym))
-(defmethod comparable #?(:clj clojure.lang.Keyword :cljs cljs.core.Keyword) [kw] (str (namespace kw) "/" (name kw))) ; drop ":"
-
 (defn- compare-nils-last "Wrap a comparator such that nils are always sorted last."
   ([comparator] (partial compare-nils-last comparator))
   ([comparator a b]
@@ -42,7 +36,7 @@
       )))
 
 (def compare-cells "Take a comparator and transform it such that it receives comparable cell values instead of raw CofreeT objects."
-  ((join bimap) (fmap comparable force-cell-value!)))
+  ((join bimap) (fmap hfql/comparable force-cell-value!)))
 
 (defn- compare-fallback-to-identity
   "Take a comparator and transform it such that if comparison throws, comparison

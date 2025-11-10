@@ -678,6 +678,19 @@ identifier, though it might not be serializable."
 (defmulti resolve resolve-dispatch)
 (defmethod resolve :default [object] object) ; don't know how to resolve ≡ identity
 
+(defprotocol ComparableRepresentation
+  (-comparable [this] "Return a representation of Object suitable for `compare`."))
+
+(extend-protocol ComparableRepresentation
+  #?(:clj Object, :cljs default) (-comparable [this] this)
+  nil (-comparable [_] nil)
+  #?@(:clj [java.lang.Class (-comparable [^Class this] (.getName this))])
+  #?(:clj clojure.lang.Symbol, :cljs cljs.core.Symbol) (-comparable [this] (str this))
+  #?(:clj clojure.lang.Keyword, :cljs cljs.core.Keyword) (-comparable [this] (str (namespace this) "/" (name this))) ; drop ":"
+  )
+
+(defn comparable [object] (-comparable object))
+
 (defn- describe-dispatch-fn [object]
   (cond (satisfies? hyperfiddle.ct.cofree/ComonadCofree object)
         (::ana/type (metas object))
