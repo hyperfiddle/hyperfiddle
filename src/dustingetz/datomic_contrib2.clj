@@ -27,6 +27,19 @@
   (easy-attr @test-db :db/ident) := [:keyword :one :identity nil]
   (easy-attr @test-db :artist/name) := [:string :one nil nil])
 
+(defn entity-attrs
+  "Equivalent to `(keys (d/touch entity))`, but faster:
+  - Batch lookup, not per-attribute. Do not cause recursion on component values.
+  - index-only lookup, leveraging contiguous segments."
+  ([entity] (entity-attrs (d/entity-db entity) (:db/id entity)))
+  ([db eid]
+   (->> (d/datoms db :eavt eid)
+     (eduction
+       (map :a)
+       (distinct)
+       (map #(d/ident db %)))
+     (into #{}))))
+
 ;;; Entity back references
 
 (defn reverse-attr [?kw]

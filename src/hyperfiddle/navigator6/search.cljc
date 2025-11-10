@@ -125,16 +125,14 @@
 #?(:clj
    (defn pfilter
      ([pred flow]
-      (pfilter pred (.. Runtime getRuntime availableProcessors) flow))
-     ([pred par flow]
+      (pfilter pred (.. Runtime getRuntime availableProcessors) 64 flow))
+     ([pred par chunk-size flow]
       (->> flow
-        (m/eduction (map-indexed (fn [i x] (m/via m/blk [i (boolean (pred x)) x]))))
+        (m/eduction (map-indexed vector)
+          (partition-all chunk-size)
+          (map (fn [chunk] (m/via m/blk (mapv (fn [[idx x]] [idx (boolean (pred x)) x]) chunk)))))
         (run-tasks par)
-        (m/eduction (resequence) (filter #(nth % 1)) (map #(nth % 2)))))))
-
-(comment
-  (m/? (m/reduce conj (pfilter #(do (Thread/sleep (rand-int 100)) (odd? %)) (m/seed (range 100)))))
-  )
+        (m/eduction cat (resequence) (filter #(nth % 1)) (map #(nth % 2)))))))
 
 #?(:clj
    (defn eager-search-BIG-O-N-SQUARE< [pretty-print-map rowTs columnTs needle]

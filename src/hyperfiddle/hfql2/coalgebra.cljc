@@ -116,7 +116,7 @@
 
 (defn symbolic-edge ; FIXME uniformize
   [point & {::keys [point-free] :or {point-free true}}]
-  (let [[point scope] (if (satisfies? ICofreeT point) ; FIXME wart – uniformize
+  (let [[point scope] (if (instance? hyperfiddle.ct.cofree.ICofreeT point) ; FIXME wart – uniformize
                         (let [envw (runCofreeT point)]
                           [(fst envw) (pos (snd envw))])
                         [point (::scope point)])]
