@@ -91,7 +91,7 @@ table.matrix{
 
 table.matrix{
     isolation: isolate; /* floating headers do not mess with outside tooltips */
-    resize: both;
+    resize: vertical; /* both */
     thead{
         position: sticky; /* Table header stays on screen while scrolling */
         z-index: 2;
