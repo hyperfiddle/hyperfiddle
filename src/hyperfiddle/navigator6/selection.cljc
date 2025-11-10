@@ -72,7 +72,12 @@
             (case column
               key (hfql/hfql key (find val-at-point row))
               (hfql/hfql val (find val-at-point row)) ; mapentry is not interesting on its own, shortcut to val
-              )))))))
+              ))
+          (when-let [resolved (hfql/resolve row)]
+            (when (not= resolved row)
+              (when (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
+                (hfql/update-scope (first (unwrap childrenT)) assoc '% resolved)))
+            ))))))
 
 (defn resolve-selected-object-BIG-O-N [[column row] bindings childrenT]
   #?(:clj

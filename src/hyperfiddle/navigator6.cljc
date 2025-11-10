@@ -109,7 +109,9 @@
 (e/defn Navigate [sitemap stepT]
   (e/client
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
-      (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
+      (let [id (e/server (hash [(::ana/id ((glitch-guard hfql/metas) stepT)) ; HACK
+                                ((glitch-guard hfql/value-at-point) stepT) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
+                                ]))]
         (rebooting id ; glitch guard
           (e/server
             (freezing [sitemap stepT]
@@ -175,7 +177,7 @@
                 (let [[f & _args] query]
                   (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
                   (dom/props {:class (cssx/css-slugify f)}))
-                (Navigate sitemap (e/server (resolve-route sitemap query)))))))))))
+                (Navigate sitemap (e/server (with-bindings* e/*bindings* resolve-route sitemap query)))))))))))
 
 (def table-block-css
 "
