@@ -144,13 +144,21 @@ table.matrix{
 
 table.matrix .matrix__diagonal {
     z-index: 1;
-    background: linear-gradient(to bottom left,
-                                transparent 49.5%,
-                                black 49.5%,
-                                black 50.5%,
-                                transparent 50.5%)
-                , var(--background-pattern);
+    background: var(--background-pattern);
+    position: relative;
 }
+
+table.matrix .matrix__diagonal
+{
+    cursor: alias;
+    background: url('data:image/svg+xml;utf8,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\">\
+  <line x1=\"0\" y1=\"2\" x2=\"100\" y2=\"98\" stroke=\"black\" stroke-width=\"2\" />\
+</svg>');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+}
+
 
 /* selection */
 table.matrix[role=radiogroup]{

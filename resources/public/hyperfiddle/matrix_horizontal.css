@@ -58,11 +58,15 @@ table.matrix.transposed{
         }
         th{
             justify-self: end;
+            padding-right: 0.25em;
         }
     }
     tbody{
         th{
             top:0;
+        }
+        tr:first-child td{
+            padding-left: 0.375em;
         }
     }
 }
