@@ -46,6 +46,6 @@ body.electric-fiddle { height: 100dvh; box-sizing: border-box; }
 */
 
 /* Attributes and attribute-detail pages have a larger table */
-:is(.dustingetz-datomic-browser2-attributes, .attribute-detail) > * /* dummy div hack */ > fieldset table{
+:is(.attributes, .attribute-detail) > * /* dummy div hack */ > fieldset table{
      block-size: 66vh;
 }
