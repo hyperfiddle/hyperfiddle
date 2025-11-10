@@ -46,4 +46,8 @@
   (d/pull @test-db [:db/id :abstractRelease/name :abstractRelease/artistCredit] pour-lamour)
   := {:db/id pour-lamour,
       :abstractRelease/name "Pour l’amour des sous / Parle au patron, ma tête est malade",
-      :abstractRelease/artistCredit "Jean Yanne & Michel Magne"})
+      :abstractRelease/artistCredit "Jean Yanne & Michel Magne"}
+
+  (some? (d/touch (d/entity @test-db pour-lamour)))
+  (some? (d/touch (d/entity @test-db cobblestone)))
+  (some? (d/touch (d/entity @test-db yanne))))
