@@ -42,7 +42,7 @@ table.matrix{
         }
     }
     tbody{
-        display: grid;
+        display: contents; /* grid ;*/
         grid-template-columns: subgrid;
         grid-template-rows: subgrid;
         tr{
@@ -126,6 +126,7 @@ table.matrix{
     background: var(--background-pattern);
     background-size: var(--background-size);
     background-position-y: var(--background-position-y);
+    background-attachment: local;
     thead { /* ensure it lines up with body */
         background: var(--background-pattern);
         background-size: var(--background-size);
@@ -136,8 +137,10 @@ table.matrix{
         background: var(--background-pattern);
         background-size: var(--background-size);
         background-position-y: calc(var(--background-position-y) + var(--row-height));
-        th{
+        tr{
             background: var(--background-pattern);
+            background-size: var(--background-size);
+            background-position-y: calc(var(--background-position-y) + var(--row-height) + var(--row-height) * mod(var(--row-index), 2));
         }
     }
 }

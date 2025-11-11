@@ -11,10 +11,20 @@
 
 table.matrix {
     grid-template-columns: 1lh repeat(var(--column-count), 1fr); /* 1lh for radio button, 1fr for vertical layout (header on top) */
-    grid-template-rows:
-        repeat(var(--header-row-count), var(--row-height)) /* header rows */
-        repeat(var(--row-count), var(--row-height)) /* scrolled body rows */
-    ;
+    /* grid-template-rows: /**/
+    /*   repeat(var(--header-row-count), var(--row-height)) /* header rows */
+    /*   repeat(var(--row-count), var(--row-height)) /* scrolled body rows */
+    /*  ; /**/
+    grid-auto-rows: var(--row-height);
+    /* gap: 0.01px 0; /\* HACK fixes a Chrome subpixel sampling issue rows to drift – visible on large results *\/ */
+    position: relative;
+    &::before{
+        position: absolute;
+        visibility: hidden;
+        content: "";
+        width: 1px;
+        height: calc(var(--row-count) * var(--row-height));
+    }
     thead {
         grid-column: 1 / -1;
         grid-row: 1 /* from top row */
@@ -38,7 +48,7 @@ table.matrix {
             )
         ;
         tr {
-            grid-row: calc(var(--row-index) + 1); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
+            grid-row: calc(var(--row-index) + 2); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
             grid-column: 1 / -1;
             td{
                 grid-column: calc(2 + var(--cell-index));
