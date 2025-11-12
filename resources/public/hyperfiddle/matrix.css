@@ -173,6 +173,14 @@ table.matrix[role=radiogroup]{
     --item-selected-border-radius: 6px;
     cursor: default;
 
+    tr th:has(input[type=radio]){
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    tr th input[type=radio]{
+        margin: 0 0 0 0.25em;
+    }
     tr:has(input[type=radio]:is(:checked,[aria-busy=true])){
         color: var(--row-text-color);
         /*
