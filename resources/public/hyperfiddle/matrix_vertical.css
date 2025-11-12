@@ -85,6 +85,9 @@ table.matrix{
 table.matrix{
     tbody{ /* statically defined to prevent any wobbling */
         background-position-y: calc(var(--background-position-y) + var(--row-height));
+        tr{
+
+        }
     }
 }
 

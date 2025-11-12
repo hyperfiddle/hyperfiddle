@@ -7,14 +7,24 @@
   - header on left, as rows
   - rows next to each others
 
-*/
+ */
 
 table.matrix.transposed {
-    grid-template-columns:
-        repeat(var(--header-row-count), var(--column-width)) /* header rows */
-        repeat(var(--row-count), var(--column-width)) /* scrolled body rows */
-    ;
+    grid-template-columns: /**/
+        repeat(var(--header-row-count), var(--column-width)) /* header rows /**/
+        repeat(var(--row-count), var(--column-width)) /* scrolled body rows /**/
+    ; /**/
     grid-template-rows: var(--row-height) repeat(var(--column-count), var(--row-height)); /* 1lh for radio button, 1fr for vertical layout (header on top) */
+    grid-auto-columns: var(--column-width);
+    /* gap: 0.01px 0; /\* HACK fixes a Chrome subpixel sampling issue rows to drift – visible on large results *\/ */
+    position: relative;
+    &::before{
+        position: absolute;
+        visibility: hidden;
+        content: "";
+        width: calc(var(--row-count) * var(--column-width));
+        height: 1px;
+    }
     thead {
         grid-row: 1 / -1;
         grid-column: 1 /* from top row */
@@ -38,7 +48,7 @@ table.matrix.transposed {
             )
         ;
         tr {
-            grid-column: calc(var(--row-index) + 1); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
+            grid-column: calc(var(--row-index) + 2); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
             grid-row: 1 / -1;
             td{
                 grid-row: calc(2 + var(--cell-index));
@@ -74,7 +84,10 @@ table.matrix.transposed{
 /* Stripped rows à la MacOs finder */
 table.matrix.transposed{
     tbody{
-        background-position-y: var(--background-position-y);
+        background-position-y: calc(var(--background-position-y) + var(--row-height));
+        tr{
+            background-position-y: var(--background-position-y);
+        }
     }
 }
 
