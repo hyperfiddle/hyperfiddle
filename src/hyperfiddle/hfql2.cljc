@@ -656,9 +656,11 @@ identifier, though it might not be serializable."
         (if (and (::default (metas suggestedT)) (seq (children-ids hfqlT))) ; default was suggested but there are static columns, don't render defaults
           hfqlT
           (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))]
-            (hoistCofreeT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
-                                      (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
-              (combine hfqlT suggestedT))))  ; FIXME looses static metadata :(
+            (if (empty? suggested?)
+              hfqlT
+              (hoistCofreeT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
+                                        (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
+                (combine hfqlT suggestedT)))))  ; FIXME looses static metadata :(
         hfqlT))))
 
 (comment
