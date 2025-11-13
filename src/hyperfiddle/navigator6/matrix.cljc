@@ -239,7 +239,7 @@
   (e/server
     (when-let [pull-step (e/Snapshot (e/Filter some? ((glitch-guard selection/select-pull-step) stepT)))]
       (let [stepT+ (hfql/augment-with-suggestions! pull-step)
-            childrenT (remove (comp ::ana/recursive-child hfql/metas) ((glitch-guard unwrap) stepT+))
+            childrenT (remove (comp (every-pred ::ana/recursion-point ::ana/recursive-child) hfql/metas) ((glitch-guard unwrap) stepT+))
             static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
             suggested-columns (e/Snapshot (filter (comp ::hfql/suggested hfql/metas) childrenT))
             pre-checked (#(or ((glitch-guard hfql/pull-has-star?) stepT+) (empty? static-columns)))
