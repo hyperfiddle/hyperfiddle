@@ -162,22 +162,25 @@
 
 (declare css)
 (e/defn HfqlRoot [sitemap entrypoints]
-  (e/client
-    (dom/style (dom/text css tooltip/css))
-    (Index sitemap entrypoints)
-    (tooltip/TooltipArea
-      (e/fn []
-        (tooltip/Tooltip)
-        (dom/div
-          (dom/props {:class "Browser"})
-          (let [query (normalize-router-query (first router/route))]
-            (if-not query
-              (router/ReplaceState! ['. [(first entrypoints)]])
-              (do
-                (let [[f & _args] query]
-                  (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
-                  (dom/props {:class (cssx/css-slugify f)}))
-                (Navigate sitemap (e/server (with-bindings* e/*bindings* resolve-route sitemap query)))))))))))
+  (e/server
+    (binding [e/*bindings* (#(or e/*bindings* {}))]
+      (e/client
+        (dom/style (dom/text css tooltip/css))
+        (Index sitemap entrypoints)
+        (tooltip/TooltipArea
+          (e/fn []
+            (tooltip/Tooltip)
+            (dom/div
+              (dom/props {:class "Browser"})
+              (let [query (normalize-router-query (first router/route))]
+                (if-not query
+                  (router/ReplaceState! ['. [(first entrypoints)]])
+                  (do
+                    (let [[f & _args] query]
+                      (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
+                      (dom/props {:class (cssx/css-slugify f)}))
+                    (Navigate sitemap (e/server (with-bindings* e/*bindings* resolve-route sitemap query)))))))))))))
+
 
 (def table-block-css
 "
