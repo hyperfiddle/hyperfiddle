@@ -306,7 +306,9 @@ Pulling on non-maps (non associative) is perfectly fine.
                       (if recur-point
                         (let [limit (or (::ana/recursion-limit (extract recur-point)) (::ana/recursion-limit (extract root)) 0)] ; TODO deduplicate with traversal
                           (if (pos? limit)
-                            [(fmap #(assoc % ::ana/recursion-limit (dec limit) ::ana/recursive-child true) root)]
+                            [(->> root
+                               (fmap #(assoc % ::ana/recursion-limit (dec limit) #_#_::ana/recursive-child true))
+                               (bf/first #(assoc % ::ana/recursive-child true)))]
                             []))
                         [])))))))
           ::ana/traversal
