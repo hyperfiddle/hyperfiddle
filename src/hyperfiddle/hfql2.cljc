@@ -653,7 +653,9 @@ identifier, though it might not be serializable."
   (defn augment-with-suggestions! [hfqlT]
     (when hfqlT
       (if-let [suggestedT (suggest-at-point! hfqlT)]
-        (if (and (::default (metas suggestedT)) (seq (children-ids hfqlT))) ; default was suggested but there are static columns, don't render defaults
+        (if (-> (::default (metas suggestedT)) ; default was suggested
+              (and (::ana/has-star? (metas hfqlT))) ; but static expression has a *
+              (and (> 1 (count (children-ids hfqlT))))) ; so if there's more static children than just *, skip rendering defaults
           hfqlT
           (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))]
             (if (empty? suggested?)
