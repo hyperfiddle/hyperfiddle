@@ -232,8 +232,55 @@ Pulling on non-maps (non associative) is perfectly fine.
   The alternative would be to throw. We prefer to let the user datafy beforehand and then call `*`.
   "
   [object]
-  (try (keys (force-thunk (runReader star object))) ; expects an IPersistentMap or a sequences of MapEntries
-       (catch #?(:clj Throwable, :cljs :default) _ ())))
+  (try
+    (doall (map key ; do not use `keys` here. `doall` doesn't work as expected on it. See following RCF.
+             (force-thunk (runReader star object)))) ; expects an IPersistentMap or a sequences of MapEntries
+    (catch #?(:clj Throwable, :cljs :default) _ ())))
+
+(tests
+  "clojure.core/keys is a sneaky dodger" ; `vals` too and potentially others.
+  ;; based case – nothing unexpected
+  (keys {}) := nil
+  (keys {:a 1}) := '(:a)
+  ;; Less known but valid usage: keys accepts sequences of map entries – see keys' docstring.
+  (keys (seq {})) := nil
+  (keys (seq {:a 1})) := '(:a)
+  (keys (list (first {:a 1}))) := '(:a)
+  ;; keys return a lazy-seq
+  (seq? (keys {:a 1})) := true
+  (list? (keys {:a 1})) := false
+
+  ;; Problem: doesn't fail early when passed a sequence of non-map entries
+  ;; This is understandable given `keys` produce a lazy-seq.
+  (count (keys '(x))) := 1
+  ;; BUT! `doall` doesn't force it as we would expect!
+  (count (doall (keys '(x)))) := 1
+  (count (doall (keys '(x y)))) := 2 ; proof that doall realized the first slot without causing a crash.
+  ;; But peeking at the first element does throw. Why?
+  ;; Note (do ... nil) is to bypass REPL printing, as it would force the value.
+  ;; This proves that `first` throws, but neither `seq`, `next`, `rest` nor `count` does.
+  (do (first (keys '(x y))) nil) :throws ClassCastException
+
+  ;; Only `into` will eagely realize the collection
+  (do (into [] (keys '(x))) nil)
+  :throws ClassCastException
+
+  ;; Explanation:
+  ;; TL;DR:
+  ;;  - `keys` is NOT `(map key (seq m))`
+  ;;  - `keys` is an iterator transformer. Interpreting its input seq values on `first`, not on `seq` nor `next`.
+  ;;
+  ;; `keys` return an `APersistentMap$KeySeq` (https://github.com/clojure/clojure/blob/6a4ba6aedc8575768b2fff6d9c9c7e6503a0a93a/src/jvm/clojure/lang/APersistentMap.java#L140)
+  ;; KeySeq is a lazy-seq over SUPPOSED map entries, casting to MapEntry on call to `.first()`
+  ;; So `.next().next().next()...` only walk over the input seq, without interpreting values as map entries.
+  ;; We can say that `KeySeq` separates the spine from values.
+  ;; Calling first runs this code: `((Map.Entry) seq.first()).getKey();`, causing a ClassCastException if the input was not a map or a seq of MapEntry objects.
+
+  ;; Less surprising implementation, but not strictly equivalent:
+  (do (doall (map key '(x))) nil)
+  :throws ClassCastException
+
+  nil)
 
 (defn- inject-dynamic-bindings
   "Transform a Reader (env -> a) such that when run, the value associated to
