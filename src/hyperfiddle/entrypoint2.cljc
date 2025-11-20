@@ -3,7 +3,8 @@
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router5 :as r]
             [hyperfiddle.hfql2 :as hfql]
-            [contrib.data :refer [filter-vals]]))
+            [contrib.data :refer [filter-vals]]
+            [hyperfiddle.navigator6.utils :refer [rebooting freezing]]))
 
 (e/declare apps)
 
@@ -28,8 +29,8 @@
 (e/defn IndexPage []
   (dom/h1 (dom/text "Hyperfiddle"))
   (dom/menu
-    (e/for [[app-name App] (e/diff-by key (dissoc apps `Index))]
-      (dom/li (r/link ['/ [app-name]] (dom/text (name app-name)))))))
+    (e/for [[app-identifier App] (e/diff-by key (dissoc apps `Index))]
+      (dom/li (r/link ['/ [app-identifier]] (dom/text (name app-identifier)))))))
 
 (e/defn NotFoundPage [& args]
   (e/client
@@ -39,18 +40,23 @@
 (e/defn DefaultApps []
   {`Index IndexPage})
 
-(defmacro rebooting [sym & body] `(e/for [~sym (e/diff (e/as-vec ~sym))] ~@body)) ; TODO remove
+(defn normalize-page-identifier [identifier]
+  (if (sequential? identifier)
+    identifier
+    (list identifier)))
 
 ; this is ElectricFiddle not Hyperfiddle
 (e/defn Hyperfiddle [user-apps & {:keys [default] :or {default `(Index)}}]
   (r/router (r/HTML5-History)
-    (let [[app-name & _] r/route]
-      (if-not app-name
+    (let [[app-identifier & _] r/route]
+      (if-not app-identifier
         (r/ReplaceState! ['. default])
-        (let [apps (merge (DefaultApps) user-apps)
-              App (get apps app-name NotFoundPage)]
-          (set! (.-title js/document) (str (some-> app-name name (str " – ")) "Hyperfiddle"))
+        (let [[app & args] (normalize-page-identifier app-identifier)
+              apps (merge (DefaultApps) user-apps)
+              App (get apps app NotFoundPage)]
+          (set! (.-title js/document) (str (some-> app name (str " – ")) "Hyperfiddle"))
           (binding [hyperfiddle.entrypoint2/apps apps]
-            (rebooting App ; FIXME navigation can crash
-              (r/pop (App)))))))))
+            (rebooting app ; FIXME navigation can crash
+              (freezing [app App]
+                (r/pop (e/Reconcile (e/apply App args)))))))))))
 

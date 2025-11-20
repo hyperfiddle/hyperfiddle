@@ -679,7 +679,7 @@ identifier, though it might not be serializable."
     (first object)
     object))
 
-(defmulti resolve resolve-dispatch)
+(defmulti ^{:arglists '([object])} resolve resolve-dispatch)
 (defmethod resolve :default [object] object) ; don't know how to resolve ≡ identity
 
 (defprotocol ComparableRepresentation

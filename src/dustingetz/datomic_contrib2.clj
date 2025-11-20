@@ -275,3 +275,17 @@
     (-> (datafy !france) :release/_country count) := 574
     (-> (datafy !france) :artist/_country count) := 140
     (-> (datafy !france) :label/_country count) := 59))
+
+(defn set-db-name-in-datomic-uri [datomic-uri db-name]
+  (let [source-uri (-> datomic-uri (java.net.URI.) (.getSchemeSpecificPart) (java.net.URI.))]
+    (.toString
+      (java.net.URI. (str "datomic:" (.getScheme source-uri))
+        (.getUserInfo source-uri)
+        (.getHost source-uri)
+        (.getPort source-uri)
+        (str "/" db-name)
+        (.getQuery source-uri)
+        (.getFragment source-uri)))))
+
+(defn datomic-uri-db-name [datomic-uri] (-> datomic-uri (java.net.URI.) (.getSchemeSpecificPart) (java.net.URI.) (.getPath) (clojure.string/replace #"^/+" "")))
+

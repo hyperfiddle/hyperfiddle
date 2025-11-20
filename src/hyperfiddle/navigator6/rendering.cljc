@@ -71,12 +71,17 @@
 
 (defn as-coll [v] (if (or (array? v) (coll? v)) v [v])) ; TODO removeme, glitch guard
 
+(defn relativize-link-path [symbolic-link-href]
+  (if (vector? symbolic-link-href)
+    symbolic-link-href
+    ['. [symbolic-link-href]]))
+
 (e/defn RenderInlineColl [_object edge value]
   (let [pretty-v (e/Offload #(str-inline-coll (as-coll value) *server-pretty))
         symbolic-link-href (::hfql/link (meta edge))]
     (e/Reconcile
       (if (Swallow-empty-diffs (some? symbolic-link-href))
-        (router/link ['. [symbolic-link-href]] (dom/text pretty-v))
+        (router/link (relativize-link-path symbolic-link-href) (dom/text pretty-v))
         (dom/text pretty-v))) ))
 
 (e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
@@ -99,10 +104,22 @@
                       nil))
     object edgeT value))
 
+(defn template-link [denv symbolic-link]
+  (let [path-elements #{'/ '.. '.}]
+    (if (vector? symbolic-link)
+      (mapv (fn [path-segment]
+              (if (path-elements path-segment)
+                path-segment
+                (template-link denv path-segment)))
+        symbolic-link)
+      (if (coll? symbolic-link)
+        (replace denv symbolic-link)
+        (get denv symbolic-link symbolic-link)))))
+
 (defn- link-href [object edgeT value]
   (let [denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) (hfql/identify value), '%v (or (hfql/identify value) value)}]
     (when-let [symbolic-link-href (unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
-      (replace denv symbolic-link-href))))
+      (template-link denv symbolic-link-href))))
 
 (e/defn DefaultCellRenderer [object edgeT value]
   (RenderTooltip ::hfql/Tooltip object edgeT value)
@@ -111,7 +128,7 @@
       #_(e/client (e/drain (e/Tap-diffs (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))))) ; FIXME not showing up
       (let [link-href (link-href object edgeT value)]
         (if (Swallow-empty-diffs (some? link-href))
-          (router/link ['. [link-href]] (dom/text pretty-v))
+          (router/link (relativize-link-path link-href) (dom/text pretty-v))
           (dom/text pretty-v))))))
 
 (e/declare Render)
