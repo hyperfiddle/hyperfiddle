@@ -77,7 +77,7 @@
           (dom/td
             (if-not (map? v)
               (e/for [[qs F] (e/diff-by {} v)] ; grouped fiddles in ns
-                (r/link ['/ [qs]] #_[qs] ; glitch? `[qs]` form crashes on 'fiddles but not 'blog
+                (r/link ['/ ['fiddle qs]] #_[qs] ; glitch? `[qs]` form crashes on 'fiddles but not 'blog
                         (dom/text (name qs)))))))))))
 
 (e/defn FiddleRoot
