@@ -104,6 +104,8 @@
   (-encode [object]))
 
 (extend-protocol Encodable
+  #?(:clj java.lang.Boolean, :cljs js/Boolean)
+  (-encode [object] (str object))
   #?(:clj java.lang.Number, :cljs js/Number)
   (-encode [object] (str object))
   #?(:clj java.lang.String, :cljs js/String)
@@ -204,6 +206,8 @@
   (serialize #inst "2025") := "~inst,'2025-01-01T00:00:00.000-00:00'"
 
   (serialize  #uuid "4380248c-4db9-4ec5-8cc5-31b982768290") := "~uuid,'4380248c-4db9-4ec5-8cc5-31b982768290'"
+  (serialize true) := "true"
+  (serialize false) := "false"
   )
 
 ;;;;;;;;;;;;;;
@@ -312,6 +316,8 @@
 
   (parse (serialize #inst "2025") ) := '(#inst "2025")
   (parse (serialize  #uuid "4380248c-4db9-4ec5-8cc5-31b982768290")) := '(#uuid "4380248c-4db9-4ec5-8cc5-31b982768290")
+  (parse (serialize true)) := '(true)
+  (parse (serialize false)) := '(false)
   )
 
 (tests
