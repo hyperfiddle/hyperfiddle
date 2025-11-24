@@ -317,35 +317,47 @@
 (defn datom-identity
   "Given a Datum instance, return [e a tx added v] where `v` may be hashed to
   SHA-256 if it is not deemed safely serializable. SHA-256 is overblown for our
-  use case and may be optimized. `v` is put last for readability."
+  use case and may be optimized."
   [{:keys [:e :a :v :tx :added]}]
-  [e a tx added (encode-datom-value v)])
+  [e a (encode-datom-value v) tx added])
 
-(comment
-  ;; sketch
-  (defn- resolve-datom-via-tx "WIP. Lookup tx in 𝓞(1), then find datom in 𝓞(n). Slower than d/history lookup if tx is abnormally large or if (e, a) pair has few historical values."
-    [conn [e a tx added v-encoded]]
-    (some->> (d/tx-range (d/log conn) tx (inc tx))
-      (:data)
-      (some
-        (fn [[e' a' v' _tx added' :as datom]]
-          (when-not (.isInterrupted (Thread/currentThread))
-            (when (and (= e e') (= a a') (= added added') ; efficient – fails fast
-                    (= v-encoded (encode-datom-value v')))
-              datom))))))
 
-  ;; sketch
-  (defn- resolve-datom ; -via-history
-  "WIP. Lookup (e, a) in 𝓞(1), then find datom in 𝓞(n) – can't target tx in 𝓞(1) as v
-  comes before tx in index order. Slower than `resolve-datom-via-tx` if number of (e, a)'s
-  historical values exceed the average tx size."
-    [db [e a tx added v-encoded]]
-    (->>
-      (d/datoms (d/history db) :eavt e a)
-      (some
-        (fn [[_e _a v' tx' added' :as datom]]
-          (when-not (.isInterrupted (Thread/currentThread))
-            (when (and (= tx tx') (= added added') ; efficient – fails fast
-                    (= v-encoded (encode-datom-value v')))
-              datom))))))
-  )
+(defn resolve-datom
+  "Given `[e a serialized-v tx added]`, resolve the corresponding Datum object
+  from `db`. `v` is part of a datum's identity. `serialized-v` can be the actual
+  datum's `v`, a serialized representation of `v` or a hash of `v`, as produced
+  by `encode-datom-value`. In the case where `v` is the actual `v`, then `[e a v
+  tx added]` is equivalent to the actual datum, making resolution superfluous.
+  Instead and only if needed, call `datomic.db/datum` to construct a proper
+  Datum instance.
+
+  Lookup (e, a) in 𝓞(1) through d/history, then find datom in 𝓞(n).
+  Can't target tx in 𝓞(1) as v comes before tx in index order.
+  Slower than `resolve-datom-via-tx` if number of (e, a)'s historical values
+  exceed the average tx size."
+  [db e a serialized-v tx added]
+  (->>
+    (d/datoms (d/history db) :eavt e a)
+    (some
+      (fn [[_e _a v' tx' added' :as datom]]
+        (when-not (.isInterrupted (Thread/currentThread))
+          (when (and (= tx tx') (= added added') ; efficient – fails fast
+                  (= serialized-v (encode-datom-value v')))
+            datom))))))
+
+(defn resolve-datom-via-tx
+  "Similar to `resolve-datom` with a different performance trade-off.
+  Takes a `conn` and resolve through the datom's transaction.
+
+  Lookup tx in 𝓞(1), then find datom in 𝓞(n).
+  Slower than a d/history lookup if tx is abnormally large or if (e, a) pair has
+  few historical values."
+  [conn e a serialized-v tx added]
+  (some->> (d/tx-range (d/log conn) tx (inc tx))
+    (:data)
+    (some
+      (fn [[e' a' v' _tx added' :as datom]]
+        (when-not (.isInterrupted (Thread/currentThread))
+          (when (and (= e e') (= a a') (= added added') ; efficient – fails fast
+                  (= serialized-v (encode-datom-value v')))
+            datom))))))

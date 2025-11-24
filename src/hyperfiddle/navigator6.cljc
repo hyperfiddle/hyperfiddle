@@ -2,6 +2,7 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.hfql2 :as hfql]
+            [hyperfiddle.hfql2.protocols :refer [hfql-resolve]]
             [hyperfiddle.entrypoint2 :refer [Index]]
             [hyperfiddle.router5 :as router]
             [hyperfiddle.electric-dom3 :as dom]
@@ -27,7 +28,7 @@
 (defn- augment-scope-with-%-from-route-args [args stepT]
   (if (seq args)
     (let [scope (hfql/scope stepT)
-          % (hfql/resolve (first args))] ; TODO move to ednish?
+          % (hfql-resolve (first args))] ; TODO move to ednish?
       (hfql/seed (assoc scope '% %) stepT))
     stepT))
 

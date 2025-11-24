@@ -15,6 +15,7 @@
    [hyperfiddle.ct.store :refer [store seek pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
    [hyperfiddle.hfql2 :as-alias hfql]
+   [hyperfiddle.hfql2.protocols :as hfqlp]
    [hyperfiddle.rcf :refer [tests tap %]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.utils :refer [has-meta?]]
@@ -23,9 +24,11 @@
   #?(:cljs (:require-macros [hyperfiddle.hfql2.coalgebra :refer [-hfql]])))
 
 (defn safe-ccp-nav [object key value]
-  (if (satisfies? ccp/Navigable object)
-    (datafy/nav object key value)
-    value))
+  (when (some? object) ; nil check – nav is not defined on nil, on purpose
+    (hfqlp/nav object key value))
+  #_(if (satisfies? ccp/Navigable object)
+      (datafy/nav object key value)
+      value))
 
 (def ^:dynamic *navigate* safe-ccp-nav) ; default is to navigate objects, except in UIs where, at leaves, where we want to see the symbolic values
 

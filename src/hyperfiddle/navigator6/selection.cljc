@@ -1,9 +1,9 @@
 (ns hyperfiddle.navigator6.selection
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2 :as hfql]
+            [hyperfiddle.hfql2.protocols :refer [hfql-resolve]]
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.hfql2.analyzer :as ana]
-            [geoffreygaillard.predicates :as pred]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.navigator6.utils :as utils]
             [hyperfiddle.ct.cofree :refer [unwrap]]
@@ -35,23 +35,6 @@
 
 
 
-(e/defn WithLocalSelectedIndex [selection-op Body]
-  (e/client
-    (let [!selected-index (e/server (atom nil)) ; siting on server ensures row turns blue/white synchronously with data change on index-ring tape loop
-          selected-index (e/server (e/watch !selected-index))]
-      (->> (Body selected-index !selected-index)
-        (utils/InterceptCommand selection-op (e/fn [[_ index :as command]] (case (e/server (reset! !selected-index index)) command)))))))
-
-
-
-(defn select-row-if-match-url! [!index row-index match? #_#_row-object selected-object]
-  {:pre [(pred/atom-like? !index) (number? row-index)]
-   :post [(nil? %)]}
-  (if match? #_(= row-object selected-object) ; both can be nil
-      (reset! !index row-index) ; current row matches. Set selection.
-      (compare-and-set! !index row-index nil)) ; current row used to match and now doesn't. Clear selection.
-  nil)
-
 (defn select-pull-step [stepT]
   (case (::ana/type (hfql/metas stepT))
     ::ana/pull stepT
@@ -62,7 +45,6 @@
 
 (defn resolve-selected-object-BIG-O-1 [[column row] bindings childrenT]
   (when childrenT
-    (def _childrenT childrenT)
     (when row
       (let [val-at-point (hfql/value-at-point childrenT)]
         (or (and (= row (hfql/identify val-at-point)) ; direct identity equality case
@@ -73,7 +55,7 @@
               key (hfql/hfql key (find val-at-point row))
               (hfql/hfql val (find val-at-point row)) ; mapentry is not interesting on its own, shortcut to val
               ))
-          (when-let [resolved (hfql/resolve row)]
+          (when-let [resolved (hfql-resolve row)]
             (when (not= resolved row)
               (when (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
                 (hfql/update-scope (first (unwrap childrenT)) assoc '% resolved)))
@@ -83,15 +65,16 @@
   #?(:clj
      (debug-exceptions `resolve-selected-object
        (with-bindings bindings
-         ;; (prn "resolve-selected-object-BIG-O-N" column row)
          [column
           (when childrenT
             (when row
               (or
                 (resolve-selected-object-BIG-O-1 [column row] bindings childrenT)
-                (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
-                  (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
-                  (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT)))))))]))))
+                (do
+                  (clojure.tools.logging/warn "O(n) scan")
+                  (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
+                    (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
+                    (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT))))))))]))))
 
 (defn get-rows-container [stepT]
   (case (::ana/type (hfql/metas stepT))
