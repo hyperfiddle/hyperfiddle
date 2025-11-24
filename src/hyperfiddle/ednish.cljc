@@ -116,11 +116,11 @@
   Keyword
   (-encode [object] (encode-ident object))
 
-  #?(:clj IPersistentVector :cljs IVector)
+  #?(:clj IPersistentVector :cljs PersistentVector)
   (-encode [object] (encode-vector object))
   #?(:clj IPersistentMap :cljs PersistentHashMap)
   (-encode [object] (encode-map object))
-  #?@(:cljs[ PersistentArrayMap (-encode [object] (encode-map object))])
+  #?@(:cljs[PersistentArrayMap (-encode [object] (encode-map object))])
   #?(:clj IPersistentSet, :cljs PersistentHashSet)
   (-encode [object] (encode-set object))
 
