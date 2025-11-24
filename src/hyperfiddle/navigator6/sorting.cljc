@@ -97,6 +97,7 @@
 (def COLLECTION-LIMIT 10000)
 
 (defn sort-rows-by-columns "TODO support multi-column sort." [columnT-specs rowsT]
+  ;; (def _args [columnT-specs rowsT])
   (if (>= (bounded-count COLLECTION-LIMIT rowsT) COLLECTION-LIMIT)
     rowsT
     (try
@@ -109,6 +110,14 @@
       (catch #?(:clj Throwable, :cljs :default) ex
         (println " Failed to sort" (ex-message ex) #_ex)
         rowsT))))
+
+
+(comment
+  (require '[clj-async-profiler.core :as prof])
+  (prof/serve-ui 8082)
+  (time
+    (do (apply sort-rows-by-columns _args) nil))
+)
 
 (e/defn DefaultSort [rowsT] [[(first (unwrap (first rowsT))) '<]])
 

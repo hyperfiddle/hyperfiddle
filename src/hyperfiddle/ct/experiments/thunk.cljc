@@ -68,7 +68,7 @@
 
 (declare thunk*)
 
-(deftype Thunk [f cache-strategy !cache] ; same as clojure.lang.Delay + customizable cache.
+(deftype Thunk [f cache-strategy ^objects !cache] ; same as clojure.lang.Delay + customizable cache.
   Functor
   (-fmap [_ g] (thunk* cache-strategy (fmap g f)))
 

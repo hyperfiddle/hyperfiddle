@@ -3,7 +3,8 @@
   (:refer-clojure :exclude [first second #?(:cljs -first) #?(:cljs -second)])
   (:require [hyperfiddle.ct.function :refer [id]]
             [hyperfiddle.ct.functor :refer [Functor fmap]]
-            [hyperfiddle.rcf :refer [tests]]))
+            [hyperfiddle.rcf :refer [tests]])
+  #?(:cljs (:require-macros [hyperfiddle.ct.bifunctor :refer [satisfies?-mem]])))
 
 (defprotocol Bifunctor
   (-bimap [p f g] "bimap :: (a -> b) -> (c -> d) -> p a c -> p b d"))
@@ -13,18 +14,31 @@
   (-first [p f] "first :: (a -> b) -> p a c -> p b c")
   (-second [p f] "second :: (a -> b) -> p a b -> p a c"))
 
+(defmacro ^:private satisfies?-mem [protocol] ; has to be a macro because cljs satisfies? is a macro.
+  `(let [!state# (atom {})] ; we don't expect this piece of state to grow up to OOM because it caches types.
+     (fn [obj#]
+       (let [typ# (type obj#)]
+         (if-let [entry# (find @!state# typ#)]
+           (val entry#)
+           (let [check# (satisfies? ~protocol obj#)]
+             (swap! !state# assoc typ# check#)
+             check#))))))
+
+(def bifunctor? (satisfies?-mem Bifunctor))
+(def bifunctor-first-second? (satisfies?-mem BifunctorFirstSecond))
+
 (declare bimap)
 (defn first "first :: (a -> b) -> p a c -> p b c .  Map covariantly over the first argument."
   ([f] (partial first f))
   ([f p]
-   (if (satisfies? BifunctorFirstSecond p)
+   (if (bifunctor-first-second? p)
      (-first p f)
      (bimap f id p))))
 
 (defn second "second :: (a -> b) -> p a b -> p a c . Map covariantly over the second argument."
   ([f] (partial second f))
   ([f p]
-   (if (satisfies? BifunctorFirstSecond p)
+   (if (bifunctor-first-second? p)
      (-second p f)
      (bimap id f p))))
 
@@ -32,9 +46,9 @@
   ([f] (partial bimap f))
   ([f g] (partial bimap f g))
   ([f g p]
-   (if (satisfies? Bifunctor p)
+   (if (bifunctor? p)
      (-bimap p f g)
-     (if (satisfies? BifunctorFirstSecond p)
+     (if (bifunctor-first-second? p)
        (first f (second g p))
        (throw (ex-info "Object is not an instance of Bifunctor" {:object p}))))))
 

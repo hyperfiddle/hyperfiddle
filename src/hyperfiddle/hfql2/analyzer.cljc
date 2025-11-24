@@ -211,7 +211,7 @@
             (symbol (name ident)))
           (let [ns (find-ns ns-sym)
                 aliases (ns-aliases ns)
-                ns->alias (zipmap (vals aliases) (keys aliases))
+                ns->alias (zipmap (vals aliases) (keys aliases)) ; hot spot
                 ns-str->alias-str (-> ns->alias
                                     (update-keys (comp str ns-name))
                                     (update-vals str))
