@@ -86,9 +86,12 @@
 
 (e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
 
+(e/defn DefaultColumnHeaderTooltip [object edgeT value]
+  (e/server (str (hfql/describe-formatted edgeT))))
+
 (e/defn RenderTooltip* [tooltip-ident object edgeT value]
   (let [tooltip-qualified-ident (hyperfiddle.hfql2.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
-        Tooltip (Resolve tooltip-qualified-ident nil)]
+        Tooltip (Resolve tooltip-qualified-ident (get {::hfql/ColumnHeaderTooltip DefaultColumnHeaderTooltip} tooltip-ident))]
     (e/Reconcile
       (when (Swallow-empty-diffs (some? Tooltip))
         (let [show? (dom/Mouse-over?)]
@@ -101,7 +104,7 @@
 (e/defn RenderTooltip [tooltip-kind-ident object edgeT value]
   (RenderTooltip* (get ((glitch-guard hfql/metas) edgeT) tooltip-kind-ident
                     (get ((glitch-guard hfql/metas) *rowT) tooltip-kind-ident
-                      nil))
+                      tooltip-kind-ident))
     object edgeT value))
 
 (defn template-link [denv symbolic-link]
