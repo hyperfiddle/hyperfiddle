@@ -85,10 +85,18 @@
 .hyperfiddle-ui-tooltip-Tooltip{
   position: absolute;
   z-index: 2;
+
+  transition-behavior: allow-discrete; /* baseline 2024 */
+  transition-property:        pointer-events, border-color;
+  transition-duration:        0.9s,           0.1s;
+  transition-delay:           0s,             0.8s;
+  transition-timing-function: step-end,       ease-in;
+
 }
 
 .hyperfiddle-ui-tooltip-Tooltip.hyperfiddle-ui-tooltip-Tooltip-basic {
-  background-color: white;
+  --background-color: white;
+  background-color: var(--background-color);
   padding: 0.5rem 1rem;
   border-radius: 0.25rem;
   border: 1px lightgray solid;
@@ -100,6 +108,7 @@
 .hyperfiddle-ui-tooltip-Tooltip.hyperfiddle-ui-tooltip-Tooltip-hidden {
   pointer-events: none;
   opacity: 0;
+  border-color: var(--background-color);
   transition: opacity 0.1s ease, top 0.1s steps(1,end), left 0.1s steps(1, end);
 }
 "
