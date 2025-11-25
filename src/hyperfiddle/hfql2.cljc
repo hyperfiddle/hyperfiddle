@@ -13,12 +13,12 @@
    [hyperfiddle.ct.bifunctor :as bf]
    [hyperfiddle.ct.pair :refer [pair fst snd swap]]
    [hyperfiddle.ct.comonad :refer [extract]]
-   [hyperfiddle.ct.cofree :refer [tree-seqT unwrap runCofreeT hoistCofreeT]]
+   [hyperfiddle.ct.cofree :refer [tree-seqT unwrap runCofreeT]]
    [hyperfiddle.ct.rose-tree :refer [rose-tree]]
    [hyperfiddle.ct.store :refer [pos peeks]]
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
    [hyperfiddle.hfql2.analyzer :as ana]
-   [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT]]
+   [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation hfql-resolve resolve-dispatch]]
    [hyperfiddle.hfql2.utils :refer [has-meta?]]
    #?(:cljs [goog.string :as gstring])
@@ -645,8 +645,8 @@ identifier, though it might not be serializable."
 (defn- suggest-at-point! [hfqlT]
   (if-let [suggestedT (suggest (force-thunk (value-at-point hfqlT)))]
     (let [default? (= DEFAULT-SUGGESTION suggestedT)]
-      (hoistCofreeT (bf/first #(cond-> (assoc % ::suggested true)
-                                 default? (assoc ::default true)))
+      (hoistHfqlT (bf/first #(cond-> (assoc % ::suggested true)
+                               default? (assoc ::default true)))
         suggestedT)) ; recursively map over CofreeT structure - lazily
     hfqlT))
 
@@ -662,7 +662,7 @@ identifier, though it might not be serializable."
           (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))]
             (if (empty? suggested?)
               hfqlT
-              (hoistCofreeT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
+              (hoistHfqlT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
                                         (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
                 (combine hfqlT suggestedT)))))  ; FIXME looses static metadata :(
         hfqlT))))

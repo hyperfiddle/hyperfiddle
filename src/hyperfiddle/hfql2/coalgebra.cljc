@@ -11,7 +11,7 @@
    [hyperfiddle.ct.pair :refer [IPair fst snd pair]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend -extract]]
-   [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tree-seqT]]
+   [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tree-seqT hoistCofreeT]]
    [hyperfiddle.ct.store :refer [store seek pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
    [hyperfiddle.hfql2 :as-alias hfql]
@@ -447,7 +447,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-duplicate [t] (HFQLT. (duplicate CofreeT)))
   (-extend [wa f] (HFQLT. (extend f CofreeT)))
   ComonadCofree
-  (-unwrap [t] (unwrap CofreeT))
+  (-unwrap [t] (map #(HFQLT. %) (unwrap CofreeT)))
 
   #?(:clj Object)
   #?(:clj (equals [this other] (hfqlt-equals this other)))
@@ -469,6 +469,8 @@ Pulling on non-maps (non associative) is perfectly fine.
       (pos (snd (runCofreeT other))))))
 
 (defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (fst (runCofreeT hfqlt)))))
+
+(def hoistHfqlT (comp ->HFQLT hoistCofreeT))
 
 (defn- wrap-with-static-metadata [metas t] (->hfqlT (->EnvW metas (runCofreeT t))))
 (defn vary-static-meta [t f & args] (->hfqlT (bf/first #(apply f % args) (runCofreeT t))))
