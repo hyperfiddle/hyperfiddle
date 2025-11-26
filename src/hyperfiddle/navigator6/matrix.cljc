@@ -42,6 +42,14 @@
         x
         (key-fn x)))))
 
+(defn column-sort-order [columnT sort-spec]
+  (when (and columnT sort-spec) ; glitch guard
+    (or (some (fn [[sort-spec-columnT sort-spec-order]]
+                (when (= (hfql/symbolic-edge columnT) (hfql/symbolic-edge sort-spec-columnT))
+                  sort-spec-order))
+          sort-spec)
+      '.)))
+
 (e/defn MatrixHeader [columnsT]
   (dom/thead
     (dom/tr
@@ -58,11 +66,12 @@
                         (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)))
                       (e/client
                         (dom/span
+                          (dom/props {:class "sort-handle"
+                                      :title "Sort"
+                                      :data-sort-order (str (e/server (column-sort-order columnT sort/*sort-spec*)))})
                           (let [!direction (atom (cycle ['. '> '<]))
                                 direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
                                 [t err] (e/Token direction)]
-                            (dom/props {:class "sort-handle" :data-sort-order (str (first (e/watch !direction)))
-                                        :title "Sort"})
                             (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]])))))))))))))
 
 #?(:cljs

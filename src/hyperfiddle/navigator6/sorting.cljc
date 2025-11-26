@@ -124,10 +124,12 @@
 
 (e/defn DefaultSort [rowsT] [[(first (unwrap (first rowsT))) '<]])
 
+(e/declare ^:dynamic *sort-spec*)
+
 (e/defn Sorted [rowsT Body]
-  (e/client
-    (let [!sort-spec (e/server (atom [])) ; (e/Snapshot (DefaultSort rowsT)) ; will eagerly compute all cells in first column
-          sort-spec (e/server (e/watch !sort-spec))]
+  (let [!sort-spec (e/server (atom [])) ; (e/Snapshot (DefaultSort rowsT)) ; will eagerly compute all cells in first column
+        sort-spec (e/server (e/watch !sort-spec))]
+    (binding [*sort-spec* (e/server sort-spec)]
       #_(e/server (prn "sort-spec" sort-spec) nil)
       (->> (Body (e/server (Offload #(sort-rows-by-columns sort-spec rowsT) {:label 'sort})))
         (forms/Interpreter {`Sort! (e/fn [Getter direction]
