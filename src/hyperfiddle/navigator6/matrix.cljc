@@ -115,11 +115,11 @@
 
 (defn- row-selected? [rowT local-selection]
   (let [[selected-column selected-rowT] local-selection]
-    (when (and rowT selected-rowT) ; FIXME should be able to compare by direct equality without identifying
-      (or (= rowT selected-rowT) ; Ideal path, always false for now. Should suffice to the check. This is what we want.
-        (and (nil? selected-column) ; negative assertion – closed condition – restricting a set – baaaad 🐑
-          (= (hfql/identify (hfql/value-at-point rowT))
-            (hfql/identify (hfql/value-at-point selected-rowT))))))))
+    (when (and (nil? selected-column) rowT selected-rowT) ; FIXME should be able to compare by direct equality without identifying
+      (or
+        (= rowT selected-rowT) ; Ideal path, always false for now. Should suffice to the check. This is what we want.
+        (= (hfql/identify (hfql/value-at-point rowT))
+          (hfql/identify (hfql/value-at-point selected-rowT)))))))
 
 (e/defn RowHandle [group-id rowT]
   (dom/th (dom/props {:scope :row})

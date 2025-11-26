@@ -659,12 +659,20 @@ identifier, though it might not be serializable."
               (and (::ana/has-star? (metas hfqlT))) ; but static expression has a *
               (and (> 1 (count (children-ids hfqlT))))) ; so if there's more static children than just *, skip rendering defaults
           hfqlT
-          (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))]
-            (if (empty? suggested?)
-              hfqlT
+          (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))
+                hfqlT-type (::ana/type (metas hfqlT))
+                suggestedT-type (::ana/type (metas suggestedT))]
+            (cond
+              (empty? suggested?) hfqlT
+
+              (= ::ana/pull hfqlT-type suggestedT-type)
               (hoistHfqlT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
                                         (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
-                (combine hfqlT suggestedT)))))  ; FIXME looses static metadata :(
+                (combine hfqlT suggestedT))  ; FIXME looses static metadata :(
+              (= ::ana/pull hfqlT-type) hfqlT
+              (= ::ana/pull suggestedT-type) (update-scope suggestedT (constantly (scope hfqlT)))
+              :else hfqlT
+              )))
         hfqlT))))
 
 (comment

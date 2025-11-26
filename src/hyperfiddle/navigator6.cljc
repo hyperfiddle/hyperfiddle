@@ -74,7 +74,9 @@
     (if rowT
       (or (when column
             (try (expand-collection (or (hfql/find-child column (try (hfql/augment-with-suggestions! rowT)
-                                                                     (catch #?(:clj Throwable, :cljs :default) _ rowT)))
+                                                                     (catch #?(:clj Throwable, :cljs :default) t
+                                                                       #?(:clj (clojure.tools.logging/debug t))
+                                                                       rowT)))
                                       rowT))
                  (catch #?(:clj Throwable, :cljs :default) _ (prn _))))
         (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
@@ -144,18 +146,12 @@
 ;;         (dom/pre (dom/text (strx/pprint-str m)))))))
 
 (e/defn RenderValue [sitemap stepT]
-  (let [id (e/server (::ana/id ((glitch-guard hfql/metas) stepT)))]
-    (rebooting id
-      (e/server
-        (freezing [sitemap stepT]
-          (e/Reconcile
-            (when ((complement (fnil zero? 0)) id)
-              (e/server
-                (let [value ((glitch-guard hfql/nav) stepT)
-                      suggestedT (hfql/suggest value)]
-                  (e/Reconcile
-                    (when-not (#(or (nil? suggestedT) (= stepT suggestedT)))
-                      (Navigate sitemap ((glitch-guard (flip hfql/seed)) suggestedT (assoc ((glitch-guard hfql/scope) stepT) '% value))))))))))))))
+  (let [value (e/server ((glitch-guard hfql/nav) stepT))
+        suggestedT (e/server (hfql/suggest value))
+        newStepT (e/server ((glitch-guard (flip hfql/seed)) suggestedT (assoc ((glitch-guard hfql/scope) stepT) '% value)))]
+    (e/Reconcile
+      (e/When (e/server (#(and (some? suggestedT) (not= stepT suggestedT))))
+        (e/call (ResolveRenderer sitemap newStepT) newStepT)))))
 
 ;;;;;;;;;;;;;;;;
 ;; Entrypoint ;;
