@@ -52,12 +52,14 @@
           (throw ex))))))
 
 (defn directional-comparator
-  "Take '< or '> and return a comparator comparing any two values in resp. ascending or descending order.
+  "Take '. , '< or '> and return a comparator comparing any two values in resp. natural order, ascending or descending order.
   Note < and > functions (not quoted) only work on numbers and so can only be used as a comparator for numbers.
   The comparator returned by the current function sorts based on the sign of the return value of `compare`."
-  [direction]
-  {:pre [(or (= '< direction) (= '> direction))]}
-  (fmap (case direction < neg? > pos?) compare))
+  [order]
+  {:pre [(or (= '. order) (= '< order) (= '> order))]}
+  (case order
+    . (constantly 0) ; compare return 0 for equal values – wasteful sort, but correct.
+    (fmap (case order < neg? > pos?) compare)))
 
 (comment
   (map hfql/pull (sort-by (hfql/find-cell-by-column _ageT) (compare-cells (compare-nils-last (directional-comparator '>))) _rowsT))
@@ -101,10 +103,11 @@
   (if (>= (bounded-count COLLECTION-LIMIT rowsT) COLLECTION-LIMIT)
     rowsT
     (try
-      (let [[columnT direction] (first columnT-specs)] ; TODO support multi-column sort
-        (if (nil? direction)
-          rowsT ; no sort, or default sort, bypass.
-          (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-fallback-to-identity (compare-nils-last (directional-comparator direction)))))
+      (let [[columnT order] (first columnT-specs)] ; TODO support multi-column sort
+        (case order
+          nil rowsT ; no sort, or default sort, bypass.
+          .   rowsT ; natural order, bypass as an optimization: avoid worst case of sort time complexity: an already sorted collection.
+          (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-fallback-to-identity (compare-nils-last (directional-comparator order)))))
             (map hfql/augment-with-suggestions! rowsT)))) ; TODO only augment with sorted column(s), if not already present
       #?(:clj (catch missionary.Cancelled ex (throw ex)))
       (catch #?(:clj Throwable, :cljs :default) ex

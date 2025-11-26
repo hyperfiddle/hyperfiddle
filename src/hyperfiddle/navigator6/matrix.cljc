@@ -57,10 +57,12 @@
                       (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)) ; TODO cleanup
                       (dom/text form)
                       (e/client
-                        (let [!direction (atom (cycle ['> '<]))
-                              direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
-                              [t err] (e/Token direction)]
-                          (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]]))))))))))))
+                        (dom/span
+                          (let [!direction (atom (cycle ['. '> '<]))
+                                direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
+                                [t err] (e/Token direction)]
+                            (dom/props {:class "sort-handle" :data-sort-order (str (first (e/watch !direction)))})
+                            (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]])))))))))))))
 
 #?(:cljs
    (defn- dispatch-event! [direction ^js node type detail]
