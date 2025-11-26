@@ -10,7 +10,7 @@
  */
 
 table.matrix {
-    grid-template-columns: 1lh repeat(var(--column-count), 1fr); /* 1lh for radio button, 1fr for vertical layout (header on top) */
+    grid-template-columns: 1lh repeat(calc(max(1, var(--column-count))), 1fr); /* 1lh for radio button, 1fr for vertical layout (header on top) */
     /* grid-template-rows: /**/
     /*   repeat(var(--header-row-count), var(--row-height)) /* header rows */
     /*   repeat(var(--row-count), var(--row-height)) /* scrolled body rows */

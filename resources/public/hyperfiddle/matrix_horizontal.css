@@ -14,7 +14,7 @@ table.matrix.transposed {
         repeat(var(--header-row-count), var(--column-width)) /* header rows /**/
         repeat(var(--row-count), var(--column-width)) /* scrolled body rows /**/
     ; /**/
-    grid-template-rows: var(--row-height) repeat(var(--column-count), var(--row-height)); /* 1lh for radio button, 1fr for vertical layout (header on top) */
+    grid-template-rows: var(--row-height) repeat(calc(max(0, var(--column-count))), var(--row-height)); /* 1lh for radio button, 1fr for vertical layout (header on top) */
     grid-auto-columns: var(--column-width);
     /* gap: 0.01px 0; /\* HACK fixes a Chrome subpixel sampling issue rows to drift – visible on large results *\/ */
     position: relative;
