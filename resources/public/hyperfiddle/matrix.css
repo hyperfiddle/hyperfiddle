@@ -243,6 +243,19 @@ table.matrix[role=radiogroup]{
 
 }
 
+table.matrix.single{
+    thead tr th{
+        .sort-handle{
+            display: none;
+        }
+    }
+    tbody tr th[scope="row"]{
+        input{
+            display: none;
+        }
+    }
+}
+
 /* Column sort handle */
 table.matrix thead tr th .sort-handle{
     display: block;
