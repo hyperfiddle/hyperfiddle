@@ -306,3 +306,7 @@ fieldset:has(table.matrix.map) legend > :has(input + label){
 fieldset:has(table.matrix){
     min-inline-size: auto; /* Allow horizontal scrolling. Chrome UA default is min-content */
 }
+
+fieldset:has(table.matrix.single) legend .count {
+    display: none;
+}

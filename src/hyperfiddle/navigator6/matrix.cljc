@@ -314,7 +314,8 @@
         (e/fn [rowsT]
           (let [rowsT-count (e/server (bounded-count rowsT-count rowsT))]
             (in top-left
-              (dom/span (dom/props {:style {:order -1}})
+              (dom/span (dom/props {:style {:order -1}
+                                    :class "count"})
                         (dom/text (#(if is-map?
                                       (rendering/format-map-entries-count rowsT-count COLLECTION-LIMIT)
                                       (rendering/format-collection-count rowsT-count COLLECTION-LIMIT))))))
