@@ -67,7 +67,8 @@ table.matrix.transposed{
             top:0;
         }
         th{
-            justify-self: end;
+            justify-self: stretch;
+            text-align: end;
             padding-right: 0.25em;
         }
     }
@@ -104,4 +105,10 @@ table.matrix.single.transposed {
 
 
 
+}
+
+table.matrix.transposed thead tr th .sort-handle {
+    inset-inline: 0;
+    order: -1;
+    transform: scaleX(80%) scaleY(60%) rotate(90deg);
 }

@@ -54,14 +54,15 @@
             (let [columnT (e/server (get columns-index edge))
                   form (e/server (str (shorten (hfql/symbolic-edge columnT))))]
               (dom/th (dom/props {:scope :col})
-                      (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)) ; TODO cleanup
-                      (dom/text form)
+                      (dom/span (dom/props {:class "column-name"}) (dom/text form)
+                        (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)))
                       (e/client
                         (dom/span
                           (let [!direction (atom (cycle ['. '> '<]))
                                 direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
                                 [t err] (e/Token direction)]
-                            (dom/props {:class "sort-handle" :data-sort-order (str (first (e/watch !direction)))})
+                            (dom/props {:class "sort-handle" :data-sort-order (str (first (e/watch !direction)))
+                                        :title "Sort"})
                             (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]])))))))))))))
 
 #?(:cljs

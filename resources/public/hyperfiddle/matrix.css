@@ -173,6 +173,18 @@ table.matrix[role=radiogroup]{
     --item-selected-border-radius: 6px;
     cursor: default;
 
+    tr th{
+        display: flex;
+        white-space: nowrap;
+        overflow: hidden;
+        .column-name{
+            flex: 1;
+            min-width :0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
     tr th:has(input[type=radio]){
         display: flex;
         align-items: center;
@@ -233,12 +245,10 @@ table.matrix[role=radiogroup]{
 
 /* Column sort handle */
 table.matrix thead tr th .sort-handle{
-    display: inline-block;
-    position: absolute;
+    display: block;
     inset-inline: auto 0;
-    height: 100%;
+    width: 1lh;
     aspect-ratio: 1;
-    backdrop-filter: blur(6px);
 
     cursor: pointer;
     transform: scaleX(60%) scaleY(80%);

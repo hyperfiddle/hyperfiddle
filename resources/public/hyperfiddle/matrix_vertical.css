@@ -70,6 +70,7 @@ table.matrix{
 
 
 
+
     }
     tbody{
         th{
@@ -104,4 +105,10 @@ table.matrix.single{
     tbody > tr > th{
         display: none;
     }
+}
+
+table.matrix.transposed thead tr th .sort-handle {
+
+
+
 }
