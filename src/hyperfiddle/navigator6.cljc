@@ -96,15 +96,28 @@
         ::ana/ifn ::ifn
         ::unknown))))
 
-(e/declare RenderValue)
-(e/defn ResolveRenderer [sitemap hfqlT]
+(e/defn ResolveRenderer [hfqlT]
   (e/server
     (if hfqlT
       (get {::pull (e/fn [stepT] (RenderMatrix stepT :transpose? true, :single? true))
             ::star RenderMatrix}
         (e/Offload #((glitch-guard render-type) hfqlT))
-        (e/Partial RenderValue sitemap))
+        (e/fn [& _]))
       (e/fn [& _]))))
+
+
+(e/defn ReshapeNavigationStep [hfqlT]
+  (e/server
+    (e/Reconcile
+      (case (e/Offload #((glitch-guard render-type) hfqlT))
+        (::pull ::star) hfqlT
+        (let [value ((glitch-guard hfql/nav) hfqlT)
+              suggestedT (hfql/suggest value)
+              newStepT ((glitch-guard (flip hfql/seed)) suggestedT (assoc ((glitch-guard hfql/scope) hfqlT) '% value))]
+          (e/Reconcile
+            (if (#(and (some? suggestedT) (not= hfqlT suggestedT)))
+              newStepT
+              hfqlT)))))))
 
 (defn inject-dynamic-bindings [e-bindings stepT]
   (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))
@@ -122,20 +135,21 @@
                 (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
                   (with-local-state ::state/route ; injects *local-state and interpret state write commands
                     (with-local-search ::search   ; injects *local-search and interpret search commands
-                      (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                          ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
-                          (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
-                        (e/amb
-                          (e/call (ResolveRenderer sitemap stepT) ; call renderer for current point
-                            (e/server ((glitch-guard (flip inject-dynamic-bindings)) stepT e/*bindings*)))
-                          (let [next-childT (e/server (do #_(prn "local selection" selection/*local-selection)
-                                                          (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
-                            (e/Reconcile
-                              (when (e/server (some? next-childT))
-                                (e/server
-                                  (binding [selection/*parent-selection selection/*local-selection]
-                                    (Navigate sitemap next-childT)))))
-                            (e/amb)))))))))))))))
+                      (let [stepT (e/server (ReshapeNavigationStep stepT))]
+                        (with-local-selection ::selection ; injects *local-selection and interpret selection commands
+                            ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
+                            (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
+                          (e/amb
+                            (e/call (ResolveRenderer stepT) ; call renderer for current point
+                              (e/server ((glitch-guard (flip inject-dynamic-bindings)) stepT e/*bindings*)))
+                            (let [next-childT (e/server (do #_(prn "local selection" selection/*local-selection)
+                                                            (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
+                              (e/Reconcile
+                                (when (e/server (some? next-childT))
+                                  (e/server
+                                    (binding [selection/*parent-selection selection/*local-selection]
+                                      (Navigate sitemap next-childT)))))
+                              (e/amb))))))))))))))))
 
 ;; (e/defn RenderMeta [stepT]
 ;;   (e/server
@@ -145,13 +159,6 @@
 ;;         (dom/summary (dom/text "Meta"))
 ;;         (dom/pre (dom/text (strx/pprint-str m)))))))
 
-(e/defn RenderValue [sitemap stepT]
-  (let [value (e/server ((glitch-guard hfql/nav) stepT))
-        suggestedT (e/server (hfql/suggest value))
-        newStepT (e/server ((glitch-guard (flip hfql/seed)) suggestedT (assoc ((glitch-guard hfql/scope) stepT) '% value)))]
-    (e/Reconcile
-      (e/When (e/server (#(and (some? suggestedT) (not= stepT suggestedT))))
-        (e/call (ResolveRenderer sitemap newStepT) newStepT)))))
 
 ;;;;;;;;;;;;;;;;
 ;; Entrypoint ;;
