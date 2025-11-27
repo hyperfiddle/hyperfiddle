@@ -63,12 +63,14 @@
                 can-recur? (>= (::ana/recursion-limit (hfql/metas stepT) 0) 1)
                 many? (multiplicity-many-value? val-at-point)
                 ]
-            (cond
-              (and recursive? can-recur? many?) (from-maybe (hfql/hfql {* [*]} val-at-point) (select-recursion-point stepT))
-              (and recursive? (not can-recur?) many?) (hfql/hfql {* [*]} val-at-point) ; loses static columns from recursion
-              (and (not recursive?) many?) (hfql/hfql {* [*]} val-at-point)
-              (not many?) stepT
-              :else (throw (ex-info "Unknown case" {:state [recursive? can-recur? many?]})))
+            (->
+              (cond
+                (and recursive? can-recur? many?) (from-maybe (hfql/hfql {* [*]} val-at-point) (select-recursion-point stepT))
+                (and recursive? (not can-recur?) many?) (hfql/hfql {* [*]} val-at-point) ; loses static columns from recursion
+                (and (not recursive?) many?) (hfql/hfql {* [*]} val-at-point)
+                (not many?) stepT
+                :else (throw (ex-info "Unknown case" {:state [recursive? can-recur? many?]})))
+              (hfql/set-parent stepT))
             ))]
   (defn- select-next-child [sitemap stepT [column rowT]]
     (if rowT
@@ -113,7 +115,9 @@
         (::pull ::star) hfqlT
         (let [value ((glitch-guard hfql/nav) hfqlT)
               suggestedT (hfql/suggest value)
-              newStepT ((glitch-guard (flip hfql/seed)) suggestedT (assoc ((glitch-guard hfql/scope) hfqlT) '% value))]
+              newStepT (-> suggestedT
+                         ((glitch-guard (flip hfql/seed)) (assoc ((glitch-guard hfql/scope) hfqlT) '% value))
+                         ((glitch-guard hfql/set-parent) hfqlT))]
           (e/Reconcile
             (if (#(and (some? suggestedT) (not= hfqlT suggestedT)))
               newStepT

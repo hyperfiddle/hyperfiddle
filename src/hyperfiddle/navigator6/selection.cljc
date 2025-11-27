@@ -51,10 +51,11 @@
               childrenT)
           (and (map? val-at-point) ; map lookup case
             (not (= ::ana/many (::ana/multiplicity (hfql/metas childrenT))))
-            (case column
-              key (hfql/hfql key (find val-at-point row))
-              (hfql/hfql val (find val-at-point row)) ; mapentry is not interesting on its own, shortcut to val
-              ))
+            (-> (case column
+                  key (hfql/hfql key (find val-at-point row))
+                  (hfql/hfql val (find val-at-point row)) ; mapentry is not interesting on its own, shortcut to val
+                  )
+              (hfql/set-parent childrenT)))
           (when-let [resolved (hfql-resolve row)]
             (when (not= resolved row)
               (when (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))

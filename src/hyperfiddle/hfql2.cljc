@@ -650,30 +650,33 @@ identifier, though it might not be serializable."
         suggestedT)) ; recursively map over CofreeT structure - lazily
     hfqlT))
 
+(declare parent set-parent)
+
 (let [id (comp ::ana/id metas)
       children-ids (comp set (fmap id) ::co/static-children metas)]
   (defn augment-with-suggestions! [hfqlT]
     (when hfqlT
-      (if-let [suggestedT (suggest-at-point! hfqlT)]
-        (if (-> (::default (metas suggestedT)) ; default was suggested
-              (and (::ana/has-star? (metas hfqlT))) ; but static expression has a *
-              (and (> 1 (count (children-ids hfqlT))))) ; so if there's more static children than just *, skip rendering defaults
-          hfqlT
-          (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))
-                hfqlT-type (::ana/type (metas hfqlT))
-                suggestedT-type (::ana/type (metas suggestedT))]
-            (cond
-              (empty? suggested?) hfqlT
+      (-> (if-let [suggestedT (suggest-at-point! hfqlT)]
+            (if (-> (::default (metas suggestedT))    ; default was suggested
+                  (and (::ana/has-star? (metas hfqlT))) ; but static expression has a *
+                  (and (> 1 (count (children-ids hfqlT))))) ; so if there's more static children than just *, skip rendering defaults
+              hfqlT
+              (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))
+                    hfqlT-type (::ana/type (metas hfqlT))
+                    suggestedT-type (::ana/type (metas suggestedT))]
+                (cond
+                  (empty? suggested?) hfqlT
 
-              (= ::ana/pull hfqlT-type suggestedT-type)
-              (hoistHfqlT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
-                                        (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
-                (combine hfqlT suggestedT))  ; FIXME looses static metadata :(
-              (= ::ana/pull hfqlT-type) hfqlT
-              (= ::ana/pull suggestedT-type) (update-scope suggestedT (constantly (scope hfqlT)))
-              :else hfqlT
-              )))
-        hfqlT))))
+                  (= ::ana/pull hfqlT-type suggestedT-type)
+                  (hoistHfqlT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
+                                          (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
+                    (combine hfqlT suggestedT)) ; FIXME looses static metadata :(
+                  (= ::ana/pull hfqlT-type) hfqlT
+                  (= ::ana/pull suggestedT-type) (update-scope suggestedT (constantly (scope hfqlT)))
+                  :else hfqlT
+                  )))
+            hfqlT)
+        (set-parent (parent hfqlT))))))
 
 (comment
   (import [java.io File])
@@ -745,6 +748,10 @@ identifier, though it might not be serializable."
   (describe-formatted (get dustingetz.namespace-explorer/sitemap `all-ns))
   )
 
+(defpointfree parent (comp ::parent metas))
+(defn set-parent [childT parentT] (co/vary-static-meta childT assoc ::parent parentT))
+(defpointfree multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity metas))
+
 (defn lookup
   "Given an HFQL step object, lookup for a symbolic point in the reachable HFQL scope.
   The reachable HFQL scope is made of:
@@ -755,8 +762,8 @@ identifier, though it might not be serializable."
   Example, in the following HFQL expression:
   ```
   {(shirt-orders) {* [:person/email
-                     {[:person/shirt-size ::hfql/options (shirt-sizes :person/gender)] [:db/ident]}
-                     {:person/gender [[:db/ident :as 'gender-ident]]}]}}
+                      {[:person/shirt-size ::hfql/options (shirt-sizes :person/gender)] [:db/ident]}
+                      {:person/gender [[:db/ident :as 'gender-ident]]}]}}
   ```
   - `(shirt-sizes ...)` can refer to `:person/gender`, but only under the same multiplicity branch.
   - Refering to `:db/ident` from `:person/shirt-size` would unambiguously resolve to the `:db/ident`
@@ -795,35 +802,58 @@ identifier, though it might not be serializable."
   - `:person/gender` cannot reference `shirt-sizes`.
   "
   ([hfqlT symbolic-edge]
-   (lookup hfqlT hfqlT symbolic-edge))
-  ([childT hfqlT symbolic-edge]
+   (lookup hyperfiddle.hfql2/symbolic-edge hfqlT symbolic-edge))
+  ([keyfn hfqlT symbolic-edge]
+   (lookup keyfn hfqlT hfqlT symbolic-edge))
+  ([keyfn previously-visitedT currentT symbolic-edge]
+   #_(prn "visiting" (::ana/form (metas currentT)))
    (cond
-     ;; check current node
-     (= symbolic-edge (hyperfiddle.hfql2/symbolic-edge hfqlT))
-     hfqlT
+     ;; check if current step has a matching `:as` label.
+     ;; `:as` has priority.
+     (= symbolic-edge (:as (metas currentT)))
+     currentT
 
-     ;; if current node is not the previous node, lookup multiplicity-1 children, excluding previous node.
-     (and (not= childT hfqlT)
-       (not= ::ana/many (::ana/multiplicity (meta hfqlT))))
-     (->> (unwrap hfqlT) ; ⚠ may not leverage cached tree – TODO check
-       (remove #{childT})
-       (some #(lookup childT % symbolic-edge)))
+     ;; check if current step has the same symbolic-edge
+     (= symbolic-edge (keyfn (metas currentT)))
+     currentT
 
-     :else ;; look up the parent
-     (when-let [parentT (::parent (metas hfqlT))]
-       (lookup hfqlT parentT symbolic-edge)))))
+     ;; IF current step hasn't been visited already
+     ;; AND current step doesn't match neither by symbolic edge nor by :as label
+     ;; AND current step is of multiplicity many
+     ;; THEN search amongst children
+     ;; EXCLUDING previously visited step – to prevent a parent -> child -> parent loop
+     (and (not= previously-visitedT currentT)
+       (not (multiplicity-many? currentT))
+       (not (= :map (::value-type (metas currentT)))))
+     (->> (unwrap currentT) ; children
+       (remove #{previously-visitedT})
+       (some #(lookup keyfn previously-visitedT % symbolic-edge)))
+
+     ;; No match and no matching child. Look up the parent scope.
+     :else
+     (when-let [parentT (parent currentT)]
+       (lookup keyfn currentT parentT symbolic-edge)))))
 
 
-(comment
+(tests
   (defn _f [x] (prn "IO – f") x)
   (defn _g [x] (prn "IO – g") x)
-  (def _hfql (hfql {_f [:a {_g :b}]} {:a 1, :b 2}))
-  (def _a (-> _hfql unwrap first unwrap first)) ; no expected IO
+  (defn _h [x] (prn "IO – h") x)
+  (def _hfql (hfql {_f [:a {_g :b} {_h ^{:as 'c} #(:c %)}]} {:a 1, :b 2, :c 3}))
+  (def _a (-> _hfql unwrap first unwrap first))               ; no expected IO – check the REPL for a print.
+  (def _c (-> _hfql unwrap first unwrap (nth 2) unwrap first)) ; no expected IO – check the REPL for a print.
   (symbolic-edge _a)
+  := :a
+  (symbolic-edge _c)
+  := :c
   (lookup _a :a)
-  (lookup _a :b) ; no expected IO
-  (nav _a) ; will run _f
-  (nav (lookup _a :b)) ; will leverage cached _f and will run _g
+  := _a
+  (lookup _a :c)                        ; no expected IO
+  := _c
+  (nav _a)                              ; will run _f
+  (nav (lookup _a :c))                  ; will leverage cached _f and will run _h. _g isn't supposed to run.
+  (nav _c)                              ; no expected IO, already cached by `(nav (lookup _a :c))`
+  := 3
   )
 
 ;;; Misc
