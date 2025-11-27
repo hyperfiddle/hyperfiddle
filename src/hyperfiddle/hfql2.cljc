@@ -745,6 +745,87 @@ identifier, though it might not be serializable."
   (describe-formatted (get dustingetz.namespace-explorer/sitemap `all-ns))
   )
 
+(defn lookup
+  "Given an HFQL step object, lookup for a symbolic point in the reachable HFQL scope.
+  The reachable HFQL scope is made of:
+  - the current step (passed in),
+  - ancestor steps, up to the root,
+  - multiplicity-1 children steps of ancestors steps.
+
+  Example, in the following HFQL expression:
+  ```
+  {(shirt-orders) {* [:person/email
+                     {[:person/shirt-size ::hfql/options (shirt-sizes :person/gender)] [:db/ident]}
+                     {:person/gender [[:db/ident :as 'gender-ident]]}]}}
+  ```
+  - `(shirt-sizes ...)` can refer to `:person/gender`, but only under the same multiplicity branch.
+  - Refering to `:db/ident` from `:person/shirt-size` would unambiguously resolve to the `:db/ident`
+    under `:person/gender`. Because it is the sole candidate at the same level as `:person/shirt-size`
+    or part of the multiplicity-1 ancestry of `:person/shirt-size`.
+  - Refering to `:db/ident` under `:person/shirt-size` would be ambiguous because `:db/ident` is reachable
+    through both `:person/shirt-size` and `:person/gender`. In such case, one can refer to the `:as` label,
+    assuming the label is unique in the reachable scope.
+
+  Image:
+                                                          (shirt-orders) Ⓐ
+                                                                │
+                                                                * fan out
+                        ┌───────────────────────────────────────┴──────────────────────────┬──────   ─   ─   ─
+┌───────────────────────┼────────────────────────────────────────┐ ┌───────────────────────┼────────────────────────────────────────┐
+│        ┌──────────────┼────────────────────────────────┐       │ │        ┌──────────────┼────────────────────────────────┐       │
+│        │              │                                │       │ │        │              │                                │       │
+│        │              │          (shirt-sizes x )      │       │ │        │              │          (shirt-sizes x )      │       │
+│        │              │             ▲         │        │       │ │        │              │             ▲         │        │       │
+│        │              │             │         │        │       │ │        │              │             │         │        │       │
+│ :person/email  :person/shirt-size ──┘         └▶:person/gender │ │ :person/email  :person/shirt-size ──┘         └▶:person/gender │
+│                       │                                │       │ │                       │                                │       │
+│                       │                                │       │ │                       │                                │       │
+│                    :db/ident                        :db/ident  │ │                    :db/ident                        :db/ident  │
+│                                                                │ │                                                                │
+└────────────────────────────────────────────────────────────────┘ └────────────────────────────────────────────────────────────────┘
+                        Ⓑ                                                                  Ⓒ
+
+  - Ⓐ produces a collection and `*` fans-out, creating multiple branches.
+  - Ⓑ and Ⓒ are branches, isolated from each others.
+  - All nodes in Ⓑ can reference Ⓐ.
+  - All nodes in Ⓒ can reference Ⓐ.
+  - Nodes in Ⓑ cannot reference nodes in Ⓒ, and vice-versa.
+  - `:person/shirt-size` references `shirt-sizes`, in turn referencing `:person/gender`.
+  - `shirt-sizes` cannot reference `:person/shirt-size`
+  - `:person/gender` cannot reference `shirt-sizes`.
+  "
+  ([hfqlT symbolic-edge]
+   (lookup hfqlT hfqlT symbolic-edge))
+  ([childT hfqlT symbolic-edge]
+   (cond
+     ;; check current node
+     (= symbolic-edge (hyperfiddle.hfql2/symbolic-edge hfqlT))
+     hfqlT
+
+     ;; if current node is not the previous node, lookup multiplicity-1 children, excluding previous node.
+     (and (not= childT hfqlT)
+       (not= ::ana/many (::ana/multiplicity (meta hfqlT))))
+     (->> (unwrap hfqlT) ; ⚠ may not leverage cached tree – TODO check
+       (remove #{childT})
+       (some #(lookup childT % symbolic-edge)))
+
+     :else ;; look up the parent
+     (when-let [parentT (::parent (metas hfqlT))]
+       (lookup hfqlT parentT symbolic-edge)))))
+
+
+(comment
+  (defn _f [x] (prn "IO – f") x)
+  (defn _g [x] (prn "IO – g") x)
+  (def _hfql (hfql {_f [:a {_g :b}]} {:a 1, :b 2}))
+  (def _a (-> _hfql unwrap first unwrap first)) ; no expected IO
+  (symbolic-edge _a)
+  (lookup _a :a)
+  (lookup _a :b) ; no expected IO
+  (nav _a) ; will run _f
+  (nav (lookup _a :b)) ; will leverage cached _f and will run _g
+  )
+
 ;;; Misc
 
 (defn unchunk-seq ; keeping around for reference

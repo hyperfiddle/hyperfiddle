@@ -435,7 +435,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   SetScope
   (set-scope-value [w scope] (seek scope w)))
 
-(declare hfqlt-equals hfqlt-hash)
+(declare hfqlt-equals hfqlt-hash vary-static-meta)
 
 (deftype HFQLT [CofreeT] ; A simple wrapper over CofreeT with custom equality
   ICofreeT
@@ -447,7 +447,9 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-duplicate [t] (HFQLT. (duplicate CofreeT)))
   (-extend [wa f] (HFQLT. (extend f CofreeT)))
   ComonadCofree
-  (-unwrap [t] (map #(HFQLT. %) (unwrap CofreeT)))
+  (-unwrap [this]
+    (map #(-> (HFQLT. %) (vary-static-meta assoc ::hfql/parent this))
+      (unwrap CofreeT)))
 
   #?(:clj Object)
   #?(:clj (equals [this other] (hfqlt-equals this other)))
