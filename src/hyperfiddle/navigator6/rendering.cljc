@@ -187,9 +187,14 @@
               (strx/blank->nil)))))
 
 (defn- render-step-title [stepT *parent-selection]
-  (pr-str (or (when stepT (hfql/symbolic-edge-computed stepT))
-            (let [[col rowT] *parent-selection]
-              col))))
+  (pr-str (or
+            (some-> stepT hfql/symbolic-edge-computed)
+            (let [[col rowT] *parent-selection] col)
+            (when-let [map-entry-pointT (and stepT (hfql/lookup ::ana/form-resolved stepT `val))]
+              (hfql/identify (hfql/value-at-point map-entry-pointT)))
+            (when-let [parentT (and stepT (hfql/parent stepT))]
+              (hfql/identify (hfql/value-at-point parentT)))
+            )))
 
 (e/defn Step-Title [stepT]
   (dom/span
