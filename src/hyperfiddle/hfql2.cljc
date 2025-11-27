@@ -824,7 +824,8 @@ identifier, though it might not be serializable."
      ;; EXCLUDING previously visited step – to prevent a parent -> child -> parent loop
      (and (not= previously-visitedT currentT)
        (not (multiplicity-many? currentT))
-       (not (= :map (::value-type (metas currentT)))))
+       (not (= :map (::value-type (metas currentT)))) ; FIXME looks like a wart – why do we need this special case? Maps are reshaped as a seq of kvs, and should probably be flagged as multiplicity many. But are they really?
+       )
      (->> (unwrap currentT) ; children
        (remove #{previously-visitedT})
        (some #(lookup keyfn previously-visitedT % symbolic-edge)))
