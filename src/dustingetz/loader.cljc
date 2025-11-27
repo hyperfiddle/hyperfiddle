@@ -78,7 +78,7 @@
                       }))))))
 
 (defn delayed [delay-ms f & args]
-  #?(:clj (Thread/sleep delay-ms))
+  #?(:clj (Thread/sleep ^int delay-ms))
   (apply f args))
 
 (e/defn Offload
