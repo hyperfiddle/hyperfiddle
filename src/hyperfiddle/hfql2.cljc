@@ -555,17 +555,12 @@
 ;; Protocols ;;
 ;;;;;;;;;;;;;;;
 
-(extend-protocol Identifiable
-  #?(:clj java.util.Map$Entry, :cljs MapEntry) (identify [entry] (key entry))
-  )
-
 (defn identifiable [identify-fn object]
   (vary-meta object assoc `hyperfiddle.hfql2.protocols/identify (#?(:clj bound-fn*, :cljs identity) identify-fn))) ; #?(:clj bound-fn* :cljs identity)
 
 #?(:clj
    (defn- extends-protocol? [proto atype]
      (and atype
-       ;; (not= atype java.lang.Object)
        (or (extends? proto atype)
          (boolean (some #(extends-protocol? proto %) (bases atype)))))))
 
@@ -598,6 +593,17 @@ identifier, though it might not be serializable."
      (identify nil) := nil
      (identify (identifiable (constantly `hash-map) {})) := `hash-map)
    )
+
+(extend-protocol Identifiable
+  #?(:clj java.util.Map$Entry, :cljs MapEntry) (identify [entry] (identify (key entry)))
+  #?(:clj clojure.lang.Keyword, :cljs Keyword) (identify [kw] kw)
+  #?(:clj clojure.lang.Symbol, :cljs Symbol)   (identify [sym] sym)
+  #?(:clj java.lang.String, :cljs string)      (identify [s] s)
+  #?(:clj java.lang.Number, :cljs number)      (identify [num] num)
+  #?(:clj java.lang.Boolean, :cljs boolean)    (identify [bool] bool)
+  #?(:clj java.util.Date, :cljs js/Date)       (identify [d] d)
+  #?(:clj java.util.UUID, :cljs UUID)          (identify [uuid] uuid)
+  )
 
 (def DEFAULT-SUGGESTION (hfql [identity identify type]))
 

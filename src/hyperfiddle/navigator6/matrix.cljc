@@ -135,7 +135,7 @@
 
 (e/defn RowHandle [group-id rowT]
   (dom/th (dom/props {:scope :row})
-          (let [identifiable? (dustingetz.loader/Initialized (e/server (hfql/identifiable? ((glitch-guard hfql/value-at-point) rowT))) true)
+          (let [identifiable? (dustingetz.loader/Initialized (e/server (some? (hfql/identify ((glitch-guard hfql/value-at-point) rowT)))) true)
                 GetRowT (e/server (utils/Delay rowT))
                 [token _] (forms/Checkbox! ::row (e/server (row-selected? rowT selection/*local-selection))
                             :type :radio
