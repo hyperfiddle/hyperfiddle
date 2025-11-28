@@ -556,7 +556,7 @@
 ;;;;;;;;;;;;;;;
 
 (extend-protocol Identifiable
-  #?(:clj clojure.lang.AMapEntry, :cljs MapEntry) (identify [entry] (key entry))
+  #?(:clj java.util.Map$Entry, :cljs MapEntry) (identify [entry] (key entry))
   #?(:clj Object, :cljs default) (identify [_])
   nil (identify [_]))
 
@@ -601,7 +601,7 @@ identifier, though it might not be serializable."
       ;; (hfql {* [key val]}) ; not compatible – `combine` can only combine two pulls
       (hfql* (ana/analyze {} (vec (keys m))))
       #(assoc % ::value-type :map))) ; UI may interpret this to customize table layout
-  #?(:clj clojure.lang.AMapEntry, :cljs MapEntry)
+  #?(:clj java.util.Map$Entry, :cljs MapEntry)
   (suggest [_]
     (co/vary-static-meta
       (hfql [key val])
