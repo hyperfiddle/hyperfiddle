@@ -612,7 +612,8 @@ identifier, though it might not be serializable."
   (suggest [m]
     (co/vary-static-meta
       ;; (hfql {* [key val]}) ; not compatible – `combine` can only combine two pulls
-      (hfql* (ana/analyze {} (vec (keys m))))
+      #_(hfql* (ana/analyze {} (vec (keys m)))) ; FIXME not ok, map can be arbitrarily large and keys may be opaque.
+      (hfql [])
       #(assoc % ::value-type :map))) ; UI may interpret this to customize table layout
   #?(:clj java.util.Map$Entry, :cljs MapEntry)
   (suggest [_]
@@ -815,7 +816,7 @@ identifier, though it might not be serializable."
   - `:person/gender` cannot reference `shirt-sizes`.
   "
   ([hfqlT symbolic-edge]
-   (lookup hyperfiddle.hfql2/symbolic-edge hfqlT symbolic-edge))
+   (lookup hyperfiddle.hfql2/symbolic-edge* hfqlT symbolic-edge))
   ([keyfn hfqlT symbolic-edge]
    (lookup keyfn hfqlT hfqlT symbolic-edge))
   ([keyfn previously-visitedT currentT symbolic-edge]

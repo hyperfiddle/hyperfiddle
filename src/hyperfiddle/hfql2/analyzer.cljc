@@ -26,7 +26,7 @@
     (let [[f & _args] form]
       (#{'fn `fn 'fn*} f))))
 
-(defn- quoted? [form]
+(defn quoted? [form]
   (and (seq? form) (= 'quote (first form))))
 
 (defn unquote* [form]
@@ -87,7 +87,7 @@
   (cond
     (= '* form)           ::star
     (or (= '... form)
-      (number? form))     ::recur
+      (nat-int? form))    ::recur
     (symbol? form)        ::symbol
     (keyword? form)       ::keyword
     (string? form)        ::string
@@ -95,6 +95,7 @@
     (var-form? form)      ::var
     (symbolic-call? form) ::call
     (pair? form)          ::traversal
+    (record? form)        ::literal
     (map? form)           ::traversals
     (vector? form)        ::pull
     (lambda? form)        ::lambda
@@ -102,7 +103,9 @@
     (quoted? form)        ::literal
     ;; TODO ifn? – maybe
     ;; TODO? method sym
-    :else                 (throw (ex-info "unknown form" {:form form}))))
+    :else
+    ::literal
+    #_(throw (ex-info "unknown form" {:form form}))))
 
 (defn- reshape-traversals-down [hfql]
   (case (projection-type hfql)
@@ -195,6 +198,8 @@
     form
     (list 'quote (realize form))))
 
+(defn quote-nat-ints [form] (if (nat-int? form) (list 'quote form) form))
+
 (defn- lexical-bindings-map [lexical-env]
   (zipmap (map #(#'quote %) (keys lexical-env))
     (keys lexical-env)))
@@ -261,7 +266,7 @@
         ::lexical-env (lexical-bindings-map env)}
        (case (projection-type form)
          ::star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
-         ::recur     {::recursion-limit (if (number? form) form ##Inf)}
+         ::recur     {::recursion-limit (if (nat-int? form) form ##Inf)}
          ::literal   {::symbolic-edge form}
          ::keyword   {::symbolic-edge form
                       ::form-resolved form ; keyword auto-resolve at read-time.
@@ -281,7 +286,7 @@
                        ::symbolic-edge form
                        ;; TODO add aliased form
                        }
-         ::pull      (let [recursion-point (some-fn #{'...} number?)
+         ::pull      (let [recursion-point (some-fn #{'...} nat-int?)
                            form' (vec (remove recursion-point form))]
                        (merge
                          {::form form'

@@ -131,7 +131,7 @@
 (def mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
 
 (defn- getter [point]
-  (let [key (get point ::ana/form)]
+  (let [key (ana/unquote* (get point ::ana/form))]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
       (binding [thunks/*cache-strategy* ::thunks/weak]
@@ -195,6 +195,11 @@
 
 (declare seed)
 
+(defn- disambiguate-nums-from-recursion [form] (ana/quote-nat-ints form))
+(defn- undisambiguate-nums-from-recursion [form] (if (and (ana/quoted? form) (nat-int? (second form)))
+                                                   (ana/unquote* form)
+                                                   form))
+
 (defn- pull-peek-at-immediate-kids! [env kidsT]
   ;; Unless I'm mistaken, this is only a test convenience utility.
   ;; A proper UI wouldn't ask for a pull value at point but
@@ -204,7 +209,7 @@
   ;; need to build a map here, unless there's a use case to render
   ;; the raw value at point (unpulled), e.g. for an EDN <pre>,
   ;; which may be no different from of test utility?
-  (into {} (map pair (fmap (comp symbolic-edge fst runCofreeT) kidsT)
+  (into {} (map pair (fmap (comp undisambiguate-nums-from-recursion symbolic-edge fst runCofreeT) kidsT)
              (->> kidsT
                (fmap (seed env))
                (fmap runCofreeT)
@@ -236,8 +241,10 @@ Pulling on non-maps (non associative) is perfectly fine.
   "
   [object]
   (try
-    (doall (map key ; do not use `keys` here. `doall` doesn't work as expected on it. See following RCF.
-             (force-thunk (runReader star object)))) ; expects an IPersistentMap or a sequences of MapEntries
+    (->> (force-thunk (runReader star object)) ; expects an IPersistentMap or a sequences of MapEntries
+      (map key) ; do not use `keys` here. `doall` doesn't work as expected on it. See following RCF.
+      (map disambiguate-nums-from-recursion)
+      (doall))
     (catch #?(:clj Throwable, :cljs :default) _ ())))
 
 (tests
@@ -595,7 +602,25 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-values (seed {'% {:a 1, :b 2}} (-hfql [:a *]) ))
   := '({:a 1, :b 2} 1 2)
 
-  (-values (seed {'% {:a 1, :b 3}} (-hfql {:a inc}) )) 
+  (-values (seed {'% {1 :a, 2 :b}} (-hfql ['1 *])))
+  )
+
+(defrecord _Box [x])
+
+(tests
+  (->_Box :a) := (->_Box :a)
+  )
+
+;; (-values (seed {'% {:a 1, 2 3}} (-hfql [:a 2])))
+
+
+#?(:clj
+   (tests
+     (-values (seed {'% {:a 1, (->_Box :b) 2}} (-hfql [:a *]) ))
+     := (list {:a 1, (->_Box :b) 2} 1 2)))
+
+(tests
+  (-values (seed {'% {:a 1, :b 3}} (-hfql {:a inc}) ))
   := '(1 2)
 
   (-values (seed {'% {:a 1, :b 3}} (-hfql [{:a inc}])))
