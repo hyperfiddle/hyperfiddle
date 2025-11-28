@@ -135,8 +135,14 @@
 
 (e/defn RowHandle [group-id rowT]
   (dom/th (dom/props {:scope :row})
-          (let [GetRowT (e/server (utils/Delay rowT))
-                [token _] (forms/Checkbox! ::row (e/server (row-selected? rowT selection/*local-selection)) :type :radio :name (str group-id))]
+          (let [identifiable? (dustingetz.loader/Initialized (e/server (hfql/identifiable? ((glitch-guard hfql/value-at-point) rowT))) true)
+                GetRowT (e/server (utils/Delay rowT))
+                [token _] (forms/Checkbox! ::row (e/server (row-selected? rowT selection/*local-selection))
+                            :type :radio
+                            :name (str group-id)
+                            :disabled (not identifiable?)
+                            :title ({true "" false "Object isn't Identifiable and cannot be selected"} identifiable?)
+                            :style {:cursor ({true "normal" false "not-allowed"} identifiable?)})]
             (e/Reconcile
               (when token
                 (dispatch-event! :up dom/node (munge-str `Select!) GetRowT)

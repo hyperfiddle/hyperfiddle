@@ -557,11 +557,24 @@
 
 (extend-protocol Identifiable
   #?(:clj java.util.Map$Entry, :cljs MapEntry) (identify [entry] (key entry))
-  #?(:clj Object, :cljs default) (identify [_])
-  nil (identify [_]))
+  )
 
 (defn identifiable [identify-fn object]
   (vary-meta object assoc `hyperfiddle.hfql2.protocols/identify (#?(:clj bound-fn*, :cljs identity) identify-fn))) ; #?(:clj bound-fn* :cljs identity)
+
+#?(:clj
+   (defn- extends-protocol? [proto atype]
+     (and atype
+       ;; (not= atype java.lang.Object)
+       (or (extends? proto atype)
+         (boolean (some #(extends-protocol? proto %) (bases atype)))))))
+
+(defn identifiable? [object]
+  (or (and (has-meta? object) (contains? (meta object) `hyperfiddle.hfql2.protocols/identify))
+    #?(:clj (extends-protocol? Identifiable (type object))
+       :cljs (and (not (nil? object))
+               (object? object)
+               (satisfies? Identifiable object)))))
 
 (defn identify
 "Produces a symbolic identity for `obj`, or nil if `obj` does not explicitly
@@ -570,7 +583,8 @@ identities should be favored.
 All values being self-identical, `(or (identify x) x)` always yields a valid
 identifier, though it might not be serializable."
   [obj]
-  (hyperfiddle.hfql2.protocols/identify obj))
+  (when (identifiable? obj)
+    (hyperfiddle.hfql2.protocols/identify obj)))
 
 #?(:clj
    (tests
@@ -584,13 +598,6 @@ identifier, though it might not be serializable."
      (identify nil) := nil
      (identify (identifiable (constantly `hash-map) {})) := `hash-map)
    )
-
-(defn identifiable? [object]
-  #_(extends? Identifiable (type object))
-  #?(:clj (extends? Identifiable (type object))
-     :cljs (and (not (nil? object))
-             (object? object)
-             (satisfies? Identifiable object))))
 
 (def DEFAULT-SUGGESTION (hfql [identity identify type]))
 
