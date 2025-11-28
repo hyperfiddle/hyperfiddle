@@ -625,6 +625,7 @@ identifier, though it might not be serializable."
   nil (suggest [_]))
 
 #?(:clj (extend-type Class
+          Identifiable (identify [klass] (.getCanonicalName klass))
           Suggestable (suggest [_] (hfql [Class/.getCanonicalName Class/.getMethods Class/.getFields]))))
 
 
