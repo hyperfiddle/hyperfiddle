@@ -49,7 +49,7 @@
       (let [val-at-point (hfql/value-at-point childrenT)]
         (or (and (= row (hfql/identify val-at-point)) ; direct identity equality case
               childrenT)
-          (and (map? val-at-point) ; map lookup case
+          (and (utils/imap? val-at-point) ; map lookup case
             (not (= ::ana/many (::ana/multiplicity (hfql/metas childrenT))))
             (-> (case column
                   key (hfql/hfql key (find val-at-point row))
