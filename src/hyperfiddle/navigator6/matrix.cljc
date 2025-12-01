@@ -295,7 +295,7 @@
 (defn- reshape-maps [transpose? single? stepT]
   (when stepT
     (let [value (hfql/value-at-point stepT)]
-      (if (utils/imap? value)
+      (if (and (utils/imap? value) (not (record? value)))
         [true false false (-> (hfql/hfql {* [key val]} (seq value) #_(map #(zipmap [:key :val] %) (seq value))) (hfql/set-parent stepT))]
         [false transpose? single? stepT]))))
 
