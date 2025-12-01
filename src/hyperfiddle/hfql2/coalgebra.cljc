@@ -455,7 +455,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-extend [wa f] (HFQLT. (extend f CofreeT)))
   ComonadCofree
   (-unwrap [this]
-    (map #(-> (HFQLT. %) (vary-static-meta assoc ::hfql/parent this))
+    (fmap #(-> (HFQLT. %) (vary-static-meta assoc ::hfql/parent this))
       (unwrap CofreeT)))
 
   #?(:clj Object)

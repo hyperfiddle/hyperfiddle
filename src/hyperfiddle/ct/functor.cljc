@@ -60,24 +60,32 @@
 ;; #?(:cljs (extend-protocol Functor
 ;;            default
 ;;            (-<$ [x]
-;;              (if (satisfies? Protocol x)
+;;              (if (satisfies? Protocol x) ; slow – perf bottleneck. Don't do that.
 ;;                ;; one impl for all instances
 ;;                (impl x)
 ;;                (throw (js/Error. (str "FunctorDiscard/<$ not supported for type: " (type x))))))))
 (extend-protocol Functor
   ;; List
   #?(:clj clojure.lang.ISeq, :cljs ISeq)
-  (-fmap [fa a->b] (map a->b fa)) ; TODO carry metadata over
+  (-fmap [fa a->b]
+    (with-meta (map a->b fa)
+      (meta fa)))
 
   #?(:clj clojure.lang.PersistentList$EmptyList :cljs EmptyList)
   (-fmap [fa _a->b] fa)
 
   #?(:clj clojure.lang.Cons :cljs Cons)
-  (-fmap [fa a->b] (cons (a->b (first fa)) (lazy-seq (fmap a->b (rest fa)))))
+  (-fmap [fa a->b]
+    (with-meta
+      (cons (a->b (first fa)) (lazy-seq (fmap a->b (rest fa))))
+      (meta fa)))
 
   ;; Vector
   #?(:clj clojure.lang.IPersistentVector, :cljs PersistentVector)
-  (-fmap [fa a->b] (mapv a->b fa))
+  (-fmap [fa a->b]
+    (with-meta
+      (mapv a->b fa)
+      (meta fa)))
 
   ;; Map
   #?(:clj clojure.lang.IPersistentMap :cljs IMap)
@@ -95,7 +103,7 @@
   (-fmap [fa a->b] (delay (a->b (force fa))))
 
   #?(:clj clojure.lang.Fn, :cljs function)
-  (-fmap [fa f] (comp f fa))
+  (-fmap [fa f] (with-meta (comp f fa) (meta fa)))
   )
 
 (extend-protocol FunctorDiscard
