@@ -566,7 +566,7 @@
 
 (defn identifiable? [object]
   (or (and (has-meta? object) (contains? (meta object) `hyperfiddle.hfql2.protocols/identify))
-    #?(:clj (extends-protocol? Identifiable (type object))
+    #?(:clj (extends-protocol? Identifiable (#?(:clj class, :cljs type) object))
        :cljs (and (not (nil? object))
                (object? object)
                (satisfies? Identifiable object)))))
@@ -636,7 +636,7 @@ identifier, though it might not be serializable."
     (ana/analyze {} (vec
                       (map keyword
                         #?(:clj
-                           (-> (type record)
+                           (-> (class record)
                              (.getMethod "getBasis" nil)
                              (.invoke nil nil))
                            :cljs
