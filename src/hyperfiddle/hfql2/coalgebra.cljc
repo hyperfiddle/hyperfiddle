@@ -673,14 +673,17 @@ Pulling on non-maps (non associative) is perfectly fine.
             children)))
       ::ana/traversal
       (thunk
-        (let [point (fst (runCofreeT W))]
-          {(symbolic-edge W ::point-free true)
-           (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
-             (if (multiplicity-many? point)
-               (map force-thunk children)
-               (force-thunk (first children)))
-             ;; bounded recursion case, no more children, return value as-is.
-             (force-thunk (extract W)))}))
+        (let [point (fst (runCofreeT W))
+              key (symbolic-edge W ::point-free true)
+              val (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
+                    (if (multiplicity-many? point)
+                      (map force-thunk children)
+                      (force-thunk (first children)))
+                    ;; bounded recursion case, no more children, return value as-is.
+                    (force-thunk (extract W)))]
+          (if (star-traversal? point) ; e.g. without this check {* [ns-name]} on (all-ns) would produce {nil (…)} because `*` is purely syntactic and is not a named point.
+            val
+            {key val})))
       (extract W))))
 
 (defn pull "Equivalent of `datomic.api/pull`. Reshape an HFQL tree `W` into a post-order version of the same tree.

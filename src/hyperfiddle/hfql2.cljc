@@ -222,8 +222,8 @@
   := {:a 1}
   (pull (seed {'% {:a 1, :b 2}} (hfql {identity [:a]})))
   := '{identity {:a 1}}
-  (pull (seed {'% [{:a 1, :b 2} {:a 3, :c 4}]} (hfql {* [:a]})))
-  := '{nil ({:a 1} {:a 3})} ; malformed pull! '* is not an edge. You may wand to (map pull) on children. Pull-many isn't implemented.
+  (pull (seed {'% [{:a 1, :b 2} {:a 3, :c 4}]} (hfql {* [:a]}))) ; This is how we express pull-many.
+  := '({:a 1} {:a 3})
 
   (pull (seed {'% [{:a 1, :b 2} {:a 3, :c 4}]} (hfql {identity {* [:a]}})))
   := '{identity ({:a 1} {:a 3})}
