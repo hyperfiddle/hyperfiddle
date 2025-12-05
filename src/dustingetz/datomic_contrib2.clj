@@ -151,7 +151,7 @@
   (nav [^datomic.query.EntityMap entity k v]
     (let [[typ card unique? comp?] (easy-attr (.-db entity) k)]
       (cond
-        (#{:db/id :db/ident} k) entity
+        (#{:db/id :db/ident} k) entity ; i.e., hfql links pass as entity
         ; TODO cache schema?
         (and (keyword? v) (ref? (index-by :db/ident (query-schema (.-db entity))) k)) (d/entity (.-db entity) v) ; traverse ident refs
         (= :identity unique?) (if (instance? datomic.query.EntityMap v) v (d/entity (.-db entity) [k v])) ; resolve lookup ref, todo cleanup
