@@ -369,22 +369,29 @@ Pulling on non-maps (non associative) is perfectly fine.
                             []))
                         [])))))))
           ::ana/traversal
-          (let [edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
+          (let [lexical-symbol? (= ::ana/symbol (projection-type (::ana/edge point))) ; not a function
+                lexical-value (::ana/value (::ana/edge point))
+                edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
+                                           lexical-symbol? (ana/hfql identity)
                                            :else (ana/hydrate [(assoc (::ana/edge point) ::leaf false) ()])  ; FIXME wart, should be handled by the analyzer
-                                           ))]
+                                         ))]
             (constantly
               (mem-reader
                 (fn [env]
-                  (pair (extract (seed (force-thunk env) edgeT))
-                    (let [direct-child (first children)]
-                      (if (recursion-point? hfql)
-                        (let [limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract root)) 0)] ; TODO deduplicate with pull
-                          (if (pos? limit)
-                            [(fmap #(assoc % ::ana/recursion-limit (dec limit)) root)]
-                            []))
-                        (if (star-traversal? (extract direct-child))
-                          [(first (unwrap direct-child))]
-                          [direct-child])))))))))]
+                  (let [env (force-thunk env)
+                        env (if lexical-symbol?
+                              (assoc env '% lexical-value)
+                              env)]
+                    (pair (extract (seed env edgeT))
+                      (let [direct-child (first children)]
+                        (if (recursion-point? hfql)
+                          (let [limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract root)) 0)] ; TODO deduplicate with pull
+                            (if (pos? limit)
+                              [(fmap #(assoc % ::ana/recursion-limit (dec limit)) root)]
+                              []))
+                          (if (star-traversal? (extract direct-child))
+                            [(first (unwrap direct-child))]
+                            [direct-child]))))))))))]
     (inject-dynamic-bindings (transform point))))
 
 (defprotocol SetScope

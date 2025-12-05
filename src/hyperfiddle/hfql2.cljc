@@ -872,6 +872,26 @@ identifier, though it might not be serializable."
   := 3
   )
 
+(tests
+  (def john {:person/first-name "John", :person/last-name "Doe"})
+  (def query (hfql {john [:person/first-name]}))
+  (values query)
+  := '({:person/first-name "John", :person/last-name "Doe"}
+       {:person/first-name "John"}
+       "John")
+
+  (pull query) ; what should this return?
+  ;; Option A
+  := {'john {:person/first-name "John"}} ; note the quote
+  (get-in *1 ['john :person/first-name]) ; note the quote
+  := "John"
+  ;; Option B
+  ;; := {{:person/first-name "John", :person/last-name "Doe"} {:person/first-name "John"}} ; value of 'john
+  ;; (get-in *1 [_lexical-value :person/first-name]) ; note the missing quote
+  ;; := "John"
+
+  )
+
 ;;; Misc
 
 (defn unchunk-seq ; keeping around for reference
