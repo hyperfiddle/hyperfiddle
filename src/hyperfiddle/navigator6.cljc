@@ -126,7 +126,7 @@
 (defn inject-dynamic-bindings [e-bindings stepT]
   (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))
 
-(e/defn Navigate [sitemap stepT]
+(e/defn Navigate* [sitemap stepT]
   (e/client
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
       (let [id (e/server (hash [(::ana/id ((glitch-guard hfql/metas) stepT)) ; HACK
@@ -152,7 +152,7 @@
                                 (when (e/server (some? next-childT))
                                   (e/server
                                     (binding [selection/*parent-selection selection/*local-selection]
-                                      (Navigate sitemap next-childT)))))
+                                      (Navigate* sitemap next-childT)))))
                               (e/amb))))))))))))))))
 
 ;; (e/defn RenderMeta [stepT]
@@ -169,7 +169,7 @@
 ;;;;;;;;;;;;;;;;
 
 (declare css)
-(e/defn HfqlRoot [sitemap entrypoints]
+(e/defn Navigate [sitemap entrypoints]
   (e/server
     (binding [e/*bindings* (#(or e/*bindings* {}))]
       (e/client
@@ -187,7 +187,7 @@
                     (let [[f & _args] query]
                       (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
                       (dom/props {:class (cssx/css-slugify f)}))
-                    (Navigate sitemap (e/server (with-bindings* e/*bindings* resolve-route sitemap query)))))))))))))
+                    (Navigate* sitemap (e/server (with-bindings* e/*bindings* resolve-route sitemap query)))))))))))))
 
 
 (def table-block-css
