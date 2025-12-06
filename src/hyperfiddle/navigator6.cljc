@@ -169,7 +169,7 @@
 ;;;;;;;;;;;;;;;;
 
 (declare css)
-(e/defn Navigate [sitemap entrypoints]
+(e/defn HfqlRoot [sitemap entrypoints]
   (e/server
     (binding [e/*bindings* (#(or e/*bindings* {}))]
       (e/client
