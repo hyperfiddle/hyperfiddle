@@ -70,7 +70,7 @@
 
 (defmacro hfql
   ([hfql-form] `(hfql* (ana/hfql ~hfql-form)))
-  #_([hfql-form x] `(seed {~''% ~x} (hfql ~hfql-form)))) ; we don't believe in this arity 20251205
+  ([hfql-form x] `(seed {~''% ~x} (hfql ~hfql-form))))
 
 
 
