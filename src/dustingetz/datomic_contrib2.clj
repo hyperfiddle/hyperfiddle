@@ -1,11 +1,12 @@
 (ns dustingetz.datomic-contrib2
   (:import (datomic.query EntityMap))
-  (:require [clojure.core.protocols :as ccp :refer [Datafiable Navigable]]
+  (:require [clojure.core.protocols :as ccp :refer [Navigable]]
             [contrib.data :refer [index-by unqualify]]
             [clojure.template :refer [apply-template]]
             [datomic.api :as d] ; onprem only
             #_[hyperfiddle.electric :as e] ; no electric allowed to maximize reuse
-            [hyperfiddle.hfql0 :refer [Identifiable NavContext nav-context]]
+            [hyperfiddle.hfql2 :as hfql]
+            [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation]]
             [hyperfiddle.rcf :refer [tests % tap]]))
 
 (tests (require '[clojure.datafy :refer [datafy nav]]
@@ -144,9 +145,19 @@
   {:pre [(map? indexed-schema)]}
   (= :db.type/ref (get-in indexed-schema [a :db/valueType :db/ident])))
 
+(defn best-human-friendly-identity [!e]
+  ; requires application dynamic injection, is this fn a real thing?
+  (or #_(best-domain-level-human-friendly-identity entity) (:db/ident !e) (:db/id !e)))
+
 (extend-type datomic.query.EntityMap
-  Identifiable (-identify [^datomic.query.EntityMap !e] (:db/id !e))
-  NavContext (-nav-context [entity] {`ccp/nav (fn [e k v] (ccp/nav entity k v))})
+  Identifiable
+  (identify [entity] (list `d/entity (best-human-friendly-identity entity)))
+  Suggestable
+  (suggest [entity] ; list all attributes of an entity – including reverse refs.
+    (let [attributes (cons :db/id (entity-attrs entity))
+          reverse-attributes (->> (reverse-refs (d/entity-db entity) (:db/id entity))
+                               (map first) (distinct) (map invert-attribute))]
+      (hfql/build-hfql (vec (concat attributes reverse-attributes)))))
   Navigable
   (nav [^datomic.query.EntityMap entity k v]
     (let [[typ card unique? comp?] (easy-attr (.-db entity) k)]
@@ -157,14 +168,8 @@
         (= :identity unique?) (if (instance? datomic.query.EntityMap v) v (d/entity (.-db entity) [k v])) ; resolve lookup ref, todo cleanup
         (keyword? k) (k entity v) ; traverse refs or return value
         )))
-  Datafiable
-  (datafy [^datomic.query.EntityMap entity]
-    (let [db (.-db entity)]
-      (-> {:db/id (:db/id entity)}
-        (into (d/touch entity))
-        (into (back-references db (:db/id entity))) ; G: not more expensive than d/touch - heavily optimized.
-        (with-meta (nav-context entity))
-        ))))
+  ComparableRepresentation
+  (comparable [entity] (str (best-human-friendly-identity entity))))
 
 (comment (d/entity @test-db [:abstractRelease/gid #uuid "320eeca0-a5ff-383f-a66e-b2f559ed0ab6"]))
 
