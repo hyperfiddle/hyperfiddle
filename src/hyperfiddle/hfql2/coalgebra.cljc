@@ -508,6 +508,20 @@ Pulling on non-maps (non associative) is perfectly fine.
         (assoc env '% (::ana/value (::ana/edge point))))
       env)))
 
+(defn- iterator? [it] #?(:clj (instance? java.util.Iterator it) :cljs (instance? ES6Iterator it)))
+(defn- iterator-to-seq [it] #?(:clj (iterator-seq it) :cljs (es6-iterator-seq it)))
+
+(defn- enumeration? [enum] #?(:clj (instance? java.util.Enumeration enum) :cljs false))
+(defn- enumeration-to-seq [enum] #?(:clj (enumeration-seq enum) :cljs enum))
+
+(defn- to-seq [seq-like]
+  (cond
+    (seq? seq-like) seq-like
+    (seqable? seq-like) (seq seq-like)
+    (iterator? seq-like) (iterator-to-seq seq-like)
+    (enumeration? seq-like) (enumeration-to-seq seq-like)
+    :else seq-like))
+
 (defn unfoldT
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra AST]
@@ -548,7 +562,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                (fn [value_i]
                                  (binding [thunks/*cache-strategy* ::thunks/weak] ; lazy-seq spine do not hold onto navigated values. Leaves does.
                                    (thunk (safe-ccp-nav (extract value) nil value_i))))) ; hard-wired navigate call – a fan-out is never a leaf.
-                             forced)
+                             (to-seq forced))
                            (meta forced)))))))))
            (lexical-env point)))))))
 
