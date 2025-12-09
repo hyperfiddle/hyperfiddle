@@ -9,6 +9,7 @@
   (:require [clojure.string :as str]
             [clojure.edn :as edn]
             [clojure.set :as set]
+            #?(:cljs [com.cognitect.transit.types :as transit-types])
             [hyperfiddle.rcf :as rcf :refer [tests]]
             [instaparse.core :as instaparse]
             #?(:cljs [goog.Uri]))
@@ -130,6 +131,8 @@
   #?(:clj java.util.UUID, :cljs UUID) ; #uuid
   (-encode [object] (encode-uuid object))
 
+  #?@(:cljs [com.cognitect.transit.types/UUID
+             (-encode [object] (encode-uuid object))] )
 
   #?(:clj Object, :cljs default)
   (-encode [object] (throw (ex-info (str "Don't know how to encode " (pr-str (type object)) " to EDNish. Please add a defmethod for hyperfiddle.ednish/encode or extend-protocol Encodable on " (pr-str (type object)) ".") {:object object})))
