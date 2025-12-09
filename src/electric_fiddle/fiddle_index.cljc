@@ -77,7 +77,7 @@
           (dom/td
             (if-not (map? v)
               (e/for [[qs F] (e/diff-by {} v)] ; grouped fiddles in ns
-                (r/link ['/ ['fiddle qs]] #_[qs] ; glitch? `[qs]` form crashes on 'fiddles but not 'blog
+                (r/link ['/ [qs]] #_[qs] ; glitch? `[qs]` form crashes on 'fiddles but not 'blog
                         (dom/text (name qs)))))))))))
 
 (e/defn FiddleRoot
@@ -88,7 +88,7 @@
   (let [[?fiddle & _] r/route]
     (if-not ?fiddle (r/ReplaceState! ['. default])
       (let [Fiddle (get fiddles ?fiddle NotFoundPage)]
-        (set! (.-title js/document) (str (some-> ?fiddle name (str " – ")) "Electric Fiddle"))
+        (set! (.-title js/document) (str ?fiddle #_#_(some-> ?fiddle name (str " – ")) "Electric Fiddle")) ; todo don't crash on /(dustingetz.datomic-browser2$DatomicBrowser,'mbrainz-full')/attributes
         (binding [pages fiddles] ; todo untangle - tutorial uses some fiddle infrastructure, perhaps should use more?
           (case ?fiddle
             `FiddleIndex #_(FiddleIndex) (Fiddle) ; lol why - workaround crash 20241205
