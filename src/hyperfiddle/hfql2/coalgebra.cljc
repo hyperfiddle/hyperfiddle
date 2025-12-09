@@ -12,6 +12,7 @@
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend -extract]]
    [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tree-seqT hoistCofreeT]]
+   [hyperfiddle.ct.rose-tree :refer [mapHead]]
    [hyperfiddle.ct.store :refer [store seek pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
    [hyperfiddle.hfql2 :as-alias hfql]
@@ -96,19 +97,26 @@
 
 (def focus-arguments (comp local thunked resolve-arguments))
 
+
+(defn tag-root [AST] (mapHead #(assoc % ::root true) AST))
+(defn- root? [point] (and (::root point) #_(::ana/recursive-child point)))
+
 (defn template-symbolic-edge [env point & [point-free?]]
-  (let [{::ana/keys [form parameters]} point]
-    (case (::ana/type point)
+  (let [edge (::ana/edge point)
+        {::ana/keys [form parameters]} edge]
+    (case (::ana/type edge)
       ::ana/call (cons (first form)
                    (map (fn [parameter argument]
                           (if (or (:symbolic (meta parameter)) (:symbolic (meta argument)))
                             parameter
                             argument))
-                     parameters (resolve-arguments point env)))
-      ::ana/symbol (if point-free?
-                     form
-                     (list form (force-thunk (resolve '% env '%))) ; introduce a point
-                     )
+                     parameters (resolve-arguments edge env)))
+      ::ana/symbol (if (and (root? point) (= ::ana/symbol (projection-type edge)))
+                     (some-> (get env '%) force-thunk)
+                     (cond
+                       point-free? form
+                       :else (list form (force-thunk (resolve '% env '%))) ; introduce a point
+                       ))
       form)))
 
 (defn symbolic-edge-static [point]
@@ -124,7 +132,7 @@
                           [(fst envw) (pos (snd envw))])
                         [point (::scope point)])]
     (case (projection-type point)
-      ::ana/traversal (template-symbolic-edge scope (::ana/edge point) point-free)
+      ::ana/traversal (template-symbolic-edge scope point point-free)
       ;; ::ana/call (template-symbolic-edge (::scope point) point point-free) ; TODO
       (symbolic-edge-static point))))
 
@@ -314,7 +322,8 @@ Pulling on non-maps (non associative) is perfectly fine.
   concrete Cofree Comonad, lazily realizing successive navs as a tree
   traversal."
   [root hfql]
-  (let [hfqlT (partial hfqlT root)
+  (let [root (mapHead #(assoc % ::root true) root) 
+        hfqlT (partial hfqlT root)
         point (extract hfql)
         children (unwrap hfql)
         transform
@@ -373,8 +382,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                 lexical-value (::ana/value (::ana/edge point))
                 edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
                                            lexical-symbol? (ana/hfql identity)
-                                           :else (ana/hydrate [(assoc (::ana/edge point) ::leaf false) ()])  ; FIXME wart, should be handled by the analyzer
-                                         ))]
+                                           :else (ana/hydrate [(assoc (::ana/edge point) ::leaf false) ()]) ; FIXME wart, should be handled by the analyzer
+                                           ))]
             (constantly
               (mem-reader
                 (fn [env]
@@ -491,6 +500,14 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- wrap-with-static-metadata [metas t] (->hfqlT (->EnvW metas (runCofreeT t))))
 (defn vary-static-meta [t f & args] (->hfqlT (bf/first #(apply f % args) (runCofreeT t))))
 
+(defn- lexical-env [point]
+  (let [env (::ana/lexical-env point)]
+    (if (and (root? point) (= ::ana/traversal (::ana/type point)) (= ::ana/symbol (projection-type (::ana/edge point))))
+      (if (contains? env '%)
+        env
+        (assoc env '% (::ana/value (::ana/edge point))))
+      env)))
+
 (defn unfoldT
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra AST]
@@ -533,7 +550,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                    (thunk (safe-ccp-nav (extract value) nil value_i))))) ; hard-wired navigate call – a fan-out is never a leaf.
                              forced)
                            (meta forced)))))))))
-           (::ana/lexical-env point)))))))
+           (lexical-env point)))))))
 
 (defn seed
   "Docstirng is outdated – TODO revise
@@ -580,7 +597,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   ([env t]
    (->hfqlT (set-scope-value (runCofreeT t) env))))
 
-(defmacro -hfql [hfql] `(let [ast# (ana/hfql ~hfql)]
+(defmacro -hfql [hfql] `(let [ast# (tag-root (ana/hfql ~hfql))]
                           (unfoldT (partial hfqlT ast#) ast#)))
 
 (defn- -values [T] (map force-thunk (map extract (tree-seqT T))))

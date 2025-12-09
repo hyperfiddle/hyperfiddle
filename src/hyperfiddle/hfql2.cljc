@@ -60,7 +60,7 @@
 (defn filtered [object] (safe-vary-meta object assoc ::filtered true))
 (defn filtered? [object] (::filtered (meta object)))
 
-(defn unfold [ast] (unfoldT (partial hfqlT ast) ast))
+(defn unfold [ast] (let [ast (co/tag-root ast)] (unfoldT (partial hfqlT ast) ast)))
 (defn hfql* [analyzed-hfql] #_(seed {}) (unfold analyzed-hfql))
 
 (defn build-hfql
@@ -454,7 +454,8 @@
       :hyperfiddle.hfql2.analyzer/symbolic-edges [:a :b :c],
       :hyperfiddle.hfql2.coalgebra/static-children _
       :hyperfiddle.hfql2.coalgebra/scope '{a 1, b 2}
-      :hyperfiddle.hfql2.analyzer/has-star? false})
+      :hyperfiddle.hfql2.analyzer/has-star? false
+      :hyperfiddle.hfql2.coalgebra/root _})
 
 ;; (defn filter-pull [pred pullT]
 ;;   (assert (= ::ana/pull (::ana/type (metas pullT))))
@@ -880,16 +881,10 @@ identifier, though it might not be serializable."
        {:person/first-name "John"}
        "John")
 
-  (pull query) ; what should this return?
-  ;; Option A
-  := {'john {:person/first-name "John"}} ; note the quote
-  (get-in *1 ['john :person/first-name]) ; note the quote
+  (pull query)
+  := {john {:person/first-name "John"}} ; note "john" isn't quoted
+  (get-in *1 [john :person/first-name])
   := "John"
-  ;; Option B
-  ;; := {{:person/first-name "John", :person/last-name "Doe"} {:person/first-name "John"}} ; value of 'john
-  ;; (get-in *1 [_lexical-value :person/first-name]) ; note the missing quote
-  ;; := "John"
-
   )
 
 ;;; Misc

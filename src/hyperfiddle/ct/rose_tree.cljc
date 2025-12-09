@@ -3,8 +3,9 @@
   (:require [hyperfiddle.ct.functor :refer [Functor fmap]]
             [hyperfiddle.ct.bifunctor :refer [Bifunctor bimap]]
             ;; [hyperfiddle.ct.applicative :as ap :refer [Applicative fapply pure]]
-            [hyperfiddle.ct.comonad :refer [Comonad duplicate]]
-            [hyperfiddle.ct.cofree :refer [ComonadCofree]]
+            [hyperfiddle.ct.comonad :refer [Comonad duplicate extract]]
+            [hyperfiddle.ct.cofree :refer [ComonadCofree unwrap tree-seqT]]
+            [hyperfiddle.rcf :refer [tests]]
             ))
 
 (defrecord RoseTree [a children]
@@ -36,6 +37,16 @@
    (assert (seqable? children))
    (->RoseTree a children)))
 
+(defn mapHead ":: (a -> a) -> RoseTree a [a] -> RoseTree a [a]. Apply a function to the current Rose node.
+  Different from fmap. fmap applies a function onto all nodes of a tree."
+  [f rose]
+  (rose-tree (f (extract rose)) (unwrap rose)))
+
+(defn mapTail ":: (a -> a) -> RoseTree a [a] -> RoseTree a [a]. Apply a function to direct children of Rose node.
+  Different from fmap. fmap applies a function onto all nodes of a tree. "
+  [f rose]
+  (rose-tree (extract rose) (fmap #(mapHead f %) (unwrap rose))))
+
 ;; (fapply (rose-tree inc [(rose-tree str [])]) (rose-tree 1 [(rose-tree 2 []) (rose-tree 3 [])]))
 
 ;; -- | Unfold a cofree comonad from a seed.
@@ -66,3 +77,55 @@
   ([coalgebra] (partial coiter coalgebra))
   ([coalgebra seed]
    (unfold (juxt identity coalgebra) seed)))
+
+
+(tests
+  (def _binary_int_tree (coiter (fn [x] (if (<= x 2) [(inc x) (inc (inc x))] [])) 0))
+
+  ((fn rec [rose]
+     (when rose
+       [(extract rose) (fmap rec (unwrap rose))]))
+   _binary_int_tree)
+  := '[0
+       ([1
+         ([2
+           ([3 []]
+            [4 []])]
+          [3 []])]
+        [2
+         ([3 []]
+          [4 []])])]
+
+  (->> _binary_int_tree
+    (tree-seq (comp not-empty unwrap) unwrap)
+    (map extract))
+  := [0 1 2 3 4 3 2 3 4]
+
+  (->> (tree-seqT _binary_int_tree)
+    (map extract))
+  := [0 1 2 3 4 3 2 3 4]
+
+  (extract _binary_int_tree)
+  := 0
+  (map extract (unwrap _binary_int_tree))
+  := [1 2]
+
+  (->> (unwrap _binary_int_tree)
+    (mapcat unwrap)
+    (map extract))
+
+  := [2 3 3 4]
+
+  (extract (mapHead inc _binary_int_tree ))
+  := 1
+  (map extract (unwrap (mapHead inc _binary_int_tree)))
+
+  := [1 2]
+
+  (extract (mapTail inc _binary_int_tree))
+  := 0
+
+  (map extract (unwrap (mapTail inc _binary_int_tree)))
+  := [2 3]
+
+  )

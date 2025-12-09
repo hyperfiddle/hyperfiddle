@@ -313,9 +313,10 @@
                         ::parameters params
                         ::arguments (replace {'% ''%} params)
                         ::form-resolved (resolver env f)
-                        ::lexical-env (merge (lexical-bindings-map env)
-                                        (zipmap (map #'quote (filter symbol? params))
-                                          (filter symbol? params)))})
+                        ::lexical-env (let [params (remove #{'%} params)]
+                                        (merge (lexical-bindings-map env)
+                                          (zipmap (map #'quote (filter symbol? params))
+                                            (filter symbol? params))))})
          ::traversal (let [edge (φ env (fst form))
                            base (case (::type edge)
                                   ::star {::kind ::star, ::multiplicity ::many}
