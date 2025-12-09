@@ -19,7 +19,7 @@
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
-   [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation hfql-resolve resolve-dispatch]]
+   [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation -hfql-resolve -resolve-dispatch]]
    [hyperfiddle.hfql2.utils :refer [has-meta?]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format]))
@@ -33,7 +33,7 @@
 
 (def seed co/seed)
 (def nav* extract)
-(defpointfree nav (comp force-thunk nav*))
+(defpointfree nav (comp force-thunk nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate
 (defpointfree pull* (comp extract co/pull))
 (defpointfree pull (comp force-thunk pull*))
 (defpointfree next-steps unwrap)
@@ -50,7 +50,7 @@
 
 (declare unchunk-seq)
 (defn navigable [nav-fn object]
-  (vary-meta (unchunk-seq object) assoc `hyperfiddle.hfql2.protocols/nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
+  (vary-meta (unchunk-seq object) assoc `hyperfiddle.hfql2.protocols/-nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
 
 (defn- safe-vary-meta [object f & args]
   (if (has-meta? object)
@@ -556,8 +556,13 @@
 ;; Protocols ;;
 ;;;;;;;;;;;;;;;
 
+;; TODO disambiguate – following "nav" should be exposed here but name is already taken by `nav` above.
+#_(defn nav [object k v] (hyperfiddle.hfql2.protocols/nav object k v))
+
+(defn hfql-resolve [symbolic-object-constructor] (-hfql-resolve symbolic-object-constructor))
+
 (defn identifiable [identify-fn object]
-  (vary-meta object assoc `hyperfiddle.hfql2.protocols/identify (#?(:clj bound-fn*, :cljs identity) identify-fn))) ; #?(:clj bound-fn* :cljs identity)
+  (vary-meta object assoc `hyperfiddle.hfql2.protocols/-identify (#?(:clj bound-fn*, :cljs identity) identify-fn))) ; #?(:clj bound-fn* :cljs identity)
 
 #?(:clj
    (defn- extends-protocol? [proto atype]
@@ -566,7 +571,7 @@
          (boolean (some #(extends-protocol? proto %) (bases atype)))))))
 
 (defn identifiable? [object]
-  (or (and (has-meta? object) (contains? (meta object) `hyperfiddle.hfql2.protocols/identify))
+  (or (and (has-meta? object) (contains? (meta object) `hyperfiddle.hfql2.protocols/-identify))
     #?(:clj (extends-protocol? Identifiable (#?(:clj class, :cljs type) object))
        :cljs (and (not (nil? object))
                (object? object)
@@ -580,7 +585,7 @@ All values being self-identical, `(or (identify x) x)` always yields a valid
 identifier, though it might not be serializable."
   [obj]
   (when (identifiable? obj)
-    (hyperfiddle.hfql2.protocols/identify obj)))
+    (hyperfiddle.hfql2.protocols/-identify obj)))
 
 #?(:clj
    (tests
@@ -596,42 +601,42 @@ identifier, though it might not be serializable."
    )
 
 (extend-protocol Identifiable
-  #?(:clj java.util.Map$Entry, :cljs MapEntry) (identify [entry] (identify (key entry)))
-  #?(:clj clojure.lang.Keyword, :cljs Keyword) (identify [kw] kw)
-  #?(:clj clojure.lang.Symbol, :cljs Symbol)   (identify [sym] sym)
-  #?(:clj java.lang.String, :cljs string)      (identify [s] s)
-  #?(:clj java.lang.Number, :cljs number)      (identify [num] num)
-  #?(:clj java.lang.Boolean, :cljs boolean)    (identify [bool] bool)
-  #?(:clj java.util.Date, :cljs js/Date)       (identify [d] d)
-  #?(:clj java.util.UUID, :cljs UUID)          (identify [uuid] uuid)
+  #?(:clj java.util.Map$Entry, :cljs MapEntry) (-identify [entry] (identify (key entry)))
+  #?(:clj clojure.lang.Keyword, :cljs Keyword) (-identify [kw] kw)
+  #?(:clj clojure.lang.Symbol, :cljs Symbol)   (-identify [sym] sym)
+  #?(:clj java.lang.String, :cljs string)      (-identify [s] s)
+  #?(:clj java.lang.Number, :cljs number)      (-identify [num] num)
+  #?(:clj java.lang.Boolean, :cljs boolean)    (-identify [bool] bool)
+  #?(:clj java.util.Date, :cljs js/Date)       (-identify [d] d)
+  #?(:clj java.util.UUID, :cljs UUID)          (-identify [uuid] uuid)
   )
 
 (def DEFAULT-SUGGESTION (hfql [identity identify type]))
 
 (extend-protocol Suggestable
   #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
-  (suggest [m]
+  (-suggest [m]
     (co/vary-static-meta
       ;; (hfql {* [key val]}) ; not compatible – `combine` can only combine two pulls
       #_(hfql* (ana/analyze {} (vec (keys m)))) ; FIXME not ok, map can be arbitrarily large and keys may be opaque.
       (hfql [])
       #(assoc % ::value-type :map))) ; UI may interpret this to customize table layout
   #?(:clj java.util.Map$Entry, :cljs MapEntry)
-  (suggest [_]
+  (-suggest [_]
     (co/vary-static-meta
       (hfql [key val])
       #(assoc % ::value-type :map-entry))) ; UI may interpret this to customize table layout
   #?(:clj Object, :cljs default)
-  (suggest [_] DEFAULT-SUGGESTION)
-  nil (suggest [_]))
+  (-suggest [_] DEFAULT-SUGGESTION)
+  nil (-suggest [_]))
 
 #?(:clj (extend-type Class
-          Identifiable (identify [klass] (.getCanonicalName klass))
-          Suggestable (suggest [_] (hfql [Class/.getCanonicalName Class/.getMethods Class/.getFields]))))
+          Identifiable (-identify [klass] (.getCanonicalName klass))
+          Suggestable (-suggest [_] (hfql [Class/.getCanonicalName Class/.getMethods Class/.getFields]))))
 
 
 (defmulti suggest type)
-(defmethod suggest :default [object] (hyperfiddle.hfql2.protocols/suggest object))
+(defmethod suggest :default [object] (hyperfiddle.hfql2.protocols/-suggest object))
 (defmethod suggest #?(:clj clojure.lang.IRecord, :cljs IRecord) [record]
   (hfql*
     (ana/analyze {} (vec
@@ -702,20 +707,20 @@ identifier, though it might not be serializable."
   (unwrap *1)
   )
 
-(defmethod resolve-dispatch :default [object]
+(defmethod -resolve-dispatch :default [object]
   (if (seq? object)
     (first object)
     object))
 
 (extend-protocol ComparableRepresentation
-  #?(:clj Object, :cljs default) (comparable [this] this)
-  nil (comparable [_] nil)
-  #?@(:clj [java.lang.Class (comparable [^Class this] (.getName this))])
-  #?(:clj clojure.lang.Symbol, :cljs cljs.core.Symbol) (comparable [this] (str this))
-  #?(:clj clojure.lang.Keyword, :cljs cljs.core.Keyword) (comparable [this] (str (namespace this) "/" (name this))) ; drop ":"
+  #?(:clj Object, :cljs default) (-comparable [this] this)
+  nil (-comparable [_] nil)
+  #?@(:clj [java.lang.Class (-comparable [^Class this] (.getName this))])
+  #?(:clj clojure.lang.Symbol, :cljs cljs.core.Symbol) (-comparable [this] (str this))
+  #?(:clj clojure.lang.Keyword, :cljs cljs.core.Keyword) (-comparable [this] (str (namespace this) "/" (name this))) ; drop ":"
   )
 
-(defn comparable [object] (hyperfiddle.hfql2.protocols/comparable object))
+(defn comparable [object] (hyperfiddle.hfql2.protocols/-comparable object))
 
 (defn- describe-dispatch-fn [object]
   (cond (satisfies? hyperfiddle.ct.cofree/ComonadCofree object)

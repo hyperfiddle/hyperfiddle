@@ -1,7 +1,6 @@
 (ns hyperfiddle.navigator6.selection
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2 :as hfql]
-            [hyperfiddle.hfql2.protocols :refer [hfql-resolve]]
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.hfql2.analyzer :as ana]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
@@ -56,7 +55,7 @@
                   (hfql/hfql val (find val-at-point row)) ; mapentry is not interesting on its own, shortcut to val
                   )
               (hfql/set-parent childrenT)))
-          (when-let [resolved (hfql-resolve row)]
+          (when-let [resolved (hfql/hfql-resolve row)]
             (when (not= resolved row)
               (when (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
                 (hfql/update-scope (first (unwrap childrenT)) assoc '% resolved)))

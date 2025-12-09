@@ -1,12 +1,11 @@
 (ns dustingetz.datomic-contrib2
   (:import (datomic.query EntityMap))
-  (:require [clojure.core.protocols :as ccp :refer [Navigable]]
-            [contrib.data :refer [index-by unqualify]]
+  (:require [contrib.data :refer [index-by unqualify]]
             [clojure.template :refer [apply-template]]
             [datomic.api :as d] ; onprem only
             #_[hyperfiddle.electric :as e] ; no electric allowed to maximize reuse
             [hyperfiddle.hfql2 :as hfql]
-            [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation]]
+            [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable Navigable ComparableRepresentation]]
             [hyperfiddle.rcf :refer [tests % tap]]))
 
 (tests (require '[clojure.datafy :refer [datafy nav]]
@@ -151,15 +150,15 @@
 
 (extend-type datomic.query.EntityMap
   Identifiable
-  (identify [entity] (list `d/entity (best-human-friendly-identity entity)))
+  (-identify [entity] (list `d/entity (best-human-friendly-identity entity)))
   Suggestable
-  (suggest [entity] ; list all attributes of an entity – including reverse refs.
+  (-suggest [entity] ; list all attributes of an entity – including reverse refs.
     (let [attributes (cons :db/id (entity-attrs entity))
           reverse-attributes (->> (reverse-refs (d/entity-db entity) (:db/id entity))
                                (map first) (distinct) (map invert-attribute))]
       (hfql/build-hfql (vec (concat attributes reverse-attributes)))))
   Navigable
-  (nav [^datomic.query.EntityMap entity k v]
+  (-nav [^datomic.query.EntityMap entity k v]
     (let [[typ card unique? comp?] (easy-attr (.-db entity) k)]
       (cond
         (#{:db/id :db/ident} k) entity ; i.e., hfql links pass as entity
@@ -169,7 +168,7 @@
         (keyword? k) (k entity v) ; traverse refs or return value
         )))
   ComparableRepresentation
-  (comparable [entity] (str (best-human-friendly-identity entity))))
+  (-comparable [entity] (str (best-human-friendly-identity entity))))
 
 (comment (d/entity @test-db [:abstractRelease/gid #uuid "320eeca0-a5ff-383f-a66e-b2f559ed0ab6"]))
 
