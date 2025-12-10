@@ -4,17 +4,14 @@
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.hfql2.analyzer :as ana]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
-            [hyperfiddle.navigator6.utils :as utils]
+            [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [dustingetz.loader :refer [Offload]]
+            [hyperfiddle.navigator6.selection2 :as selection2]
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.selection :refer [with-local-selection]])))
 
 (e/declare *local-selection *parent-selection)
-
-(defn- symbolic-coordinates [cellT]
-  (when cellT ; glitch-guard
-    (list (hfql/symbolic-edge cellT) (hfql/identify (hfql/value-at-point cellT)))))
 
 ;; (symbolic-cell-coordinates hyperfiddle.navigator6.matrix/_cellT)
 ;; (symbolic-row-coordinates hyperfiddle.navigator6.matrix/_cellT)
@@ -27,7 +24,7 @@
       (->> (Body)
         (utils/InterceptCommand `SetSelection!
           (e/fn [[_ Getter]]
-            [`state/ReplaceState! assoc state-key (e/server (symbolic-coordinates (Getter)))]))))))
+            [`state/ReplaceState! assoc state-key (e/server ((glitch-guard selection2/symbolic-selection-coordinates) (Getter)))]))))))
 
 (defmacro with-local-selection [state-key resolve-fn & body]
   `(WithLocalSelection ~state-key ~resolve-fn (e/fn [] ~@body)))

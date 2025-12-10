@@ -47,6 +47,7 @@
 (defpointfree pull-has-star? (comp ::ana/has-star? metas))
 (defpointfree free-call? (comp ana/free-call? metas))
 (defpointfree fullfilled? (some-fn seeded? free-call?))
+(defn hfql? [o] (instance? hyperfiddle.hfql2.coalgebra.HFQLT o))
 
 (declare unchunk-seq)
 (defn navigable [nav-fn object]
@@ -545,6 +546,12 @@
   ([columnT] (partial find-cell-by-column columnT))
   ([columnT rowT]
    (find-cell-by-column* columnT (unwrap rowT))))
+
+(defn find-cell-by-symbolic-column "Lookup a column in a row by its symbolic form." ; TODO isn't that somewhat a duplicate of find-child? If so unify them or drop one of them.
+  ([symbolic-column] (partial find-cell-by-symbolic-column symbolic-column))
+  ([symbolic-column rowT]
+   (when symbolic-column
+     (first (filter #(= symbolic-column (symbolic-edge %)) (unwrap rowT))))))
 
 (comment
   (def _rows (unwrap (seed {'% (clojure.java.io/file ".")} (dustingetz.file-explorer/sitemap `dustingetz.file-explorer/dir-list))))

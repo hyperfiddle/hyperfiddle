@@ -12,7 +12,7 @@
   model explicit associations. Modeling associations as single-entry maps or
   size-2 vectors is brittle. The stock MapEntry type however, is an
   almost-perfect fit. It defines an explicit association between a `key` slot
-  and a `value` slots. It also looks like, behaves, prints and quacks like a
+  and a `value` slot. It also looks like, behaves, prints and quacks like a
   vector of two values. But contrary to size-2 vectors and single-entry maps,
   the MapEntry type doesn't support metadata. This design decision makes sense
   for the use case it has been designed for. Unfortunately, treating size-2
