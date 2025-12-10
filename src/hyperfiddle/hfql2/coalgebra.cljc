@@ -487,11 +487,12 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn ->hfqlT [fwa] (->HFQLT (->CofreeT fwa)))
 
 (defn- hfqlt-equals [^HFQLT this ^HFQLT other]
-  (and (instance? HFQLT this) (instance? HFQLT other)
-    (= (::ana/id (fst (runCofreeT this)))
-      (::ana/id (fst (runCofreeT other))))
-    (= (pos (snd (runCofreeT this)))
-      (pos (snd (runCofreeT other))))))
+  (or (identical? this other)
+    (and (instance? HFQLT this) (instance? HFQLT other)
+      (= (::ana/id (fst (runCofreeT this)))
+        (::ana/id (fst (runCofreeT other))))
+      (= (pos (snd (runCofreeT this)))
+        (pos (snd (runCofreeT other)))))))
 
 (defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (fst (runCofreeT hfqlt)))))
 
@@ -551,6 +552,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                        children)
                      (if (empty? children) ; if recursion is bounded and over, * won't have more children
                        ()
+                       ;; Isn't there a way here to produce a lazy-seq producing unseeded children upto multiplicity?
+                       ;; It seems no because to know the children count we must run IO.
                        (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge point) point))))
                                         (force-thunk 
                                           value))] ; ⚠ will force all effects up to the root to compute children multiplicity

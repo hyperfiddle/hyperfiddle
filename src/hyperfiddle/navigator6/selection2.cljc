@@ -332,6 +332,12 @@
 
 ;;;;;; Finding the selectable point at the current point (current step)
 
+(defn- points-syntactically-equal? [point-a point-b]
+  (or (identical? point-a point-b)
+    (and (hfql? point-a) (hfql? point-b)
+      (= (::ana/id (hfql/metas point-a))
+         (::ana/id (hfql/metas point-b))))))
+
 (defn find-selectable-point
   ;; Selection may happen on a row or a cell. Cell selection always happen on a given row.
   ;; It is not possible to select a cell without knowing its row.
@@ -347,7 +353,7 @@
   ;;     but ends with no next value. How do we know the structure of the supposedly next value, in its absence?
   ;;     In that case we should be able to:
   ;;       a. Inject a dummy, stub value and ask for the Cofree children again, so to get one dummy (but structurally correct) child.
-  ;;         Laziness makes this safe.
+  ;;         Laziness ~makes this safe~. Addendum: I though this was safe but multiplicity many traversals do run IO for some reason I don't remember. So it's not that safe.
   ;;       b. re-unfold the static child structure from the captured AST into a fresh, unseeded Cofree point.
   ;;         Then we re-parent it to the current point and seed it accordingly.
   ;;     To me a. looks like a hack and b. looks like the idiomatic approach. But thinking about it, I'm tempted to think it is actually
@@ -370,7 +376,7 @@
    {:pre [(hfql? current-point)]
     :post [(or (nil? %) (selection-point? %))]}
    (or
-     (and (not= current-point starting-point)
+     (and (not (points-syntactically-equal? starting-point current-point)) ; detect loops
        (or
          ;; Object case
          (and (row? current-point)
@@ -383,12 +389,12 @@
          ;; Traversal case, eventually recursive.
          (and (= ::ana/traversal (::ana/type (hfql/metas current-point)))
            (or (and (not (hfql/multiplicity-many? current-point))
-                 (find-selectable-point starting-point (first (hfql/next-steps current-point))))
+                 (find-selectable-point current-point (first (hfql/next-steps current-point))))
              ;; The fact that a traversal is itself tagged as multiplicity many conflates it with the pull-many case.
              ;; It forces us to reproduce the `a.` logic for traversals.
              ;; Maybe traversal's implementation should change and maybe we can separate traversing from fan-out.
              (and (hfql/multiplicity-many? current-point)
-               (find-selectable-point starting-point
+               (find-selectable-point current-point
                  (or ;; option `a.`
                    (first (hfql/next-steps current-point))
                    ;; FIXME Technical – call to next-steps will run the edge function, eventually causing IO!
@@ -430,12 +436,67 @@
   := (first (hfql/next-steps _traversal-case-direct-pull-many))
 
   (def _traversal-case-direct-pull-many-empty (hfql/hfql {identity {* [:a]}} []))
-  (find-selectable-point _traversal-case-direct-pull-many-empty)
+  (->> (find-selectable-point _traversal-case-direct-pull-many-empty)
+    (hfql/seed {'% {:a 2}}) ; must be seeded, original collection was empty
+    (hfql/values))
+  := '({:a 2} 2)
 
-  ;; TODO test nested traversal case
-  ;; TODO test recursive traversal case – no infinite loop
-  ;; TODO test recursive traversal case – infinite loop
-  ;; TODO test value case
+  (def _traversal-case-nested-object (hfql/hfql {identity {identity [:a]}} {:a 1}))
+  (hfql/values _traversal-case-nested-object)
+  := '({:a 1} {:a 1} {:a 1} 1)
+
+  (find-selectable-point _traversal-case-nested-object)
+  := (->> _traversal-case-nested-object hfql/next-steps first hfql/next-steps first)
+
+  (hfql/values (find-selectable-point _traversal-case-nested-object))
+  := '({:a 1} 1)
+
+  (def _traversal-case-nested-pull-many (hfql/hfql {identity {identity {* [:a]}}} {:a 1}))
+  (find-selectable-point _traversal-case-nested-pull-many)
+  := (->> _traversal-case-nested-pull-many hfql/next-steps first hfql/next-steps first)
+
+  (def _traversal-case-recursive-syntactically-finite (hfql/hfql {identity [.-a ...]} (->TestType 1 2)))
+  (take 6 (hfql/values _traversal-case-recursive-syntactically-finite))
+  := (list (->TestType 1 2) {'.-a 1} 1  (->TestType 1 2) {'.-a 1} 1   )
+  ;;                                   ⬑ recur point                ⬑ recur point … ad infinitum
+
+  (take 8 (hfql/values (find-selectable-point _traversal-case-recursive-syntactically-finite)))
+  := (list {'.-a 1} 1  (->TestType 1 2) {'.-a 1} 1  (->TestType 1 2) {'.-a 1} 1 )
+  ;;                  ⬑ recur point               ⬑ recur point               ⬑ recur point … ad infinitum
+  ;; Note values are shifted compared to previous test case.
+
+  (symbolic-selection-coordinates (find-selectable-point _traversal-case-recursive-syntactically-finite))
+  := `[nil (->TestType 1 2)]
+
+  (def _traversal-case-recursive-syntactically-infinite (hfql/hfql {identity ...} 1))
+  (take 10 (hfql/values _traversal-case-recursive-syntactically-infinite))
+  := '(1 1 1 1 1 1 1 1 1 1)
+
+  (points-syntactically-equal?
+    _traversal-case-recursive-syntactically-infinite
+    (first (hfql/next-steps _traversal-case-recursive-syntactically-infinite)))
+  := true
+
+  (find-selectable-point _traversal-case-recursive-syntactically-infinite)
+  := nil
+
+  ;; advanced recursivity case, find selectable point THROUGH recursivity
+  (def _recursive-case-select-upwards (hfql/hfql [{:a ...}] {:a {:a 1}}))
+  (take 5 (hfql/values _recursive-case-select-upwards))
+  := '({:a {:a 1}} {:a 1} {:a 1} 1 {:a nil})
+
+  (def _starting-point (hfql/find-cell-by-symbolic-column :a _recursive-case-select-upwards))
+  (take 4 (hfql/values _starting-point))
+  := '({:a 1} {:a 1} 1 {:a nil})
+
+  (points-syntactically-equal?
+    (find-selectable-point _starting-point)
+    _recursive-case-select-upwards)
+  := true
+
+  ;; value case
+  (find-selectable-point (hfql/hfql identity 1))
+  := nil
 
   )
 
@@ -449,9 +510,9 @@
   (or
     ;; [✓] if a column is selected, selected-point is expected to already be a cellT
     ;; [✓] if a row is selected, selected-point is expected to already be a rowT
+    ;; [✓] if selected-point can be a recursive point, it is expected for selected-point to already be the recursive point
 
     ;; [ ] if selected-point as ::hfql/select metas, selected-point is expected to already have been looked up and hydrated from sitemap
-    ;; [ ] if selected-point can be a recursive point, it is expected for selected-point to already be the recursive point
     ;; reshaping (expanding collection) is not a matter of navigation and is of no concern here
     ;; therefore this function should not exist
     )
