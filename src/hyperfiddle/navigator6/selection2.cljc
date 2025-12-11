@@ -163,7 +163,13 @@
 
 ;;;;;; Emitting symbolic coordinates
 
-(def ^:private selection-point? hfql?) ; all HFQL points are potential selection points – not sure if this is true. TODO refine.
+(def ^:private selection-point?
+  ;; G — for now I believe not all HFQL points to be selectable. Some can be
+  ;; rendered but not selected from the UI. E.g. page root, an options list – G
+  ;; actually I'm not even sure. not sure how to define this predicate.
+  ;; TODO figure it out. For now the predicate is the largest possible set.
+  ;; Shrink the set if needed.
+  hfql?)
 
 (defn- row? [point] (= ::ana/pull (::ana/type (hfql/metas point)))) ; A row is a pull. Children of a row are cells.
 (defn- cell? [point] (row? (::hfql/parent (hfql/metas point)))) ; A cell is a direct child of a row.
@@ -330,7 +336,7 @@
 
   )
 
-;;;;;; Finding the selectable point at the current point (current step)
+;;;;;; Finding the selectable point at the current point (currently navigated point)
 
 (defn- points-syntactically-equal? [point-a point-b]
   (or (identical? point-a point-b)
@@ -339,8 +345,19 @@
          (::ana/id (hfql/metas point-b))))))
 
 (defn find-selectable-point
+  ;; A Selectable point is not to be confused with a Navigable point.
+  ;; - Navigable point :: Any HFQL point we can render (e.g {(attributes) […]}).
+  ;; - Selectable point :: An HFQL point onto which we can click.
+  ;;     It is advised to produce a UI advertising "selectablity" and "non selectablity".
+  ;;     Selecting such point will cause a navigation iff the value-at-point is Identifiable or if the point is
+  ;;     tagged with `::navigator/select`.
+  ;;     Selecting a point with a non-Identifiable value-at-point and without `::navigator/select` is undefined behavior
+  ;;     and, if the UI somehow allows it, should usually result in a no-op.
+  ;;     All Selectable points are Navigable. Not all Navigable points are Selectable (e.g. the page root, an options list, etc. — G I'm not actually sure).
+  ;;     Tagging a node with `::navigator/select` doesn't make it selectable. It only advise the navigator how to interpret the selection action.
+  ;;
   ;; Selection may happen on a row or a cell. Cell selection always happen on a given row.
-  ;; It is not possible to select a cell without knowing its row.
+  ;; It is not possible to select a cell without knowing its corresponding row.
   ;; Therefore a selectable point is always a row.
   ;; Cell selection is formed by a row selection + the cell symbolic identifier. See `symbolic-selection-coordinates`.
   ;;
@@ -370,6 +387,8 @@
   ;;   This is a UI constraint. We defined a selectable point as a row because we render grids.
   ;;   I believe it is possible to render a UI for `{f ...}`, though it doesn't strike me as obvious.
   ;; - a value point. Any point that is neither a traversal nor a pull. Such point is not selectable.
+  ;;
+
   ([current-point]
    (find-selectable-point ::unset current-point))
   ([starting-point current-point] ; to guard against infinite recursion
@@ -512,13 +531,14 @@
     ;; [✓] if a row is selected, selected-point is expected to already be a rowT
     ;; [✓] if selected-point can be a recursive point, it is expected for selected-point to already be the recursive point
 
-    ;; [ ] if selected-point as ::hfql/select metas, selected-point is expected to already have been looked up and hydrated from sitemap
+    ;; [ ] if selected-point has ::navigator/select metas, selected-point is expected to already have been looked up and hydrated from sitemap
+    ;;   Should we look for an ::navigator/select point? no. Selectability is not defined by `::navigator/select`. `::navigator/select` only advise how to interpret a selection action.
     ;; reshaping (expanding collection) is not a matter of navigation and is of no concern here
     ;; therefore this function should not exist
     )
   )
 
-;;;;; Resolving ::hfql/select form sitemap
+;;;;; Resolving ::navigator/select form sitemap
 
 ;;;; Reshaping values
 ;;;;;; Detecting and rendering anonymous collections as tables
