@@ -1,18 +1,23 @@
 (ns hyperfiddle.navigator6.selection2
   "G: Logic in this namespace is written in an uncommon form (boolean algebra) because:
-  - selection, selection resolution, and navigation onto selected points have MANY edge cases.
-  - I want truth tables to be covered. I want an exhaustive listing of all possible conditional branches.
-    Because this code will be called from HFQL Navigator (Electric) and THERE WILL be glitches and inconsistent states.
-    I want to be able to detect them quickly and track them easily.
+  - selection, selection resolution, and navigation onto selected points have MANY edge
+    cases.
+  - I want truth tables to be covered. I want an exhaustive listing of all possible
+    conditional branches. Because this code will be called from HFQL Navigator (Electric)
+    and *THERE WILL* be glitches and inconsistent states. I want the ability to quickly
+    detect and easily track them.
   - I want all branches to be explicit. E.g. no implicit nil, no implicit fallback branch.
     Implicit conditional branches cause Swiss Cheese bugs. I've been bitten too many times.
-    Covering truth tables implies introducing redundancy and 'obvious' dead branches sooner or later.
-    I don't consider this a problem. I'm not lazy and it communicates better. Trivial cases are never trivial.
-    Uttering \"trivial\" is (not exhaustively) either symptomatic of Dunning–Kruger effect, a lack of understanding how the human brain works, or a lack of social skills.
+    Covering truth tables implies introducing redundancy and 'obvious' dead branches sooner
+    or later. I don't consider this a problem. I'm not lazy and it communicates better.
+    Trivial cases are never trivial. Uttering \"trivial\" is (not exhaustively) either
+    symptomatic of Dunning–Kruger effect, a lack of understanding how the human brain works,
+    or a lack of social skills.
   - Asserting for state consistency is not enough:
-      - It may be disabled at any point from configuration (e.g. prod)
-      - As of today, throwing can cause Electric to crash without reporting the exception.
-      - To me, in this case, asserting is a communication tool, a dev-time convenience and all tests should pass with assertions disabled.
+    - It may be disabled at any point from configuration (e.g. prod)
+    - As of today, throwing can cause Electric to crash without reporting the exception.
+    - To me, in this case, asserting is a communication tool, a dev-time convenience and all
+      tests should pass with assertions disabled.
   "
   (:require
    [hyperfiddle.ct.pair :refer [pair? pair fst snd]]
@@ -164,11 +169,11 @@
 ;;;;;; Emitting symbolic coordinates
 
 (def ^:private selection-point?
-  ;; G — for now I believe not all HFQL points to be selectable. Some can be
-  ;; rendered but not selected from the UI. E.g. page root, an options list – G
-  ;; actually I'm not even sure. not sure how to define this predicate.
-  ;; TODO figure it out. For now the predicate is the largest possible set.
-  ;; Shrink the set if needed.
+  ;; G — for now I believe not all HFQL points to be selectable.
+  ;; - Some can be rendered but not selected from the UI. E.g. page root or an options list.
+  ;; – Actually I'm not even sure. Not sure how to define this predicate.
+  ;; - For now the predicate is the largest possible set. Shrink the set if needed.
+  ;; - TODO figure it out.
   hfql?)
 
 (defn- row? [point] (= ::ana/pull (::ana/type (hfql/metas point)))) ; A row is a pull. Children of a row are cells.
@@ -345,48 +350,65 @@
          (::ana/id (hfql/metas point-b))))))
 
 (defn find-selectable-point
-  ;; A Selectable point is not to be confused with a Navigable point.
-  ;; - Navigable point :: Any HFQL point we can render (e.g {(attributes) […]}).
-  ;; - Selectable point :: An HFQL point onto which we can click.
-  ;;     It is advised to produce a UI advertising "selectablity" and "non selectablity".
-  ;;     Selecting such point will cause a navigation iff the value-at-point is Identifiable or if the point is
-  ;;     tagged with `::navigator/select`.
-  ;;     Selecting a point with a non-Identifiable value-at-point and without `::navigator/select` is undefined behavior
-  ;;     and, if the UI somehow allows it, should usually result in a no-op.
-  ;;     All Selectable points are Navigable. Not all Navigable points are Selectable (e.g. the page root, an options list, etc. — G I'm not actually sure).
-  ;;     Tagging a node with `::navigator/select` doesn't make it selectable. It only advise the navigator how to interpret the selection action.
+  ;; - A Selectable point is not to be confused with a Navigable point.
+  ;;   - Navigable point :: Any HFQL point we can render (e.g {(attributes) […]}).
+  ;;   - Selectable point :: An HFQL point onto which we can click.
+  ;;     - It is advised to produce a UI advertising "selectablity" and "non selectablity".
+  ;;     - Selecting such point will cause a navigation iff the value-at-point is Identifiable or
+  ;;       if the point is tagged with `::navigator/select`.
+  ;;     - Selecting a point with a non-Identifiable value-at-point and without
+  ;;       `::navigator/select` is undefined behavior and, if the UI somehow allows it, should
+  ;;       usually result in a no-op.
+  ;;     - All Selectable points are Navigable. Not all Navigable points are Selectable (e.g. the
+  ;;       page root, an options list, etc. — G I'm not actually sure).
+  ;;     - Tagging a node with `::navigator/select` doesn't make it selectable. It only advise
+  ;;       the navigator how to interpret the selection action.
   ;;
-  ;; Selection may happen on a row or a cell. Cell selection always happen on a given row.
-  ;; It is not possible to select a cell without knowing its corresponding row.
-  ;; Therefore a selectable point is always a row.
-  ;; Cell selection is formed by a row selection + the cell symbolic identifier. See `symbolic-selection-coordinates`.
+  ;; - Selection may happen on a row or a cell.
+  ;; - Cell selection always happen on a given row.
+  ;;   - It is not possible to select a cell without knowing its corresponding row. Therefore a
+  ;;     selectable point is always a row.
+  ;;   - Cell selection is formed by a row selection + the cell symbolic identifier. See
+  ;;     `symbolic-selection-coordinates`.
   ;;
-  ;; Therefore the current point must either:
-  ;; - be a pull (a row), in which case the selectable point is the current point — Object case (transposed row).
-  ;; - be a collection of pulls (a star traversal, aka a collection of rows), in which case any row is selectable, an so we define
-  ;;   the first row as the selectable point – This is the pull-many case.
-  ;;   - Problem: what if the multiplicity is many but there are no rows available because the collection is empty? E.g. due to search.
-  ;;     This is an ergonomic edge case of Cofree Comonads: where the Cofree tree is potentially infinite, is structurally known,
-  ;;     but ends with no next value. How do we know the structure of the supposedly next value, in its absence?
-  ;;     In that case we should be able to:
-  ;;       a. Inject a dummy, stub value and ask for the Cofree children again, so to get one dummy (but structurally correct) child.
-  ;;         Laziness ~makes this safe~. Addendum: I though this was safe but multiplicity many traversals do run IO for some reason I don't remember. So it's not that safe.
-  ;;       b. re-unfold the static child structure from the captured AST into a fresh, unseeded Cofree point.
-  ;;         Then we re-parent it to the current point and seed it accordingly.
-  ;;     To me a. looks like a hack and b. looks like the idiomatic approach. But thinking about it, I'm tempted to think it is actually
-  ;;     the opposite. `a.` is self-contained and will always be structurally correct. Even if the API may look odd.
-  ;;     `b.` on the other hand implies grafting a Cofree tree onto an other. This can be brittle and hard to maintain.
-  ;; - a traversal, in which case the traversal's continuation must be a row or a collection of rows
-  ;;   If the traversal's continuation is itself a traversal (e.g. {identity {identity []}}), then the continuation's continuation must
-  ;;   be a row or a collection of rows, recursively.
-  ;;   The first traversal continuation found to be row will be the selectable point.
-  ;;   If the continuation is found to be a collection of rows, then the rules of finding the selectable point for a collection
-  ;;   of rows applies.
-  ;;   Edge case: what about the recursive `{f ...}` form.
-  ;;   In that case we never find a selectable point, because we defined a selectable point as a row. And this expression doesn't define any row.
-  ;;   This is a UI constraint. We defined a selectable point as a row because we render grids.
-  ;;   I believe it is possible to render a UI for `{f ...}`, though it doesn't strike me as obvious.
-  ;; - a value point. Any point that is neither a traversal nor a pull. Such point is not selectable.
+  ;; - Therefore the current point must either be:
+  ;;   - Object case :: a pull (a row), in which case the selectable point is the current point
+  ;;     – e.g. transposed row presented as a form.
+  ;;   - Pull-many case :: a collection of pulls (a star traversal, aka a collection of rows),
+  ;;     in which case any row is selectable, an so we define the first row as the selectable
+  ;;     point.
+  ;;     - Problem: what if the multiplicity is many but there are no rows available because
+  ;;       the collection is empty? E.g. due to search. This is an ergonomic edge case of
+  ;;       Cofree Comonads: where the Cofree tree is potentially infinite, is structurally
+  ;;       known, but ends with no next value. How do we know the structure of the supposedly
+  ;;       next value, in its absence? In that case we should be able to either:
+  ;;       1. Inject a dummy, stub value and ask for the Cofree children again, so to get one
+  ;;          dummy (but structurally correct) child. Laziness ~makes this safe~.
+  ;;          - Addendum: I though this was safe but multiplicity many traversals do run IO for
+  ;;            some reason I don't remember. So it's not that safe.
+  ;;       2. OR re-unfold the static child structure from the captured AST into a fresh,
+  ;;          unseeded Cofree point. Then we re-parent it to the current point and seed it
+  ;;          accordingly.
+  ;;       To me `1.` looks like a hack and `2.` looks like the idiomatic approach. But
+  ;;       thinking about it, I'm tempted to think it is actually the opposite. `1.` is
+  ;;       self-contained and will always be structurally correct. Even if the API may look
+  ;;       odd. `2.` on the other hand implies grafting a Cofree tree onto an other. This can
+  ;;       be brittle and hard to maintain.
+  ;;   - Traversal case :: a traversal, in which case the traversal's continuation must be a
+  ;;     row or a collection of rows
+  ;;     - If the traversal's continuation is itself a traversal (e.g. {identity {identity
+  ;;       []}}), then the continuation's continuation must be a row or a collection of rows,
+  ;;       recursively.
+  ;;     - The first traversal continuation found to be row will be the selectable point.
+  ;;     - If the continuation is found to be a collection of rows, then the rules of finding
+  ;;       the selectable point for a collection of rows applies (pull-many case).
+  ;;     - Edge case: what about the recursive `{f ...}` form? In that case we never find a
+  ;;       selectable point, because we defined a selectable point as a row. And this
+  ;;       expression doesn't define any row. This is a UI constraint. We defined a selectable
+  ;;       point as a row because we render grids. I believe it is possible to render a UI for
+  ;;       `{f ...}`, though it doesn't strike me as obvious.
+  ;;   - Default case :: a value point. Any point that is neither a traversal nor a pull. Such
+  ;;     point is not selectable.
   ;;
 
   ([current-point]
@@ -403,18 +425,18 @@
          ;; Pull-many case
          (and (star-traversal? (hfql/metas current-point))
            (or (first (hfql/next-steps current-point))
-             ;; Option `a.`
+             ;; Option `1.`
              (first (hfql/next-steps (hfql/update-scope current-point assoc '% '(nil))))))
          ;; Traversal case, eventually recursive.
          (and (= ::ana/traversal (::ana/type (hfql/metas current-point)))
            (or (and (not (hfql/multiplicity-many? current-point))
                  (find-selectable-point current-point (first (hfql/next-steps current-point))))
              ;; The fact that a traversal is itself tagged as multiplicity many conflates it with the pull-many case.
-             ;; It forces us to reproduce the `a.` logic for traversals.
+             ;; It forces us to reproduce the `1.` logic for traversals.
              ;; Maybe traversal's implementation should change and maybe we can separate traversing from fan-out.
              (and (hfql/multiplicity-many? current-point)
                (find-selectable-point current-point
-                 (or ;; option `a.`
+                 (or ;; option `1.`
                    (first (hfql/next-steps current-point))
                    ;; FIXME Technical – call to next-steps will run the edge function, eventually causing IO!
                    ;; Caching and laziness won't apply because we are altering the scope. Userland function WILL rerun.
