@@ -547,7 +547,7 @@
   ([columnT rowT]
    (find-cell-by-column* columnT (unwrap rowT))))
 
-(defn find-cell-by-symbolic-column "Lookup a column in a row by its symbolic form." ; TODO isn't that somewhat a duplicate of find-child? If so unify them or drop one of them.
+(defn find-cell-by-symbolic-column "Lookup a column in a row by its symbolic form." ; TODO isn't that somewhat a duplicate of find-child?
   ([symbolic-column] (partial find-cell-by-symbolic-column symbolic-column))
   ([symbolic-column rowT]
    (when symbolic-column

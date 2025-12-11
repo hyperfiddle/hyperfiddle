@@ -25,6 +25,7 @@
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :refer [star-traversal?]]
+   [hyperfiddle.navigator6 :as-alias navigator]
    [hyperfiddle.rcf :refer [tests]]
    ))
 
@@ -257,6 +258,14 @@
   )
 
 ;;;;;; Turning symbolic selection coordinates into an HFQL selection point
+
+(defn- hydrate-point [point value-at-point]
+  (or
+    (and (some? point)
+      (hfql? point)
+      (hfql/update-scope point assoc '% value-at-point))
+    nil))
+
 (defn resolve-selection-coordinates [selection-point symbolic-selection-coordinates]
   {:pre [(selection-point? selection-point)
          (or (nil? symbolic-selection-coordinates) (symbolic-selection-coordinates? symbolic-selection-coordinates))]
@@ -269,7 +278,7 @@
         (let [[symbolic-column symbolic-constructor-form] symbolic-selection-coordinates
               identifiable-object (resolve-identifiable-object symbolic-constructor-form)]
           (or (and (some? identifiable-object) ; we've found an identifiable object – we should be able to produce a row or a cell
-                (let [seeded-selection-point (hfql/update-scope selection-point assoc '% identifiable-object)]
+                (let [seeded-selection-point (hydrate-point selection-point identifiable-object)]
                   (or (and (some? symbolic-column)
                         (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
                               (row? seeded-selection-point)
@@ -426,7 +435,7 @@
          (and (star-traversal? (hfql/metas current-point))
            (or (first (hfql/next-steps current-point))
              ;; Option `1.`
-             (first (hfql/next-steps (hfql/update-scope current-point assoc '% '(nil))))))
+             (first (hfql/next-steps (hydrate-point current-point '(nil)))))) ; should not run IO – not supposed to.
          ;; Traversal case, eventually recursive.
          (and (= ::ana/traversal (::ana/type (hfql/metas current-point)))
            (or (and (not (hfql/multiplicity-many? current-point))
@@ -442,7 +451,7 @@
                    ;; Caching and laziness won't apply because we are altering the scope. Userland function WILL rerun.
                    ;; There may be a way to bypass it. It may require modifying `hyperfiddle.hfql2.coalgebra/unfoldT`
                    ;; E.g. using a sentinel value. Such that we get a dummy child.
-                   (first (hfql/next-steps (hfql/update-scope current-point assoc '% '(nil)))))))))
+                   (first (hfql/next-steps (hydrate-point current-point '(nil)))))))))
          ;; Value case
          nil
          ))
@@ -545,9 +554,9 @@
 
 
 ;;;; Navigation from selection
-;;;;;; Finding the next navigation step from the current step and an HFQL selection point
+;;;;;; Finding the next navigation point from the current point and an HFQL selection point
 
-(defn find-next-point [current-point selected-point]
+#_(defn find-next-point [current-point selected-point]
   (or
     ;; [✓] if a column is selected, selected-point is expected to already be a cellT
     ;; [✓] if a row is selected, selected-point is expected to already be a rowT
@@ -560,7 +569,109 @@
     )
   )
 
+(declare sitemap-lookup hydrate-navigator-select-command)
+
+(defn find-next-navigable-point [sitemap selected-point]
+  ;; - Selecting a selectable point may trigger a navigation.
+  ;; - Navigation happens if the selected point either:
+  ;;   - has an Identifiable value-at-point
+  ;;   - is tagged with `::navigator/select`
+  ;; - If navigation happens, it may or may not happen on the select point itself.
+  ;;   - Navigation happens on the selected point itself:
+  ;;     - if all the followings are true:
+  ;;       - the selected point's value-at-point is Identifiable
+  ;;       - the selected point is NOT tagged with `::navigator/select`
+  ;;     - and furthermore:
+  ;;       - navigation *always* happen on a recursion point
+  ;;         - even if recursion limit has been reached!
+  ;;         - if the recursion limit has been reached, the navigator is expected
+  ;;           to render the value-at-point as an anonymous value. I.e. after
+  ;;           recursion limit has been reached the navigator will not account for
+  ;;           the HFQL expression in rendering the last (leaf) value.
+  ;;         - This behavior is essential to allow cell selection at the
+  ;;           recursion's end.
+  ;;         - This behavior won't cause an infinite recursion as long as the
+  ;;           Navigator ignores the HFQL expression when rendering the leaf
+  ;;           value.
+  ;;   - Navigation *does not* happen on the selected point itself:
+  ;;     - if the selected point is tagged with `::navigator/select`. In which
+  ;;       case the value associated with `::navigator/select` will be
+  ;;       interpreted to resolve an other HFQL point.
+  ;;       - The resolved HFQL point, if found, will be seeded with the selected
+  ;;         point's navigated value (not its value-at-point).
+  (or
+    (and selected-point
+      (let [navigator-select-command (or (::navigator/select (hfql/metas selected-point))
+                                       (::hfql/select (hfql/metas selected-point)) ; TODO legacy, remove
+                                       )]
+        (or
+          ;; Navigation happens on the selected point:
+          (and (hfql/identifiable? (hfql/value-at-point selected-point)) ; may run IO – cached
+            (not (some? navigator-select-command))
+            selected-point)
+          ;; Navigation doesn't happen on the selected point
+          (and (some? navigator-select-command)
+            (sitemap-lookup sitemap
+              (hydrate-navigator-select-command navigator-select-command selected-point) ; may run IO – cached
+              ))
+          ;; TODO what about finding the recursive child? is it already handled by `find-selectable-point`?
+          )))
+    nil))
+
+
 ;;;;; Resolving ::navigator/select form sitemap
+
+(defn- sitemap-lookup [sitemap [sitemap-entry value-at-point :as navigator-select-command]]
+  {:pre [(associative? sitemap)
+         (symbolic-constructor-form? navigator-select-command)] ; is this the right predicate? If so this is interesting.
+   :post [(or (nil? %) (hfql? %))]}
+  (let [point (get sitemap sitemap-entry)]
+    (or (and (some? point)
+          (hydrate-point point value-at-point)) ; note `value-at-point` doesn't serialize through the URL, no need to resolve.
+      nil)))
+
+(defn- hydrate-navigator-select-command [navigator-select-command selected-point]
+  ;; TODO template % %v etc.
+  navigator-select-command
+  )
+
+
+;;;; Dectecting selection state in UI
+;;;;; Detecting a selected row
+
+(defn row-selected? [selected-point current-point]
+  {:pre [(or (nil? selected-point) (selection-point? selected-point))
+         (or (nil? current-point) (selection-point? current-point))]
+   :post [(boolean? %)]}
+  (or (and (some? selected-point)
+        (some? current-point)
+        (selection-point? selected-point)
+        (selection-point? current-point)
+        (row? selected-point)
+        (or (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
+          (= (hfql/identify (hfql/value-at-point selected-point))
+            (hfql/identify (hfql/value-at-point current-point)))))
+    false)
+  )
+
+;;;;; Detecting a selected cell
+
+(defn cell-selected? [selected-point current-point]
+  {:pre [(or (nil? selected-point) (selection-point? selected-point))
+         (or (nil? current-point) (selection-point? current-point))]
+   :post [(boolean? %)]}
+  (or (and (some? selected-point)
+        (some? current-point)
+        (selection-point? selected-point)
+        (selection-point? current-point)
+        (cell? selected-point)
+        (or (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
+          (and
+            (= (hfql/symbolic-edge selected-point)
+              (hfql/symbolic-edge current-point))
+            (= (hfql/identify (hfql/value-at-point selected-point))
+              (hfql/identify (hfql/value-at-point current-point))))))
+    false))
 
 ;;;; Reshaping values
 ;;;;;; Detecting and rendering anonymous collections as tables

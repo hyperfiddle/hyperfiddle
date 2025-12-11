@@ -6,6 +6,7 @@
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
+            [hyperfiddle.ct.pair :refer [to-pair]]
             [dustingetz.loader :refer [Offload]]
             [hyperfiddle.navigator6.selection2 :as selection2]
             )
@@ -20,7 +21,7 @@
   (e/client
     (binding [*local-selection (e/server (let [selection-state (get state/*local-state state-key)
                                                resolve-fn ((e/capture-fn) resolve-fn)]
-                                           (Offload #(resolve-fn selection-state) {:label 'resolve-selected-object})))]
+                                           (Offload #(resolve-fn (to-pair selection-state)) {:label 'resolve-selected-object})))]
       (->> (Body)
         (utils/InterceptCommand `SetSelection!
           (e/fn [[_ Getter]]
@@ -46,7 +47,7 @@
         (or (and (= row (hfql/identify val-at-point)) ; direct identity equality case
               childrenT)
           (and (utils/imap? val-at-point) ; map lookup case
-            (not (= ::ana/many (::ana/multiplicity (hfql/metas childrenT))))
+            (not (hfql/multiplicity-many? childrenT))
             (-> (case column
                   key (hfql/hfql key (find val-at-point row))
                   (hfql/hfql val (find val-at-point row)) ; mapentry is not interesting on its own, shortcut to val
@@ -54,7 +55,7 @@
               (hfql/set-parent childrenT)))
           (when-let [resolved (hfql/hfql-resolve row)]
             (when (not= resolved row)
-              (when (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
+              (when (hfql/multiplicity-many? childrenT)
                 (hfql/update-scope (first (unwrap childrenT)) assoc '% resolved)))
             ))))))
 
@@ -69,7 +70,7 @@
                 (resolve-selected-object-BIG-O-1 [column row] bindings childrenT)
                 (do
                   (clojure.tools.logging/warn "O(n) scan")
-                  (if (= ::ana/many (::ana/multiplicity (hfql/metas childrenT)))
+                  (if (hfql/multiplicity-many? childrenT)
                     (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
                     (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT))))))))]))))
 

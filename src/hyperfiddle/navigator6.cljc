@@ -9,6 +9,7 @@
             [hyperfiddle.navigator6.state :as state :refer [with-local-state]]
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
+            [hyperfiddle.navigator6.selection2 :as selection2]
             [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
             [hyperfiddle.navigator6.utils :refer [rebooting freezing glitch-guard]]
             [contrib.css :as cssx]
@@ -72,9 +73,9 @@
               (hfql/set-parent stepT))
             ))]
   (defn- select-next-child [sitemap stepT [column rowT]]
-    (if rowT
-      (or (when column
-            (try (expand-collection (or (hfql/find-child column (try (hfql/augment-with-suggestions! rowT)
+    (if rowT ; if a row is selected
+      (or (when column ; if a column is also selected
+            (try (expand-collection (or (hfql/find-child column (try (hfql/augment-with-suggestions! rowT) ; find the column in the augmented row, when possible.
                                                                      (catch #?(:clj Throwable, :cljs :default) t
                                                                        #?(:clj (clojure.tools.logging/debug t))
                                                                        rowT)))
@@ -83,7 +84,7 @@
         (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
           (hfql/seed (hfql/scope rowT)))
         (from-maybe rowT (select-recursion-point rowT)))
-      (when column
+      #_(when column ; bogus case, can't select a column without an identifiable object
         (try (hfql/find-child column (hfql/augment-with-suggestions! stepT)) (catch #?(:clj Throwable, :cljs :default) _ nil))))))
 
 (defn- render-type [hfqlT]
@@ -125,6 +126,13 @@
 (defn inject-dynamic-bindings [e-bindings stepT]
   (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))
 
+#?(:clj
+   (defn- resolve-selection-coordinates [current-point symbolic-selection-coordinates bindings]
+     (with-bindings bindings
+       (hyperfiddle.navigator6.selection2/resolve-selection-coordinates
+         (hyperfiddle.navigator6.selection2/find-selectable-point current-point)
+         symbolic-selection-coordinates))))
+
 (e/defn Navigate* [sitemap stepT]
   (e/client
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
@@ -141,12 +149,14 @@
                       (let [stepT (e/server (ReshapeNavigationStep stepT))]
                         (with-local-selection ::selection ; injects *local-selection and interpret selection commands
                             ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
-                            (e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
+                            #_(e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
+                            (e/server #((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*))
                           (e/amb
                             (e/call (ResolveRenderer stepT) ; call renderer for current point
                               (e/server ((glitch-guard (flip inject-dynamic-bindings)) stepT e/*bindings*)))
                             (let [next-childT (e/server (do #_(prn "local selection" selection/*local-selection)
-                                                            (select-next-child sitemap stepT selection/*local-selection)))] ; Navigation prioritizes recursive children over regular children at point
+                                                            (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection)
+                                                            #_nil))] ; Navigation prioritizes recursive children over regular children at point
                               (e/Reconcile
                                 (when (e/server (some? next-childT))
                                   (e/server

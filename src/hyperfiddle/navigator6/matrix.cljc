@@ -15,6 +15,7 @@
    [hyperfiddle.navigator6.rendering :as rendering]
    [hyperfiddle.navigator6.search :as search]
    [hyperfiddle.navigator6.selection :as selection]
+   [hyperfiddle.navigator6.selection2 :as selection2]
    [hyperfiddle.navigator6.sorting :as sort]
    [hyperfiddle.navigator6.utils :as utils :refer [in glitch-guard]]
    [dustingetz.loader :refer [Offload]]
@@ -83,14 +84,6 @@
                                :down [true false])]
        (.dispatchEvent node (new js/CustomEvent type #js{:capture capture, :bubbles bubbles, :detail detail})))))
 
-(defn- cell-selected? [cellT local-selection]
-  (let [[selected-column selected-cellT] local-selection]
-    (when (and cellT selected-cellT) ; FIXME should be able to compare by direct equality without identifying
-      (or (= cellT selected-cellT) ; Ideal path, always false for now. Should suffice to the check. This is what we want.
-        (and (= selected-column (hfql/symbolic-edge cellT))
-          (= (hfql/identify (hfql/value-at-point cellT))
-            (hfql/identify (hfql/value-at-point selected-cellT))))))))
-
 (def INTERRACTIVE-DOM-ELEMENT-SELECTOR
   "Elements matching this selector will be considered interactive. Interactions
   with interactive elements won't be interpreted by the Matrix. E.g. clicking on
@@ -115,7 +108,7 @@
     (dom/td (dom/props {:style {:--cell-index index}
                         :role :radio
                         :tabindex "0"
-                        :aria-selected (e/server (cell-selected? cellT selection/*local-selection))})
+                        :aria-selected (e/server (selection2/cell-selected? selection/*local-selection cellT))})
             (let [GetCellT (e/server (utils/Delay cellT))
                   event (dom/On* "click" cell-ignore-click-on-interactive-content nil) ; TODO hoist
                   [token err] (e/Token event)]
@@ -126,19 +119,11 @@
                   (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
             (e/server (rendering/Render* cellT))))) ; :detail is the name of the spec-defined data slot. I didn't choose the name.
 
-(defn- row-selected? [rowT local-selection]
-  (let [[selected-column selected-rowT] local-selection]
-    (when (and (nil? selected-column) rowT selected-rowT) ; FIXME should be able to compare by direct equality without identifying
-      (or
-        (= rowT selected-rowT) ; Ideal path, always false for now. Should suffice to the check. This is what we want.
-        (= (hfql/identify (hfql/value-at-point rowT))
-          (hfql/identify (hfql/value-at-point selected-rowT)))))))
-
 (e/defn RowHandle [group-id rowT]
   (dom/th (dom/props {:scope :row})
           (let [identifiable? (dustingetz.loader/Initialized (e/server (some? (hfql/identify ((glitch-guard hfql/value-at-point) rowT)))) true)
                 GetRowT (e/server (utils/Delay rowT))
-                [token _] (forms/Checkbox! ::row (e/server (row-selected? rowT selection/*local-selection))
+                [token _] (forms/Checkbox! ::row (e/server (selection2/row-selected? selection/*local-selection rowT))
                             :type :radio
                             :name (str group-id)
                             :disabled (not identifiable?)

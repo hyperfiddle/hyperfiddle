@@ -189,9 +189,11 @@
 (defn- render-step-title [stepT *parent-selection]
   (pr-str (or
             (some-> stepT hfql/symbolic-edge-computed)
-            (let [[col rowT] *parent-selection] col)
-            (when-let [map-entry-pointT (and stepT (hfql/lookup ::ana/form-resolved stepT `val))]
+            #_(let [[col rowT] *parent-selection] col) ; FIXME
+            ;; FIXME
+            #_(when-let [map-entry-pointT (and stepT (hfql/lookup ::ana/form-resolved stepT `val))]
               (hfql/identify (hfql/value-at-point map-entry-pointT)))
+            ;; FIXME
             (when-let [parentT (and stepT (hfql/parent stepT))]
               (hfql/identify (hfql/value-at-point parentT)))
             )))
