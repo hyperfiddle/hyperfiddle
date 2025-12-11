@@ -10,7 +10,7 @@
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
             [hyperfiddle.navigator6.selection2 :as selection2]
-            [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
+            [hyperfiddle.navigator6.matrix :refer [RenderObject RenderCollection]]
             [hyperfiddle.navigator6.utils :refer [rebooting freezing glitch-guard]]
             [contrib.css :as cssx]
             [contrib.data :refer [#?(:clj array?)]]
@@ -42,12 +42,10 @@
     (ident? router-query) (list router-query)
     :else router-query))
 
-(defn- multiplicity-many-value? [object] ; TODO promote to HFQL
-  ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
-  (or (sequential? object) (set? object) #?(:clj (contrib.data/array? object))))
+
 
 ;; TODO refactor this fn. Logic is convoluted.
-(letfn [(select-recursion-point [stepT] ":: stepT → Maybe (stepT | nil)" ; because we want a different default based on no stepT vs no children
+#_(letfn [(select-recursion-point [stepT] ":: stepT → Maybe (stepT | nil)" ; because we want a different default based on no stepT vs no children
           (if stepT
             (if (::ana/recursion-point (hfql/metas stepT))
               (if-let [recursive-child (first (filter (comp ::ana/recursive-child hfql/metas) (unwrap stepT)))]
@@ -101,8 +99,8 @@
 (e/defn ResolveRenderer [hfqlT]
   (e/server
     (if hfqlT
-      (get {::pull (e/fn [stepT] (RenderMatrix stepT :transpose? true, :single? true))
-            ::star RenderMatrix}
+      (get {::pull RenderObject
+            ::star RenderCollection}
         (e/Offload #((glitch-guard render-type) hfqlT))
         (e/fn [& _]))
       (e/fn [& _]))))
@@ -113,7 +111,7 @@
     (e/Reconcile
       (case (e/Offload #((glitch-guard render-type) hfqlT))
         (::pull ::star) hfqlT
-        (let [value ((glitch-guard hfql/nav) hfqlT)
+        (let [value ((glitch-guard hfql/nav) hfqlT) ; runs IO
               suggestedT (hfql/suggest value)
               newStepT (-> suggestedT
                          ((glitch-guard (flip hfql/seed)) (assoc ((glitch-guard hfql/scope) hfqlT) '% value))
@@ -129,9 +127,13 @@
 #?(:clj
    (defn- resolve-selection-coordinates [current-point symbolic-selection-coordinates bindings]
      (with-bindings bindings
-       (hyperfiddle.navigator6.selection2/resolve-selection-coordinates
-         (hyperfiddle.navigator6.selection2/find-selectable-point current-point)
-         symbolic-selection-coordinates))))
+       (let [selectable-point (hyperfiddle.navigator6.selection2/find-selectable-point current-point)]
+         (or (and (some? selectable-point)
+               (hyperfiddle.navigator6.selection2/resolve-selection-coordinates
+                 selectable-point
+                 symbolic-selection-coordinates))
+           ;; this point is not selectable
+           nil)))))
 
 (e/defn Navigate* [sitemap stepT]
   (e/client
@@ -148,15 +150,12 @@
                     (with-local-search ::search   ; injects *local-search and interpret search commands
                       (let [stepT (e/server (ReshapeNavigationStep stepT))]
                         (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                            ;; Today we find "blue" rows by scanning the collection/object at point in 𝓞(n). We have an opportunity to resolve in 𝓞(1), e.g. entities.
                             #_(e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
-                            (e/server #((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*))
+                            (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
                           (e/amb
                             (e/call (ResolveRenderer stepT) ; call renderer for current point
                               (e/server ((glitch-guard (flip inject-dynamic-bindings)) stepT e/*bindings*)))
-                            (let [next-childT (e/server (do #_(prn "local selection" selection/*local-selection)
-                                                            (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection)
-                                                            #_nil))] ; Navigation prioritizes recursive children over regular children at point
+                            (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritizes recursive children over regular children at point
                               (e/Reconcile
                                 (when (e/server (some? next-childT))
                                   (e/server

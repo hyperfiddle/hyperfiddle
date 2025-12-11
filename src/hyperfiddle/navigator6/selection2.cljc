@@ -111,6 +111,7 @@
   ;; [column row]
   ;; Why column × row and not row × column? It's arbitrary.
   ;; I picked this order to mimick Excel formula, e.g. `A2`.
+  ;; G — 11 dec 2025 No this is inaccurate. I now remember I picked column × row because [:artist/name `(d/entity lennon-id)] is isomorphic to (:artist/Name !lennon) – Note the function application syntax.
   ;; It can be toggled if needed.
   {:pre [(pair? pair)] ; G — This is for me. I want to track eventual glitches and catch them early.
    :post [(boolean? %)]}
@@ -178,7 +179,9 @@
   hfql?)
 
 (defn- row? [point] (= ::ana/pull (::ana/type (hfql/metas point)))) ; A row is a pull. Children of a row are cells.
-(defn- cell? [point] (row? (::hfql/parent (hfql/metas point)))) ; A cell is a direct child of a row.
+(defn- cell? [point] (let [parent (hfql/parent point)]
+                       (and (some? parent)
+                         (row? parent)))) ; A cell is a direct child of a row.
 
 (defn- symbolize-form [point]
   (or (and (row? point) ; row is a pull and pull isn't an edge. A pull has not name on its own.
@@ -206,6 +209,7 @@
    :post [(symbolic-selection-coordinates? %)]}
   (or
     (and (selection-point? point) ; selected point is an HFQL point
+      (hfql/identifiable? (hfql/value-at-point point)) ; selected point's value is Identifiable
       (or (and (row? point) ; selected point is a row
             (pair nil (symbolize-value point)))
         (and (cell? point) ; selected point is a cell
@@ -213,7 +217,11 @@
         (and
           (println "selected point is a selectable HFQL point but is neither a row nor a cell" (type point) point)
           (pair nil nil))))
-    (do (println "selected object is not an HFQL point and cannot be selected" (type point) point)
+    (and (selection-point? point)
+      (cell? point)
+      (map? (hfql/value-at-point point))
+      (pair (symbolize-form point) `(hfql/current-point)))
+    (do (println "selected object is not a selectable HFQL point and cannot be selected" (type point) point)
         (pair nil nil))))
 
 (tests
@@ -244,7 +252,7 @@
 
 (defn resolve-identifiable-object [symbolic-constructor-form]
   {:pre [(or (nil? symbolic-constructor-form) (symbolic-constructor-form? symbolic-constructor-form))]
-   :post [(or (nil? %) (hfql/identifiable? %))]}
+   #_#_:post [(or (nil? %) (hfql/identifiable? %))]}
   (or (and (some? symbolic-constructor-form)
         (hfql/hfql-resolve symbolic-constructor-form))
     nil))
@@ -275,24 +283,25 @@
   (or
     ;; selection coordinates are valid – we should be able to resolve an object
     (and (symbolic-selection-coordinates? symbolic-selection-coordinates)
-        (let [[symbolic-column symbolic-constructor-form] symbolic-selection-coordinates
-              identifiable-object (resolve-identifiable-object symbolic-constructor-form)]
-          (or (and (some? identifiable-object) ; we've found an identifiable object – we should be able to produce a row or a cell
-                (let [seeded-selection-point (hydrate-point selection-point identifiable-object)]
-                  (or (and (some? symbolic-column)
-                        (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
-                              (row? seeded-selection-point)
-                              (or ; perf optimization – attempt to resolve without suggesting.
-                                (hfql/find-cell-by-symbolic-column symbolic-column seeded-selection-point)
-                                (hfql/find-cell-by-symbolic-column symbolic-column (hfql/augment-with-suggestions! seeded-selection-point))))
-                          (and ; we are resolving a cell selection but the given selection point is not a row. We can't focus on a cell.
-                            (not (row? seeded-selection-point))
-                            (println "The given selection contains a column and so targets a cell. But the current selection point is not a row. Can't focus on a cell on an object that is not a row." (::ana/type (hfql/metas seeded-selection-point)))
-                            (def _selection-point seeded-selection-point) ; G – for me, for debugging.
-                            nil)))
-                    ;; there's no symbolic column to focus on. This is a row selection.
-                    seeded-selection-point)))
-            nil)))
+      (let [[symbolic-column symbolic-constructor-form] symbolic-selection-coordinates
+            identifiable-object (binding [hfql/*value-at-point* (hfql/value-at-point selection-point)]
+                                  (resolve-identifiable-object symbolic-constructor-form))]
+        (or (and (some? identifiable-object) ; we've found an identifiable object – we should be able to produce a row or a cell
+              (let [seeded-selection-point (hydrate-point selection-point identifiable-object)]
+                (or (and (some? symbolic-column)
+                      (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
+                            (row? seeded-selection-point)
+                            (or ; perf optimization – attempt to resolve without suggesting.
+                              (hfql/find-cell-by-symbolic-column symbolic-column seeded-selection-point)
+                              (hfql/find-cell-by-symbolic-column symbolic-column (hfql/augment-with-suggestions! seeded-selection-point))))
+                        (and ; we are resolving a cell selection but the given selection point is not a row. We can't focus on a cell.
+                          (not (row? seeded-selection-point))
+                          (println "The given selection contains a column and so targets a cell. But the current selection point is not a row. Can't focus on a cell on an object that is not a row." (::ana/type (hfql/metas seeded-selection-point)))
+                          (def _selection-point seeded-selection-point) ; G – for me, for debugging.
+                          nil)))
+                  ;; there's no symbolic column to focus on. This is a row selection.
+                  seeded-selection-point)))
+          nil)))
     ;; no valid selection coordinates
     nil))
 
@@ -621,9 +630,15 @@
 
 ;;;;; Resolving ::navigator/select form sitemap
 
+(defn- navigator-select-command? [navigator-select-command]
+  ;; Only difference with `symbolic-constructor-form?` is this one allows unqualified symbols. Why are they so close?
+  {:post [(boolean? %)]}
+  (and (seq? navigator-select-command)
+    (symbol? (first navigator-select-command))))
+
 (defn- sitemap-lookup [sitemap [sitemap-entry value-at-point :as navigator-select-command]]
   {:pre [(associative? sitemap)
-         (symbolic-constructor-form? navigator-select-command)] ; is this the right predicate? If so this is interesting.
+         (navigator-select-command? navigator-select-command)] ; is this the right predicate? If so this is interesting.
    :post [(or (nil? %) (hfql? %))]}
   (let [point (get sitemap sitemap-entry)]
     (or (and (some? point)
@@ -631,9 +646,14 @@
       nil)))
 
 (defn- hydrate-navigator-select-command [navigator-select-command selected-point]
-  ;; TODO template % %v etc.
-  navigator-select-command
-  )
+  {:pre [(navigator-select-command? navigator-select-command)]}
+  (let [[sitemap-symbolic-entry & args] navigator-select-command]
+    (cons sitemap-symbolic-entry (map (fn [symbolic-arg]
+                                        (case symbolic-arg
+                                          % (hfql/value-at-point selected-point)
+                                          %v (hfql/nav selected-point)
+                                          symbolic-arg))
+                                   args))))
 
 
 ;;;; Dectecting selection state in UI
@@ -673,7 +693,31 @@
               (hfql/identify (hfql/value-at-point current-point))))))
     false))
 
+;;;; Naming points
+;;;;; Infering a title from navigation point
+
+(defn point-symbolic-name [current-point]
+  {:pre [(or (nil? current-point) (hfql? current-point))]
+   :post [(string? %)]}
+  (or (and (some? current-point)
+        (or (let [symbolic-column (symbolize-form current-point)]
+              (and (some? symbolic-column)
+                (pr-str (list symbolic-column (symbolize-value current-point)))))
+          (some-> (symbolize-value current-point) pr-str)
+          (some-> (hfql/symbolic-edge-computed current-point) pr-str)
+          (point-symbolic-name (hfql/parent current-point))))
+    "Anonymous value"))
+
 ;;;; Reshaping values
 ;;;;;; Detecting and rendering anonymous collections as tables
 ;;;;;; Rendering final multiplicity many recursion step as an anonymous collection
-;;;;;; Auto-selecting the `val` slot when selecting a MapEntry
+;;;;;; Rendering the multiplicity-many part of a traversal
+
+(defn find-collection-point [point]
+  (case (::ana/type (hfql/metas point))
+    ::ana/traversal (or (and (hfql/multiplicity-many? point)
+                          point)
+                      (find-collection-point (first (hfql/next-steps point))))
+    point))
+
+;;;;;; Auto-selecting the `val` slot when selecting a MapEntry TODO

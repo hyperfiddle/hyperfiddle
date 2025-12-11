@@ -88,7 +88,3 @@
 (defn -noempty [<x] (m/eduction (remove hyperfiddle.incseq/empty-diff?) <x))
 (e/defn  ^:no-doc Swallow-empty-diffs "Don't touch this" [x] (e/join (-noempty (e/pure x))))
 
-(defn imap? [x]
-  #?(:clj (instance? java.util.Map x)
-     :cljs (map? x) ; checks for cljs.core/IMap proto
-     ))

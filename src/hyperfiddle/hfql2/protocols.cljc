@@ -7,7 +7,7 @@
 
 (defmulti -resolve-dispatch type)
 (defmulti ^{:arglists '([object])} -hfql-resolve -resolve-dispatch)
-(defmethod -hfql-resolve :default [object] object) ; don't know how to resolve ≡ identity
+(defmethod -hfql-resolve :default [object] nil)
 
 (defprotocol Navigable
   :extend-via-metadata true

@@ -37,10 +37,10 @@
     ::ana/pull stepT
     ::ana/traversal (some-> (unwrap stepT) first select-pull-step)
     ;; (some-> (unwrap stepT) first select-pull-step)
-    (hfql/wrap-in-pull stepT)
+    (hfql/wrap-in-pull stepT) ; FIXME highly questionable
     #_(throw (ex-info "No pull child" {:type (::ana/type (hfql/metas stepT))}))))
 
-(defn resolve-selected-object-BIG-O-1 [[column row] bindings childrenT]
+#_(defn resolve-selected-object-BIG-O-1 [[column row] bindings childrenT]
   (when childrenT
     (when row
       (let [val-at-point (hfql/value-at-point childrenT)]
@@ -59,7 +59,7 @@
                 (hfql/update-scope (first (unwrap childrenT)) assoc '% resolved)))
             ))))))
 
-(defn resolve-selected-object-BIG-O-N [[column row] bindings childrenT]
+#_(defn resolve-selected-object-BIG-O-N [[column row] bindings childrenT]
   #?(:clj
      (debug-exceptions `resolve-selected-object
        (with-bindings bindings
@@ -74,7 +74,7 @@
                     (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
                     (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT))))))))]))))
 
-(defn get-rows-container [stepT]
+#_(defn ^:deprecated get-rows-container [stepT]
   (case (::ana/type (hfql/metas stepT))
     ::ana/traversal (if (= ::ana/many (::ana/multiplicity (hfql/metas stepT)))
                       stepT

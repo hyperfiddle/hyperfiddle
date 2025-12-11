@@ -73,3 +73,8 @@
   (into [] (shift-right nil) [1 2 3])
    := [nil 1 2 3]
   )
+
+(defn imap? [x]
+  #?(:clj (instance? java.util.Map x)
+     :cljs (map? x) ; checks for cljs.core/IMap proto
+     ))

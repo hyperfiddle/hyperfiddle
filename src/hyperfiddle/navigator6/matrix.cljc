@@ -18,6 +18,7 @@
    [hyperfiddle.navigator6.selection2 :as selection2]
    [hyperfiddle.navigator6.sorting :as sort]
    [hyperfiddle.navigator6.utils :as utils :refer [in glitch-guard]]
+   [hyperfiddle.hfql2.utils :refer [imap?]]
    [dustingetz.loader :refer [Offload]]
    [missionary.core :as m]))
 
@@ -281,7 +282,7 @@
 (defn- reshape-maps [transpose? single? stepT]
   (when stepT
     (let [value (hfql/value-at-point stepT)]
-      (if (and (utils/imap? value) (not (record? value)))
+      (if (and (imap? value) (not (record? value)))
         [true false false (-> (hfql/hfql {* [key val]} (seq value) #_(map #(zipmap [:key :val] %) (seq value))) (hfql/set-parent stepT))]
         [false transpose? single? stepT]))))
 
@@ -301,7 +302,7 @@
                                                   (rendering/Step-Title stepT)
                                                   dom/node)])
           columnsT (e/server (in legend (ColumnPicker stepT)))
-          stepT (e/server ((glitch-guard selection/get-rows-container) stepT))
+          stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
           rowsT (e/server (#(if (= ::ana/pull (::ana/type ((glitch-guard hfql/metas) stepT))) ; FIXME smell
                               [stepT]
                               ((glitch-guard unwrap) stepT))))
@@ -325,5 +326,8 @@
                                    (search/SearchInput! false)))
               (sort/Sorted (e/server rowsT)
                 (e/fn [rowsT]
-                  (binding [rendering/*rowT (e/server ((glitch-guard selection/select-pull-step) stepT))]
+                  (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
                     (Matrix columnsT rowsT-count rowsT :transpose? transpose?, :single? single? :is-map? is-map?)))))))))))
+
+(e/defn RenderObject [stepT] (RenderMatrix stepT :transpose? true, :single? true))
+(e/defn RenderCollection [stepsT] (RenderMatrix stepsT))

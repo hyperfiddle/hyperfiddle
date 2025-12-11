@@ -9,8 +9,10 @@
             [hyperfiddle.hfql2.analyzer :as ana :refer [unquote*]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2 :as hfql]
+            [hyperfiddle.hfql2.utils :refer [imap?]]
             [hyperfiddle.navigator6.extensions :as extensions]
             [hyperfiddle.navigator6.selection :as selection]
+            [hyperfiddle.navigator6.selection2 :as selection2]
             [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard Swallow-empty-diffs]]
             [hyperfiddle.router5 :as router]))
 
@@ -19,11 +21,16 @@
 #?(:clj (defn- map-keep-coll [f coll]
           (debug-exceptions `map-keep-coll
             (let [xform (comp (take 1) (map f))
-                  coll-of-same-type (into (empty coll) xform coll)]
+                  coll-of-same-type (into (try (empty coll)
+                                               (catch #?(:clj Throwable, :cljs :default) _
+                                                 (cond (imap? coll) {}
+                                                       (set? coll) #{}
+                                                       :else  [])))
+                                      xform coll)]
               (cond
                 (vector? coll) coll-of-same-type
-                (reversible? coll) (rseq coll-of-same-type)
-                (seq? coll) (reverse coll-of-same-type)
+                (reversible? coll) (ana/realize (rseq coll-of-same-type)) ; TODO move definition
+                (seq? coll) (ana/realize (reverse coll-of-same-type)) ; TODO move definition
                 :else coll-of-same-type
                 )))))
 
@@ -187,14 +194,15 @@
               (strx/blank->nil)))))
 
 (defn- render-step-title [stepT *parent-selection]
-  (pr-str (or
-            (some-> stepT hfql/symbolic-edge-computed)
+  (selection2/point-symbolic-name stepT)
+  #_(pr-str (or
+            #_(some-> stepT hfql/symbolic-edge-computed)
             #_(let [[col rowT] *parent-selection] col) ; FIXME
             ;; FIXME
             #_(when-let [map-entry-pointT (and stepT (hfql/lookup ::ana/form-resolved stepT `val))]
               (hfql/identify (hfql/value-at-point map-entry-pointT)))
             ;; FIXME
-            (when-let [parentT (and stepT (hfql/parent stepT))]
+            #_(when-let [parentT (and stepT (hfql/parent stepT))]
               (hfql/identify (hfql/value-at-point parentT)))
             )))
 

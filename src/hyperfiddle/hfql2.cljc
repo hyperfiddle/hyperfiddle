@@ -20,7 +20,7 @@
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation -hfql-resolve -resolve-dispatch]]
-   [hyperfiddle.hfql2.utils :refer [has-meta?]]
+   [hyperfiddle.hfql2.utils :refer [has-meta? imap?]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format]))
   #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql defpointfree]])))
@@ -566,6 +566,7 @@
 ;; TODO disambiguate – following "nav" should be exposed here but name is already taken by `nav` above.
 #_(defn nav [object k v] (hyperfiddle.hfql2.protocols/nav object k v))
 
+(def ^{:dynamic true, :doc "HFQL will bind this var to the current value in the context where `hfql-resolve` is called."} *value-at-point*)
 (defn hfql-resolve [symbolic-object-constructor] (-hfql-resolve symbolic-object-constructor))
 
 (defn identifiable [identify-fn object]
@@ -608,15 +609,22 @@ identifier, though it might not be serializable."
    )
 
 (extend-protocol Identifiable
-  #?(:clj java.util.Map$Entry, :cljs MapEntry) (-identify [entry] (identify (key entry)))
-  #?(:clj clojure.lang.Keyword, :cljs Keyword) (-identify [kw] kw)
-  #?(:clj clojure.lang.Symbol, :cljs Symbol)   (-identify [sym] sym)
-  #?(:clj java.lang.String, :cljs string)      (-identify [s] s)
-  #?(:clj java.lang.Number, :cljs number)      (-identify [num] num)
-  #?(:clj java.lang.Boolean, :cljs boolean)    (-identify [bool] bool)
-  #?(:clj java.util.Date, :cljs js/Date)       (-identify [d] d)
-  #?(:clj java.util.UUID, :cljs UUID)          (-identify [uuid] uuid)
+  #?(:clj java.util.Map$Entry, :cljs MapEntry)
+  (-identify [entry]
+    (let [key (key entry)
+          identity (or
+                     (identify key)
+                     (and (ana/literal? key)
+                       key)
+                     nil)]
+      (or
+        (and (some? identity)
+          `(find ~identity))
+        nil)))
   )
+
+(defmethod -hfql-resolve 'clojure.core/find [[_ key]] (clojure.core/find *value-at-point* key))
+(defmethod -hfql-resolve `current-point [[_]] *value-at-point*)
 
 (def DEFAULT-SUGGESTION (hfql [identity identify type]))
 
@@ -643,8 +651,8 @@ identifier, though it might not be serializable."
 
 
 (defmulti suggest type)
-(defmethod suggest :default [object] (hyperfiddle.hfql2.protocols/-suggest object))
-(defmethod suggest #?(:clj clojure.lang.IRecord, :cljs IRecord) [record]
+
+(defn- suggest-record [record]
   (hfql*
     (ana/analyze {} (vec
                       (map keyword
@@ -654,6 +662,26 @@ identifier, though it might not be serializable."
                              (.invoke nil nil))
                            :cljs
                            (.getBasis (type record))))))))
+
+(defn- multiplicity-many-value? [object] ; TODO promote to HFQL
+  ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
+  ;; Also we don't want to treat records as coll
+  (and (not (record? object))
+    (or (sequential? object) (set? object) #?(:clj (contrib.data/array? object)))))
+
+(defn suggest-collection [coll] (hfql {* [*]} coll))
+
+(defn suggest-map [object] (hfql {* [key val]} (seq object) #_(map #(zipmap [:key :val] %) (seq value))))
+
+(defmethod suggest :default [object]
+  (let [user-suggestion (hyperfiddle.hfql2.protocols/-suggest object)]
+    (if (or (nil? user-suggestion) (::default (metas user-suggestion)))
+      (cond
+        (record? object) (suggest-record object)
+        (multiplicity-many-value? object) (suggest-collection object)
+        (imap? object) (suggest-map object)
+        :else user-suggestion)
+      user-suggestion)))
 
 (comment
   _suggested

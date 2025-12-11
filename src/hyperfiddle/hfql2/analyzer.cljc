@@ -174,13 +174,13 @@
     (symbol? form)               `(symbol (var ~form))
     :else                        nil))
 
-(defn- literal? [obj]
+(defn literal? [obj]
   (or (nil? obj)
     (number? obj)
     (string? obj)
     (keyword? obj)))
 
-(defn- realize ; keeping around for reference
+(defn realize ; keeping around for reference
   "Realize a lazy-seq to a plain list. Values that are not lazy-seqs passes
   through. Differs from `doall` in that `(str (doall seq))` will print an opaque
   object address, whereas `(str (realize seq))` will print as a plain list. Will
