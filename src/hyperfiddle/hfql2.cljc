@@ -616,6 +616,8 @@ identifier, though it might not be serializable."
                      (identify key)
                      (and (ana/literal? key)
                        key)
+                     (and (ident? key)
+                       key)
                      nil)]
       (or
         (and (some? identity)
@@ -735,6 +737,8 @@ identifier, though it might not be serializable."
                   (hoistHfqlT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
                                           (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
                     (combine hfqlT suggestedT)) ; FIXME looses static metadata :(
+                  (and (= ::ana/pull hfqlT-type)
+                    (= '[*] (::ana/form (metas hfqlT)))) (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))
                   (= ::ana/pull hfqlT-type) hfqlT
                   (= ::ana/pull suggestedT-type) (update-scope suggestedT (constantly (scope hfqlT)))
                   :else hfqlT

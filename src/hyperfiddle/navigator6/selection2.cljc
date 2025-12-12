@@ -592,14 +592,14 @@
     ;; [✓] if a row is selected, selected-point is expected to already be a rowT
     ;; [✓] if selected-point can be a recursive point, it is expected for selected-point to already be the recursive point
 
-    ;; [ ] if selected-point has ::navigator/select metas, selected-point is expected to already have been looked up and hydrated from sitemap
+    ;; [✓] if selected-point has ::navigator/select metas, selected-point is expected to already have been looked up and hydrated from sitemap
     ;;   Should we look for an ::navigator/select point? no. Selectability is not defined by `::navigator/select`. `::navigator/select` only advise how to interpret a selection action.
     ;; reshaping (expanding collection) is not a matter of navigation and is of no concern here
     ;; therefore this function should not exist
     )
   )
 
-(declare sitemap-lookup hydrate-navigator-select-command)
+(declare sitemap-lookup normalize-navigator-select-command hydrate-navigator-select-command)
 
 (defn find-next-navigable-point [sitemap selected-point]
   ;; - Selecting a selectable point may trigger a navigation.
@@ -632,12 +632,13 @@
   ;;         point's navigated value (not its value-at-point).
   (or
     (and selected-point
-      (let [navigator-select-command (or (::navigator/select (hfql/metas selected-point))
-                                       (::hfql/select (hfql/metas selected-point)) ; TODO legacy, remove
-                                       )]
+      (let [navigator-select-command (normalize-navigator-select-command
+                                       (or (::navigator/select (hfql/metas selected-point))
+                                         (::hfql/select (hfql/metas selected-point)) ; TODO legacy, remove
+                                         ))]
         (or
           ;; Navigation happens on the selected point:
-          (and #_(hfql/identifiable? (hfql/value-at-point selected-point)) ; may run IO – cached
+          (and #_(hfql/identifiable? (hfql/value-at-point selected-point)) ; not all points are Identifiable (e.g. maps) but can be navigated anyway using `hfql/current-point`'s DI.
             (not (some? navigator-select-command))
             selected-point)
           ;; Navigation doesn't happen on the selected point
@@ -665,6 +666,22 @@
   (let [point (get sitemap sitemap-entry)]
     (or (and (some? point)
           (hydrate-point point value-at-point)) ; note `value-at-point` doesn't serialize through the URL, no need to resolve.
+      nil)))
+
+(defn normalize-navigator-select-command [navigator-select-command]
+  (or
+    ;; already normalized
+    (and (navigator-select-command? navigator-select-command)
+      navigator-select-command)
+    (and ;; We pick `ident?` over symbol? or even qualified-symbol? because as of today nothing forbids users to name their sitemap entries with idents. We may restrict it later.
+      (ident? navigator-select-command)
+      (list navigator-select-command '%))
+    ;; invalid command
+    (and (some? navigator-select-command)
+      (println "Invalid `select` expression:" navigator-select-command " . A `select` expression must be a keyword, a symbol, or a symbolic expression as in `(page arg0 % arg2) where args and % are optional.")
+      nil)
+    ;; no command
+    (and (nil? navigator-select-command)
       nil)))
 
 (defn- hydrate-navigator-select-command [navigator-select-command selected-point]
