@@ -285,6 +285,13 @@
       (hfql/update-scope point assoc '% value-at-point))
     nil))
 
+(defn- find-value-at-point [selection-point]
+  {:pre [(selection-point? selection-point)]}
+  ;; special case ; TODO document
+  (or (and (= ::hfql/map-entry (::hfql/value-type (hfql/metas selection-point)))
+        (hfql/value-at-point (hfql/parent selection-point)))
+    (hfql/value-at-point selection-point)))
+
 (defn resolve-selection-coordinates [selection-point symbolic-selection-coordinates]
   {:pre [(selection-point? selection-point)
          (or (nil? symbolic-selection-coordinates) (symbolic-selection-coordinates? symbolic-selection-coordinates))]
@@ -295,7 +302,7 @@
     ;; selection coordinates are valid – we should be able to resolve an object
     (and (symbolic-selection-coordinates? symbolic-selection-coordinates)
       (let [[symbolic-column symbolic-constructor-form] symbolic-selection-coordinates
-            identifiable-object (binding [hfql/*value-at-point* (hfql/value-at-point selection-point)]
+            identifiable-object (binding [hfql/*value-at-point* (find-value-at-point selection-point)]
                                   (resolve-identifiable-object symbolic-constructor-form))]
         (or (and (some? identifiable-object) ; we've found an identifiable object – we should be able to produce a row or a cell
               (let [seeded-selection-point (hydrate-point selection-point identifiable-object)]
@@ -451,6 +458,9 @@
          ;; Object case
          (and (row? current-point)
            current-point)
+         ;; Special reshaped map case ; TODO document
+         ;; (and (= ::hfql/map (::hfql/value-type (hfql/metas current-point)))
+         ;;   current-point)
          ;; Pull-many case
          (and (star-traversal? (hfql/metas current-point))
            (or (first (hfql/next-steps current-point))

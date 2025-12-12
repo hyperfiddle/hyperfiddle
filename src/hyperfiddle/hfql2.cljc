@@ -629,18 +629,8 @@ identifier, though it might not be serializable."
 (def DEFAULT-SUGGESTION (hfql ^::default [identity identify type]))
 
 (extend-protocol Suggestable
-  #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
-  (-suggest [m]
-    (co/vary-static-meta
-      ;; (hfql {* [key val]}) ; not compatible – `combine` can only combine two pulls
-      #_(hfql* (ana/analyze {} (vec (keys m)))) ; FIXME not ok, map can be arbitrarily large and keys may be opaque.
-      (hfql [])
-      #(assoc % ::value-type :map))) ; UI may interpret this to customize table layout
   #?(:clj java.util.Map$Entry, :cljs MapEntry)
-  (-suggest [_]
-    (co/vary-static-meta
-      (hfql [key val])
-      #(assoc % ::value-type :map-entry))) ; UI may interpret this to customize table layout
+  (-suggest [_] (hfql [key val]))
   #?(:clj Object, :cljs default)
   (-suggest [_] DEFAULT-SUGGESTION)
   nil (-suggest [_]))
@@ -690,7 +680,8 @@ identifier, though it might not be serializable."
 
 (defn suggest-collection [coll] (hfql {* [*]} coll))
 
-(defn suggest-map [object] (hfql {* [key val]} (seq object) #_(map #(zipmap [:key :val] %) (seq value))))
+(defn suggest-map [object]
+  (hfql ^{::value-type ::map} {* ^{::value-type ::map-entry} [key val]} (seq object)))
 
 (defmethod suggest :default [object]
   (let [user-suggestion (hyperfiddle.hfql2.protocols/-suggest object)]
@@ -897,7 +888,7 @@ identifier, though it might not be serializable."
      ;; EXCLUDING previously visited step – to prevent a parent -> child -> parent loop
      (and (not= previously-visitedT currentT)
        (not (multiplicity-many? currentT))
-       (not (= :map (::value-type (metas currentT)))) ; FIXME looks like a wart – why do we need this special case? Maps are reshaped as a seq of kvs, and should probably be flagged as multiplicity many. But are they really?
+       ;; (not (= :map (::value-type (metas currentT)))) ; FIXME should not apply anymore. Verify FIXME looks like a wart – why do we need this special case? Maps are reshaped as a seq of kvs, and should probably be flagged as multiplicity many. But are they really?
        )
      (->> (unwrap currentT) ; children
        (remove #{previously-visitedT})
