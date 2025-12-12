@@ -122,13 +122,16 @@
 
 (e/defn RowHandle [group-id rowT]
   (dom/th (dom/props {:scope :row})
-          (let [identifiable? (dustingetz.loader/Initialized (e/server (some? (hfql/identify ((glitch-guard hfql/value-at-point) rowT)))) true)
+          (let [value-at-point (e/server ((glitch-guard hfql/value-at-point) rowT))
+                klass (dustingetz.loader/Initialized (e/server (str (type value-at-point))) "")
+                identifiable? (dustingetz.loader/Initialized (e/server (some? (hfql/identify value-at-point))) true) ; FIXME ideally default value should be false but the mouse cusor doesn't update for some reason if set to false.
                 GetRowT (e/server (utils/Delay rowT))
                 [token _] (forms/Checkbox! ::row (e/server (selection2/row-selected? selection/*local-selection rowT))
                             :type :radio
                             :name (str group-id)
                             :disabled (not identifiable?)
-                            :data-tooltip ({true nil false "Object isn't Identifiable and cannot be selected"} identifiable?)
+                            :data-tooltip ({true nil false (str "Object isn't Identifiable and cannot be selected. Type: " klass)} identifiable?)
+                            :data-identifiable (str identifiable?)
                             :style {:cursor ({true "normal" false "not-allowed"} identifiable?)})]
             (e/Reconcile
               (when token
