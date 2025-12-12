@@ -208,6 +208,7 @@
   {:pre [(selection-point? point)]
    :post [(symbolic-selection-coordinates? %)]}
   (or
+    ;; Selected point is identifiable.
     (and (selection-point? point) ; selected point is an HFQL point
       (hfql/identifiable? (hfql/value-at-point point)) ; selected point's value is Identifiable
       (or (and (row? point) ; selected point is a row
@@ -217,9 +218,19 @@
         (and
           (println "selected point is a selectable HFQL point but is neither a row nor a cell" (type point) point)
           (pair nil nil))))
+    ;; Selected point is not identifiable.
+    ;; We can still generate coordinates if:
+    ;;  - the select point is a cell
+    ;;  - and either:
+    ;;    - the parent is identifiable
+    ;;    - the parent's parent (grandparent) multiplicity is ONE
+    ;; Why? because it implies the current point is a row (see definition of `cell?`).
+    ;; And a row is necessarily a pull, so we know the cell is addressable by a column of the pull + the object at point.
+    ;; Addressing the object at point will require DI, and can ONLY be defined under multiplicity one.
     (and (selection-point? point)
       (cell? point)
-      (map? (hfql/value-at-point point))
+      (or (hfql/identifiable? (hfql/value-at-point (hfql/parent point)))
+        (not (hfql/multiplicity-many? (hfql/parent (hfql/parent point)))))
       (pair (symbolize-form point) `(hfql/current-point)))
     (do (println "selected object is not a selectable HFQL point and cannot be selected" (type point) point)
         (pair nil nil))))
@@ -583,8 +594,9 @@
 (defn find-next-navigable-point [sitemap selected-point]
   ;; - Selecting a selectable point may trigger a navigation.
   ;; - Navigation happens if the selected point either:
-  ;;   - has an Identifiable value-at-point
   ;;   - is tagged with `::navigator/select`
+  ;;   - value-at-point is Identifiable
+  ;;   - value-at-point is not Identifiable by a column is  FIXME
   ;; - If navigation happens, it may or may not happen on the select point itself.
   ;;   - Navigation happens on the selected point itself:
   ;;     - if all the followings are true:
@@ -615,7 +627,7 @@
                                        )]
         (or
           ;; Navigation happens on the selected point:
-          (and (hfql/identifiable? (hfql/value-at-point selected-point)) ; may run IO – cached
+          (and #_(hfql/identifiable? (hfql/value-at-point selected-point)) ; may run IO – cached
             (not (some? navigator-select-command))
             selected-point)
           ;; Navigation doesn't happen on the selected point
@@ -700,9 +712,23 @@
   {:pre [(or (nil? current-point) (hfql? current-point))]
    :post [(string? %)]}
   (or (and (some? current-point)
-        (or (let [symbolic-column (symbolize-form current-point)]
-              (and (some? symbolic-column)
-                (pr-str (list symbolic-column (symbolize-value current-point)))))
+        (or (let [symbolic-column (symbolize-form current-point)
+                  symbolic-constructor-form (symbolize-value current-point)]
+              (or (and (some? symbolic-column) ; A ∧ B
+                    (some? symbolic-constructor-form)
+                    (pr-str (list symbolic-column (symbolize-value current-point))))
+                (and (some? symbolic-column) ; A ∧ ¬B
+                  (nil? symbolic-constructor-form)
+                  (pr-str symbolic-column))
+                (and (nil? symbolic-column) ; ¬A ∧ B
+                  (some? symbolic-constructor-form)
+                  (let [parent-edge (and (hfql/parent current-point)
+                                      (symbolize-form (hfql/parent current-point)))]
+                    (and (some? parent-edge)
+                      (pr-str (list parent-edge symbolic-constructor-form)))))
+                (and (nil? symbolic-column) ; ¬ A ∧ ¬ B ; always false – to cover truth table.
+                  (nil? symbolic-constructor-form)
+                  nil)))
           (some-> (symbolize-value current-point) pr-str)
           (some-> (hfql/symbolic-edge-computed current-point) pr-str)
           (point-symbolic-name (hfql/parent current-point))))

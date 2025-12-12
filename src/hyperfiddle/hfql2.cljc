@@ -626,7 +626,7 @@ identifier, though it might not be serializable."
 (defmethod -hfql-resolve 'clojure.core/find [[_ key]] (clojure.core/find *value-at-point* key))
 (defmethod -hfql-resolve `current-point [[_]] *value-at-point*)
 
-(def DEFAULT-SUGGESTION (hfql [identity identify type]))
+(def DEFAULT-SUGGESTION (hfql ^::default [identity identify type]))
 
 (extend-protocol Suggestable
   #?(:clj clojure.lang.IPersistentMap, :cljs IMap) ; not sure if IMap is the right protocol, this is assuming all maps are seqable
@@ -646,9 +646,28 @@ identifier, though it might not be serializable."
   nil (-suggest [_]))
 
 #?(:clj (extend-type Class
-          Identifiable (-identify [klass] (.getCanonicalName klass))
+          Identifiable (-identify [klass] `(java.lang.Class/forName ~(.getCanonicalName klass)))
           Suggestable (-suggest [_] (hfql [Class/.getCanonicalName Class/.getMethods Class/.getFields]))))
 
+#?(:clj
+   (defmethod -hfql-resolve 'java.lang.Class/forName [[_ class-canonical-name]]
+     ;; FIXME This should be in userland because there are security concerns/trade-offs here.
+     ;; TODO remove this for HFQL core. This is safe to our use case, But may not be acceptable to some users.
+     ;; I keeping this here for now because of demos.
+     (try
+       (java.lang.Class/forName class-canonical-name
+         false ; don't run static initializers, they aren't pure.
+         ;; scope resolution to the Thread Context Class Loader (TCCL).
+         ;; In a clojure app the TCCL is *usually* a clojure.lang.DynamicClassLoader and *may* default to clojure.lang.RT/baseLoader
+         ;; (type (clojure.lang.RT/baseLoader)) := clojure.lang.DynamicClassLoader
+         ;; The TCCL is often set/configured by the app server, container or managed environment setup.
+         ;; I picked the TCCL here because:
+         ;; - in our demos the TCCL is Clojure's DynamicClassLoader – this is safe to our use case.
+         ;; - users should be able to customize the class loader. An idiomatic way to do so is to set the TCCL with Thread/.setContextClassLoader.
+         (.getContextClassLoader (Thread/currentThread))
+         )
+       (catch ClassNotFoundException _
+         nil))))
 
 (defmulti suggest type)
 
@@ -699,11 +718,9 @@ identifier, though it might not be serializable."
 
 
 (defn- suggest-at-point! [hfqlT]
-  (if-let [suggestedT (suggest (force-thunk (value-at-point hfqlT)))]
-    (let [default? (= DEFAULT-SUGGESTION suggestedT)]
-      (hoistHfqlT (bf/first #(cond-> (assoc % ::suggested true)
-                               default? (assoc ::default true)))
-        suggestedT)) ; recursively map over CofreeT structure - lazily
+  (if-let [suggestedT (suggest (force-thunk (value-at-point hfqlT)))] ; TODO confirm if `force-thunk` is necessary here. value-at-point already forces the thunk.
+    (hoistHfqlT (bf/first #(assoc % ::suggested true))
+      suggestedT) ; recursively map over CofreeT structure - lazily
     hfqlT))
 
 (declare parent set-parent)

@@ -87,24 +87,20 @@
 
 (defn- render-type [hfqlT]
   (let [metas (hfql/metas hfqlT)]
-    (if (= ::ana/many (::ana/multiplicity metas))
+    (if (hfql/multiplicity-many? hfqlT)
       ::star
       (case (::ana/type metas)
         ::ana/star ::star
         ::ana/pull ::pull
-        ::ana/traversal (render-type (first (unwrap hfqlT)))
-        ::ana/ifn ::ifn
+        ::ana/traversal (render-type (first (hfql/next-steps hfqlT)))
         ::unknown))))
 
 (e/defn ResolveRenderer [hfqlT]
   (e/server
-    (if hfqlT
-      (get {::pull RenderObject
-            ::star RenderCollection}
-        (e/Offload #((glitch-guard render-type) hfqlT))
-        (e/fn [& _]))
+    (get {::pull RenderObject
+          ::star RenderCollection}
+      (e/Offload #((glitch-guard render-type) hfqlT))
       (e/fn [& _]))))
-
 
 (e/defn ReshapeNavigationStep [hfqlT]
   (e/server

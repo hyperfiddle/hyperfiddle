@@ -239,6 +239,7 @@
 
 (defmulti constructor identity)
 (defmethod constructor :default [f] (fn [& args] (cons f args)))
+#?(:cljs (defmethod constructor 'uuid [_] (fn [str] (parse-uuid str)))) ; because 'uuid is not a runtime tag in cljs
 
 (defn- resolve-tag-reader [symbol]
   {:pre [(symbol? symbol)]}

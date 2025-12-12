@@ -128,7 +128,7 @@
                             :type :radio
                             :name (str group-id)
                             :disabled (not identifiable?)
-                            :title ({true "" false "Object isn't Identifiable and cannot be selected"} identifiable?)
+                            :data-tooltip ({true nil false "Object isn't Identifiable and cannot be selected"} identifiable?)
                             :style {:cursor ({true "normal" false "not-allowed"} identifiable?)})]
             (e/Reconcile
               (when token
