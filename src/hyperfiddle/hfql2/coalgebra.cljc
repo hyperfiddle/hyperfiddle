@@ -554,9 +554,12 @@ Pulling on non-maps (non associative) is perfectly fine.
                        ()
                        ;; Isn't there a way here to produce a lazy-seq producing unseeded children upto multiplicity?
                        ;; It seems no because to know the children count we must run IO.
-                       (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge point) point))))
-                                        (force-thunk 
-                                          value))] ; ⚠ will force all effects up to the root to compute children multiplicity
+                       (let [forced (if (contains? scope ::BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE) ; Used by hyperfiddle.navigator6.selection2/find-selectable-point
+                                      '(nil)
+                                      (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge point) point))))
+                                          (force-thunk
+                                            value))) ; ⚠ will force all effects up to the root to compute children multiplicity
+                             scope (dissoc scope ::BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE)]
                          (with-meta ; carry metadata over
                            (map ; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
                                         ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
@@ -564,7 +567,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
                                (fn [value_i]
                                  (binding [thunks/*cache-strategy* ::thunks/weak] ; lazy-seq spine do not hold onto navigated values. Leaves does.
-                                   (thunk (safe-ccp-nav (extract value) nil value_i))))) ; hard-wired navigate call – a fan-out is never a leaf.
+                                   (thunk (safe-ccp-nav forced nil value_i))))) ; hard-wired navigate call – a fan-out is never a leaf.
                              (to-seq forced))
                            (meta forced)))))))))
            (lexical-env point)))))))
