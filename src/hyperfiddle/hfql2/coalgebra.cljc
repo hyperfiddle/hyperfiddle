@@ -311,18 +311,27 @@ Pulling on non-maps (non associative) is perfectly fine.
       ((bound-fn* (get env `hfql/*bindings* {}) (runReader Ra)) env))))
 
 (defn hfqlT
-  "Docstring is outdated TODO revise
-  A coalgebra turning a statically analyzed HFQL Cofree tree into lazy,
-  effectful, step-by-step navigator of type (CofreeT (Store s (Meta, Scope)))).
+  "
+  A coalgebra turning a statically analyzed HFQL Cofree tree into a lazy,
+  effectful, step-by-step navigator of shape (CofreeT (Pair Metadata, (Store focus scope))).
 
-  Where a Cofree is fully realized, a CofreeT required a monad (here Reader) to
-  compute the next step. In our model (Reader a) produces the \"context at
-  point\", a.k.a. '%. This lazy CofreeT tree has no initial value and no
-  dimension, meaning children are unknown. Use (seed env ...) to produce a
-  concrete Cofree Comonad, lazily realizing successive navs as a tree
-  traversal."
+  Where a Cofree instance is fully realized (ignoring language laziness), a
+  CofreeT requires a comonad (here Store) to compute the next step. In our
+  model, Store holds the \"context at point\".
+
+  This lazy CofreeT tree has no initial value and no dimension, meaning children
+  are unknown until seeded. Use (seed env ...) to produce a concrete Cofree Comonad, lazily
+  realizing successive navs as a tree traversal.
+
+  Following the rules of Cofree, children are thunk-like must be `unwrap`ed to compute their value.
+  Their respective metadata, however, is stored at the Cofree level and doesn't require evaluation.
+  It is therefore possible to describe a branch without running it.
+
+  Following the rules of Comonad, realized branches are cached. In the exact same way as lazy-seqs.
+  Re-seeding a already unfolded tree is supported, but resets caching.
+  "
   [root hfql]
-  (let [root (mapHead #(assoc % ::root true) root) 
+  (let [root (mapHead #(assoc % ::root true) root)
         hfqlT (partial hfqlT root)
         point (extract hfql)
         children (unwrap hfql)
