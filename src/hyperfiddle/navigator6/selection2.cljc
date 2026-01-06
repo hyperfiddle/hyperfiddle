@@ -752,7 +752,15 @@
                   (let [parent-edge (and (hfql/parent current-point)
                                       (symbolize-form (hfql/parent current-point)))]
                     (and (some? parent-edge)
-                      (pr-str (list parent-edge symbolic-constructor-form)))))
+                      ;; Edge case: both the parent and the current selected *cell* are Identifiable
+                      ;; We want to favor `(column parent-row)` over just `cell`'s symbolic identity
+                      ;; More so, we want to prevent the incorrect: `(column cell)` symbolic form.
+                      ;; Real-world case: jgit's GitRepository/.getRepository return a FileRepository. Both are Identifiable.
+                      ;; As of 2026-01-06 the UI produced `(.getRepository FileRepository)` which is wrong.
+                      ;; The correct form is `(.getRepository GitRepository)`.
+                      #_(pr-str (list parent-edge symbolic-constructor-form)) ; wrong
+                      (pr-str (list parent-edge (symbolize-value (hfql/parent current-point))))
+                      )))
                 (and (nil? symbolic-column) ; ¬ A ∧ ¬ B ; always false – to cover truth table.
                   (nil? symbolic-constructor-form)
                   nil)))
