@@ -1,4 +1,76 @@
 (ns hyperfiddle.hfql2.coalgebra
+  "
+  Defines the HFQLT type, a Cofree Transformer (aka. CofreeT) over the HFQL AST.
+  Defines how to interpret AST nodes with corresponding effects. Implement all of these effects.
+  Provides:
+  - how to transform and HFQL AST into an HFQL navigator,
+  - how to `seed` the resulting navigator instance with a value,
+  - how to traverse (navigate) the resulting tree, either:
+    - step by step (lazily),
+    - eagerly by pulling, as in Datomic Pull.
+
+  An HFQL \"navigator\" is a Cofree Transformer instance. It is traversable, and shaped as a rose tree:
+  - starting with a value (the seed), and a HFQL query (AST), one can ask for the computed value at point, and for eventual children.
+  - the value at point and children at point are thunked. Both are realized on-demand.
+  - children, if any, are of the same uniform HFQLT type – this respects the Cofree type.
+  - depending of the query, asking for the value at point, or for children at point may run IO.
+  - IO is cached, as in Clojure's lazy-seq, and behaves the same wrt GC.
+
+  The HFQLT type is equivalent in shape as `(CofreeT (Pair Metadata, (Store focus Env)))`, where:
+  - `Env` is a map of bindings from symbols to values, as in a dynamic scope.
+  - `Store focus Env` is a Store comonad instance running the `focus` function on `Env`, on demand.
+  - `focus :: Env -> (Pair value childrenTs)` reads `Env`, may run IO, and produce the value at point + next CofreeT steps.
+  - `childrenTs :: [HFQLT]` is a lazy sequence where elements are of the same CofreeT type as the root, recursively up to leaves.
+  - `(Pair Metadata Store)` is a static layer containing metadata describing the current CofreeT computation step, held in Store
+    (thunked). Metadata contains the current point's original AST and various annotation describing what value running the Store instance
+    will produce. A use case is to draw a UI skeleton ASAP, of the correct shape, while the value is being computed in the
+    background. Nota: this type-sandwich layer is outdated, spurious, and should be replaced by an IMeta implementation on the
+    HFQLT type. It is accidental complexity and doesn't play well with the CofreeT type. While the use case is legit, the implementation
+    details should be ignored. FIXME.
+
+  Seeding an HFQLT is optional and depends on the HFQL query:
+  - An HFQL query expecting arguments (e.g. {(user-by-id %) [:user/email]}) must be seeded. This query is said to be \"partial\".
+  - An fully-provided HFQL query (non-partial) can be traversed without a seed. E.g. {(range 10) inc}.
+  Non-partial HFQL queries are rare, often teaching materials, if not toys. UIs being about bidirectional IO with the user, most
+  real-world HFQL queries expects some arguments to be injected.
+
+  Traversing an HFQLT instance is done through the the Cofree and Comonad APIs. For a given `stepT`:
+  - the value for this step is: `(extract stepT)`
+  - children for this step are: `(unwrap stepT)`
+
+  IO behavior
+
+  Some HFQL queries can be lazily traversed up to leaves without running any IO:
+  ```
+  {(current-logged-in-user) [:user/email :user/role]}
+  ```
+  In this query, one can traverse the CofreeT tree up to e.g. :user/role without running IO.
+  But as soon as a value is `extract`ed out of :user/role, an upward IO cascade will happen:
+  - computing :user/role requires knowing the result of `(current-logged-in-user)`.
+  - running `(current-logged-in-user)` eventually causes IO. The result is cached.
+  - :user/email won't be computed, as it is not required to compute :user/role.
+  - if :user/email is then extracted too (on user request), no IO will happen, as `current-logged-in-user` as been cached.
+
+  However, the following query will run IO on traversal:
+  ```
+  {(all-users) {* [:user/email :user/role]}}
+  ```
+  In this query, the multiplicity of `(all-users)` is known to be \"many\", but the actual count is unknown.
+  In order to navigate to any eventual user in the resulting list and ask for its :user/role, HFQL must run `(all-users)`.
+  `(all-users)` is expected to return a collection of zero, one or many values, but HFQL cannot guess how many will be returned
+  without running the `all-users` function. `all-users` is non-partial, but if it was partial, this may also cause an upward IO cascade.
+
+  Laziness
+
+  To the extent possible, the list of children is lazily computed, their
+  multiplicity may be infinite. Lazy-seq chunking is prevented as much as
+  possible, such that children are realized one by one, not by chunks of 32.
+  Children's respective metadata, however, is stored at the Cofree level and
+  doesn't require evaluation.
+
+  Re-seeding a already seeded tree resets caching. Re-seeding s a valid use case, and is used in practice.
+
+"
   (:refer-clojure :exclude [extend resolve meta bound-fn*])
   (:require
    [clojure.core.protocols :as ccp]
@@ -311,24 +383,16 @@ Pulling on non-maps (non associative) is perfectly fine.
       ((bound-fn* (get env `hfql/*bindings* {}) (runReader Ra)) env))))
 
 (defn hfqlT
-  "
-  A coalgebra turning a statically analyzed HFQL Cofree tree into a lazy,
-  effectful, step-by-step navigator of shape (CofreeT (Pair Metadata, (Store focus scope))).
+  "A coalgebra transforming one HFQL AST node (a Cofree point) into an effect point.
+  This effect point is of type (Reader Env (Pair value children)), where:
+  - Env is the seeded environment.
+  - value is the value computed from Env when Reader is run.
+  - children are the next AST nodes. There may be none.
 
-  Where a Cofree instance is fully realized (ignoring language laziness), a
-  CofreeT requires a comonad (here Store) to compute the next step. In our
-  model, Store holds the \"context at point\".
-
-  This lazy CofreeT tree has no initial value and no dimension, meaning children
-  are unknown until seeded. Use (seed env ...) to produce a concrete Cofree Comonad, lazily
-  realizing successive navs as a tree traversal.
-
-  Following the rules of Cofree, children are thunk-like must be `unwrap`ed to compute their value.
-  Their respective metadata, however, is stored at the Cofree level and doesn't require evaluation.
-  It is therefore possible to describe a branch without running it.
-
-  Following the rules of Comonad, realized branches are cached. In the exact same way as lazy-seqs.
-  Re-seeding a already unfolded tree is supported, but resets caching.
+  The `unfoldT` function is in charge of:
+  - running the Reader,
+  - recursively apply hfqlT onto AST child nodes,
+  - wrapping them into an HFQLT type.
   "
   [root hfql]
   (let [root (mapHead #(assoc % ::root true) root)
@@ -532,7 +596,7 @@ Pulling on non-maps (non associative) is perfectly fine.
     (enumeration? seq-like) (enumeration-to-seq seq-like)
     :else seq-like))
 
-(defn unfoldT
+(defn unfoldT ; TODO docstring
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra AST]
    (let [point (extract AST)
@@ -582,46 +646,7 @@ Pulling on non-maps (non associative) is perfectly fine.
            (lexical-env point)))))))
 
 (defn seed
-  "Docstirng is outdated – TODO revise
-  Turns an HFQL program into a fully lazily navigable structure by providing an
-  initial environment value. An HFQL program is built by calling `(-hfql <analyzed-hfql-expr>)`.
-
-  Once seeded, an HFQL tree can be lazily traversed (think navigated, e.g. with tree-seq) without
-  forcing any userland side effect, up to multiplicity-many branching points (e.g. *)¹.
-
-  Any point of the tree can be re-seeded using `reseed`.
-
-  Seeding \"hydrates\" an HFQL program into a navigable tree.
-  Reseed \"overwrites\" an evaluation context with an arbitrary value, effectively \"rehydrating\"
-  the original HFQL (sub)program at point.
-   ↳ Use case: inject function arguments from UI.
-
-  Both `seed` and `reseed` are pure and can be considered O(1)².
-
-  Concretely: Turns the value returned by `-hfql` (a CofreeT) virtual tree with no state (no Reader
-  context) and so no known multiplicity, into a concrete Comonadic tree (aka. Cofree: an infinitely
-  unfolding structure) where all \"value at points\" are lazily available and where all children
-  multiplicity is lazily known. Traversing the tree (e.g. tree-seq) will lazily realize values at
-  branching points and realize actual subtrees. Computing a value does not require any knowledge
-  about children³.
-
-  Note: today, computing children always realizes the value at point. TODO optimize by leveraging
-  static knowledge of the original HFQL expression, which is already available as metadata. There's
-  no difficulty here, it's just TBD. E.g.:
-  - {* ...} means multiplicity-many traversal and the fan-out multiplicity is statically unknown.
-  - [*] means the keyset on which to eventually pull further is statically unknown.
-  - all other forms should be statically known to be multiplicity-one, under their respective multiplicity-many context.
-
-  ¹: {* ...} and [* ...] means multiplicity is statically unknown, and we must realize the value at
-  point to know what to do next. Note that if `*` corresponds to a lazy structure, children will
-  unfold lazily too. Traversing children will consume the `*` value lazily.
-
-  ²: `seed` and `reseed` may eagerly precompute a subset of the tree structure for performance
-  optimization reasons. But always without running any userland side effect.
-
-  ³: except for \"pull\" ops – they peek at their direct children (max one level) to build a {key
-  value} structure.
-  "
+  "Sets the environment of an HFQLT instance. Any point of the tree can be re-seeded. Re-seeding busts cached IO."
   ([env] (partial seed env))
   ([env t]
    (->hfqlT (set-scope-value (runCofreeT t) env))))
