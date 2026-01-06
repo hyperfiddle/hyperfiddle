@@ -248,6 +248,7 @@
     (when-let [pull-step (e/Snapshot (e/Filter some? ((glitch-guard selection/select-pull-step) stepT)))]
       (let [stepT+ (hfql/augment-with-suggestions! pull-step)
             childrenT (remove (comp (every-pred ::ana/recursion-point ::ana/recursive-child) hfql/metas) ((glitch-guard unwrap) stepT+))
+            childrenT-order (zipmap childrenT (range))
             static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
             suggested-columns (e/Snapshot (filter (comp ::hfql/suggested hfql/metas) childrenT))
             pre-checked (#(or ((glitch-guard hfql/pull-has-star?) stepT+) (empty? static-columns)))
@@ -264,7 +265,9 @@
                                        (forms/Checkbox* pre-checked :label (e/server (str (shorten (hfql/symbolic-edge columnT))))
                                          :title (e/server (str (hfql/describe-formatted columnT)))))
                                    columnT)))]
-        (mappend from-spec suggested)))))
+        (->> (mappend from-spec suggested)
+          (sort-by childrenT-order <) ; FIXME order is still not respected WRT star. Suggestions should be injected where star is, if present.
+          )))))
 
 (def COLLECTION-LIMIT 10000)
 

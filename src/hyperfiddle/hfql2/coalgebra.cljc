@@ -382,6 +382,8 @@ Pulling on non-maps (non associative) is perfectly fine.
     (fn [env]
       ((bound-fn* (get env `hfql/*bindings* {}) (runReader Ra)) env))))
 
+(defn- insert-at [index collA collB] (concat (take index collA) collB (drop index collA)))
+
 (defn hfqlT
   "A coalgebra transforming one HFQL AST node (a Cofree point) into an effect point.
   This effect point is of type (Reader Env (Pair value children)), where:
@@ -430,6 +432,10 @@ Pulling on non-maps (non associative) is perfectly fine.
                                        ;; - and `[] ⊗ [] = [] ≅ [*]`.
                                        [[true] ()]
                                        (group-by-pred (comp star? extract) children))
+                      star-position (if (empty? children)
+                                      0
+                                      (or (ffirst (filter (comp hyperfiddle.hfql2.coalgebra/star? extract second) (map-indexed vector children)))
+                                        ##Inf))
                       dynamic-keys (when star? (star-keys (get env '%)))
                       star-kids (let [static-keys (set (map (comp symbolic-edge extract) kids))
                                       remaining-star-keys (remove static-keys dynamic-keys)]
@@ -441,7 +447,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                           (->> (concat kids star-kids) ; star kids cannot overwrite static kids – they are already filtered at this point
                             (map (unfoldT hfqlT))
                             (pull-peek-at-immediate-kids! env)))
-                    (mappend kids star-kids
+                    (mappend
+                      (insert-at star-position kids star-kids)
                       (if recur-point
                         (let [limit (or (::ana/recursion-limit (extract recur-point)) (::ana/recursion-limit (extract root)) 0)] ; TODO deduplicate with traversal
                           (if (pos? limit)
@@ -683,6 +690,24 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-values (seed {'% {1 :a, 2 :b}} (-hfql ['1 *])))
   )
 
+(tests
+  "Column order is respected in presence of star"
+  (-values (seed {'% {:a 1, :b 2, :c 3}} (-hfql [:a *])))
+  := '({:a 1, :b 2, :c 3} 1 2 3)
+
+  (-values (seed {'% {:a 1, :b 2, :c 3}} (-hfql [* :a])))
+  := '({:a 1, :b 2, :c 3} 2 3 1)
+
+  (-values (seed {'% {:a 1, :b 2, :c 3}} (-hfql [:a * :c])))
+  := '({:a 1, :b 2, :c 3} 1 2 3)
+
+  (-values (seed {'% {:a 1, :b 2, :c 3, :d 4}} (-hfql [:a :b * :d])))
+  := '({:a 1, :b 2, :c 3, :d 4} 1 2 3 4)
+
+  (-values (seed {'% {:a 1, :b 2, :c 3, :d 4}} (-hfql [:a * :c :d])))
+  := '({:a 1, :b 2, :c 3, :d 4} 1 2 3 4)
+  )
+
 (defrecord _Box [x])
 
 (tests
@@ -732,7 +757,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   "traversal in pull"
-  (-values (seed {'% {:a 1, :b "b"}} (-hfql [* {:a inc}])))
+  (-values (seed {'% {:a 1, :b "b"}} (-hfql [{:a inc} *])))
   := '({:a 1, :b "b"} 1 2 "b")
   )
 
