@@ -625,7 +625,7 @@ identifier, though it might not be serializable."
         nil)))
   )
 
-(defmethod -hfql-resolve 'clojure.core/find [[_ key]] (clojure.core/find *value-at-point* key))
+(defmethod -hfql-resolve 'clojure.core/find [[_ key]] (clojure.core/find *value-at-point* (or (-hfql-resolve key) key))) ; Hum, isn't it the wrong place to resolve the inner value?
 (defmethod -hfql-resolve `current-point [[_]] *value-at-point*)
 
 (def DEFAULT-SUGGESTION (hfql ^::default [identity identify type]))
@@ -678,9 +678,13 @@ identifier, though it might not be serializable."
   ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
   ;; Also we don't want to treat records as coll
   (and (not (record? object))
-    (or (sequential? object) (set? object) #?(:clj (contrib.data/array? object)))))
+    (or (sequential? object)
+      (set? object)
+      (co/enumeration? object) ; TODO move implementation
+      (co/iterator? object) ; TODO move implementation
+      #?(:clj (contrib.data/array? object)))))
 
-(defn suggest-collection [coll] (hfql {* [*]} coll))
+(defn suggest-collection [coll] (hfql {* [*]} (co/to-seq coll)))
 
 (defn suggest-map [object]
   (hfql ^{::value-type ::map} {* ^{::value-type ::map-entry} [key val]} (seq object)))

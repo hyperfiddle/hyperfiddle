@@ -124,7 +124,7 @@
   (dom/th (dom/props {:scope :row})
           (let [value-at-point (e/server ((glitch-guard hfql/value-at-point) rowT))
                 klass (dustingetz.loader/Initialized (e/server (str (type value-at-point))) "")
-                identifiable? (dustingetz.loader/Initialized (e/server (some? (hfql/identify value-at-point))) true) ; FIXME ideally default value should be false but the mouse cusor doesn't update for some reason if set to false.
+                identifiable? (dustingetz.loader/Initialized (e/server (hfql/identifiable? value-at-point)) true) ; FIXME ideally default value should be false but the mouse cusor doesn't update for some reason if set to false.
                 GetRowT (e/server (utils/Delay rowT))
                 [token _] (forms/Checkbox! ::row (e/server (selection2/row-selected? selection/*local-selection rowT))
                             :type :radio

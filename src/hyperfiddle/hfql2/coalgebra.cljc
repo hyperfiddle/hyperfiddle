@@ -589,18 +589,25 @@ Pulling on non-maps (non associative) is perfectly fine.
         (assoc env '% (::ana/value (::ana/edge point))))
       env)))
 
-(defn- iterator? [it] #?(:clj (instance? java.util.Iterator it) :cljs (instance? ES6Iterator it)))
+;; TODO move to contrib.data
+(defn iterator? [it] #?(:clj (instance? java.util.Iterator it) :cljs (instance? ES6Iterator it)))
+;; TODO move to contrib.data
 (defn- iterator-to-seq [it] #?(:clj (iterator-seq it) :cljs (es6-iterator-seq it)))
 
-(defn- enumeration? [enum] #?(:clj (instance? java.util.Enumeration enum) :cljs false))
+;; TODO move to contrib.data
+(defn enumeration? [enum] #?(:clj (instance? java.util.Enumeration enum) :cljs false))
+;; TODO move to contrib.data
 (defn- enumeration-to-seq [enum] #?(:clj (enumeration-seq enum) :cljs enum))
 
-(defn- to-seq [seq-like]
+;; TODO move to contrib.data
+(defn to-seq [seq-like]
   (cond
     (seq? seq-like) seq-like
     (seqable? seq-like) (seq seq-like)
-    (iterator? seq-like) (iterator-to-seq seq-like)
+    ;; enumeration check must come before iterator check or java.util.zip.ZipFile$ZipEntryIterator (implementing both) will exhibit inconsistent behavior.
+    ;; In other words `enumeration-seq` works consistently on java.util.zip.ZipFile$ZipEntryIterator, but `iterator-seq` doesn't. Not sure why.
     (enumeration? seq-like) (enumeration-to-seq seq-like)
+    (iterator? seq-like) (iterator-to-seq seq-like)
     :else seq-like))
 
 (defn unfoldT ; TODO docstring
