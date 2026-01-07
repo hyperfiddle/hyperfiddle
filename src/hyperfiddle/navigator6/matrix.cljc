@@ -302,9 +302,9 @@
 
 (e/defn RenderMatrix [stepT & [transpose? single?]]
   (dom/fieldset
-    (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "/matrix.css"))})))
-    (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "/matrix_vertical.css"))})))
-    (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "/matrix_horizontal.css"))})))
+    (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))})))
+    (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))})))
+    (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))})))
     (dom/props {:class "" #_"entity-children hyperfiddle-navigator6__block"})
     (let [... (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) (reshape-maps transpose? single? stepT)) {:label 'run-query}))
           is-map? (e/server (nth ... 0))
