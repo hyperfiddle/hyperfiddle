@@ -765,8 +765,11 @@
         (selection-point? current-point)
         (row? selected-point)
         (or (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
-          (= (hfql/identify (hfql/value-at-point selected-point))
-            (hfql/identify (hfql/value-at-point current-point)))))
+          (and
+            (hfql/identifiable? (hfql/value-at-point selected-point))
+            (hfql/identifiable? (hfql/value-at-point current-point))
+            (= (hfql/identify (hfql/value-at-point selected-point))
+              (hfql/identify (hfql/value-at-point current-point))))))
     false)
   )
 
@@ -780,13 +783,25 @@
         (some? current-point)
         (selection-point? selected-point)
         (selection-point? current-point)
-        (cell? selected-point)
-        (or (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
+        (or
+          ;; Base case
           (and
-            (= (hfql/symbolic-edge selected-point)
-              (hfql/symbolic-edge current-point))
-            (= (hfql/identify (hfql/value-at-point selected-point))
-              (hfql/identify (hfql/value-at-point current-point))))))
+            (cell? selected-point)
+            (or
+              (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
+              (and
+                (= (hfql/symbolic-edge selected-point)
+                  (hfql/symbolic-edge current-point))
+                (= (hfql/identify (hfql/value-at-point selected-point))
+                  (hfql/identify (hfql/value-at-point current-point))))))
+          ;; 2026-01-08 Edge case: traversal with a pull continuation inside of a pull.
+          ;; See comments for `step-over-eventual_traversal-with-pull-continuation_in-pull`.
+          ;; In this case the selected-point is one extra step ahead of current-point. So we want to match against its parent – the actual cell.
+          ;; This behavior is not a band-aid. It is specific to a UI-based navigator over a tree-seqed HFQL structure. It is a UX concern.
+          ;; REPLs – for instance – are not impacted by this edge case.
+          (and
+            (traversal-with-pull-continuation_in-pull? current-point)
+            (cell-selected? (hfql/parent selected-point) current-point))))
     false))
 
 ;;;; Naming points
