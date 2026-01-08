@@ -140,6 +140,10 @@
   (and (qualified-symbol? sym)
     (str/starts-with? (name sym) ".")))
 
+(defn- static-method-call? [sym]
+  (and (qualified-symbol? sym)
+    (not (str/starts-with? (name sym) "."))))
+
 (defn- supports-direct-method-syntax? []
   #?(:clj (>= 1.12 (parse-double (re-find #"^[0-9]+\.[0-9]+" (clojure-version))))
      :cljs false ; TODO I actually don't know. Maybe cljs does support it.
@@ -159,6 +163,7 @@
     (lexical? env form)          nil
     (indirect-method-call? form) nil
     (direct-method-call? form)   nil
+    (static-method-call? form)   nil
     (symbol? form)               `(var ~form)
     :else                        nil))
 
@@ -171,6 +176,7 @@
     (lexical? env form)          form
     (indirect-method-call? form) nil
     (direct-method-call? form)   `(resolve-direct-method ~form)
+    (static-method-call? form)   form
     (symbol? form)               `(symbol (var ~form))
     :else                        nil))
 
