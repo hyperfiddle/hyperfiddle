@@ -976,9 +976,19 @@ identifier, though it might not be serializable."
       (meta aseq))
     aseq))
 
-(tests
-  "Static method syntax support"
-  (nav (hfql [identity java.util.Date/new] 1767883504555)) ; odd case, but allowed.
-  := '{identity 1767883504555,
-       java.util.Date/new #inst "2026-01-08T14:45:04.555-00:00"}
-  )
+#?(:clj
+   (tests
+     "Static method syntax support"
+     ;; Original failing attempt, now passing
+     (pull (hfql {(java.lang.management.ManagementFactory/getOperatingSystemMXBean)
+                  [.getArch .getAvailableProcessors]}))
+     := {'(java.lang.management.ManagementFactory/getOperatingSystemMXBean)
+          {'.getArch _, '.getAvailableProcessors _}}
+
+
+     ;; another made up (but valid) case, 2026-01-08 G: AFAIKT no user attempt this one so far.
+     (nav (hfql [identity java.util.Date/new] 1767883504555))
+     := '{identity 1767883504555,
+          java.util.Date/new #inst "2026-01-08T14:45:04.555-00:00"}
+
+     ))
