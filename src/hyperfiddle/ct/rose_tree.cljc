@@ -39,13 +39,15 @@
 
 (defn mapHead ":: (a -> a) -> RoseTree a [a] -> RoseTree a [a]. Apply a function to the current Rose node.
   Different from fmap. fmap applies a function onto all nodes of a tree."
-  [f rose]
-  (rose-tree (f (extract rose)) (unwrap rose)))
+  ([f] (partial mapHead f))
+  ([f rose]
+   (rose-tree (f (extract rose)) (unwrap rose))))
 
 (defn mapTail ":: (a -> a) -> RoseTree a [a] -> RoseTree a [a]. Apply a function to direct children of Rose node.
   Different from fmap. fmap applies a function onto all nodes of a tree. "
-  [f rose]
-  (rose-tree (extract rose) (fmap #(mapHead f %) (unwrap rose))))
+  ([f] (partial mapTail f))
+  ([f rose]
+   (rose-tree (extract rose) (fmap #(mapHead f %) (unwrap rose)))))
 
 ;; (fapply (rose-tree inc [(rose-tree str [])]) (rose-tree 1 [(rose-tree 2 []) (rose-tree 3 [])]))
 
