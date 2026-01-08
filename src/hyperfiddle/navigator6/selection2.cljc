@@ -292,6 +292,62 @@
         (hfql/value-at-point (hfql/parent selection-point)))
     (hfql/value-at-point selection-point)))
 
+(letfn [(traversal? [selection-point] (= ::ana/traversal (::ana/type (hfql/metas selection-point))))
+        (pull? [selection-point] (and (some? selection-point)
+                                   (= ::ana/pull (::ana/type (hfql/metas selection-point)))))
+        (parent-is-pull? [selection-point] (pull? (hfql/parent selection-point)))
+        (child-is-pull? [selection-point] (pull? (first (hfql/next-steps selection-point))))]
+  (defn- traversal-with-pull-continuation_in-pull? [selection-point]
+    {:pre [(selection-point? selection-point)]
+     :post [(boolean? %)]}
+    (and (traversal? selection-point)
+      (parent-is-pull? selection-point)
+      (child-is-pull? selection-point))))
+
+(defn- step-over_traversal-with-pull-continuation_in-pull [selection-point]
+  {:pre [(traversal-with-pull-continuation_in-pull? selection-point)]
+   :post [(selection-point? selection-point)]}
+  (first (hfql/next-steps selection-point)))
+
+(defn- step-over-eventual_traversal-with-pull-continuation_in-pull [resolved-selection-point] ; Edge case
+  {:pre [(or (nil? resolved-selection-point) (selection-point? resolved-selection-point))]
+   :post [(or (nil? %) (selection-point? %))]}
+  ;; Edge case in this HFQL form: [{:x [:y]}] – namely traversal with continuation in pull
+  ;; Compare with this form: [:x] – namely regular pull, or leaf traversal in pull.
+  ;; Problem: In the case of [{:x [:y]}], navigation sees a duplicate value for '%. producing an off-by-one UI: I.e. selecting a cell renders not the cell but the row itself.
+  ;; This is not an HFQL bug per se. But it produces incorrect UIs.
+  ;; Explanation: navigating an HFQL form (i.e. drilling down) is a step-by-step process, in tree-seq order.
+  ;; Steps are:
+  ;;  - For `[:x]`
+  ;;    1a. current point       – e.g. {:x 1, :z 2} – raw value
+  ;;    2a. pull for [:x]       – e.g. {:x 1} – pulled
+  ;;    3a. traversal for :x    – e.g. 1      – traversed
+  ;;  - For `[{:x [:y]}]`
+  ;;    1b. current point       – e.g. {:x {:y 1}, :z 2} – raw value
+  ;;    2b. pull for [:x]       – e.g. {:x {:y 1}} – pulled for :x. dropped :z
+  ;;    3b. traversal for :x    – e.g. {:y 1}      – traversed
+  ;;    4b. pull for [:y]       – e.g. {:y 1}      – pulled for :y, no change. Not a duplicate either. Please think what would have happened for `[:y *]`. This is crucial.
+  ;;    5b. traversal for :y    – e.g. 1           – traversed
+  ;; We can see that in the case of `[:x]`, selecting the cell for `:x` can only produce the leaf child of the pull: the traversal for :x. (step 3a)
+  ;; In the case of `[{:x [:y]}]`, selecting the cell for `:x` also produce the traversal for `:x` (3b.), but it is an intermediate step, irrelevant to the UI.
+  ;; We want the render the pull instead (4b.).
+  ;; 2026-01-08: Buggy behavior is: % is the same for both step 2b and step 3b. That's why the navigator UI renders the row itself.
+  ;;             Fix is to "step over" 3b.. And adapt `row-selected?` and `cell-selected?` accordingly.
+  ;; Also considered:
+  ;;  - Detecting this edge case at analysis time, and handling it differently in HFQL runtime.
+  ;;    Ruled out because this is not a special case of the syntax. Pulls and traversals are allowed to nest. Nesting them do not make them special.
+  ;;  - Filtering the tree-seqed HFQL at navigation time.
+  ;;    Ruled out because the intermediate traversal is a legit step. It is not meaningful to a UI consumer, but it may be meaningful to others.
+  (let [selection-point resolved-selection-point]
+    (or (and (some? selection-point)
+          (traversal-with-pull-continuation_in-pull? selection-point)
+          (step-over_traversal-with-pull-continuation_in-pull selection-point))
+      (and (some? selection-point)
+        #_(not (traversal-with-pull-continuation_in-pull? selection-point))
+        selection-point)
+      (and (not (some? selection-point))
+        nil))))
+
 (defn resolve-selection-coordinates [selection-point symbolic-selection-coordinates]
   {:pre [(selection-point? selection-point)
          (or (nil? symbolic-selection-coordinates) (symbolic-selection-coordinates? symbolic-selection-coordinates))]
@@ -309,9 +365,10 @@
                 (or (and (some? symbolic-column)
                       (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
                             (row? seeded-selection-point)
-                            (or ; perf optimization – attempt to resolve without suggesting.
-                              (hfql/find-cell-by-symbolic-column symbolic-column seeded-selection-point)
-                              (hfql/find-cell-by-symbolic-column symbolic-column (hfql/augment-with-suggestions! seeded-selection-point))))
+                            (step-over-eventual_traversal-with-pull-continuation_in-pull ; Edge case
+                              (or ; perf optimization – attempt to resolve without suggesting.
+                                (hfql/find-cell-by-symbolic-column symbolic-column seeded-selection-point)
+                                (hfql/find-cell-by-symbolic-column symbolic-column (hfql/augment-with-suggestions! seeded-selection-point)))))
                         (and ; we are resolving a cell selection but the given selection point is not a row. We can't focus on a cell.
                           (not (row? seeded-selection-point))
                           (println "The given selection contains a column and so targets a cell. But the current selection point is not a row. Can't focus on a cell on an object that is not a row." (::ana/type (hfql/metas seeded-selection-point)))
