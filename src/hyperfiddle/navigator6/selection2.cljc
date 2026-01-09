@@ -73,6 +73,7 @@
 (defn- symbolic-column? [value]
   {:post [(boolean? %)]}
   (or (ident? value)
+    (string? value)
     (symbolic-constructor-form? value)))
 
 (tests
