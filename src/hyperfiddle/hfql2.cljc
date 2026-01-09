@@ -667,15 +667,19 @@ identifier, though it might not be serializable."
 (defmulti suggest type)
 
 (defn- suggest-record [record]
-  (hfql*
-    (ana/analyze {} (vec
-                      (map keyword
-                        #?(:clj
-                           (-> (class record)
-                             (.getMethod "getBasis" nil)
-                             (.invoke nil nil))
-                           :cljs
-                           (.getBasis (type record))))))))
+  (let [basis #?(:clj
+                 (-> (class record)
+                   (.getMethod "getBasis" nil)
+                   (.invoke nil nil))
+                 :cljs
+                 (.getBasis (type record)))
+        record-entries (map keyword basis)]
+    (hfql*
+      (ana/analyze {} (vec
+                        (concat
+                          record-entries
+                          (remove (set record-entries) (keys record)))
+                          )))))
 
 (defn- multiplicity-many-value? [object] ; TODO promote to HFQL
   ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
