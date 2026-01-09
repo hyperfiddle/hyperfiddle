@@ -231,6 +231,7 @@
       (cell? point)
       (or (hfql/identifiable? (hfql/value-at-point (hfql/parent point)))
         (not (hfql/multiplicity-many? (hfql/parent (hfql/parent point)))))
+      (symbolic-column? (symbolize-form point)) ; ensure column is representable (e.g. arbitrary object as a key in a map is not URL-representable)
       (pair (symbolize-form point) `(hfql/current-point)))
     (do (println "selected object is not a selectable HFQL point and cannot be selected" (type point) point)
         (pair nil nil))))
@@ -775,6 +776,14 @@
   )
 
 ;;;;; Detecting a selected cell
+
+(defn cell-selectable? [selected-point]
+  {:pre [(or (nil? selected-point) (selection-point? selected-point))]
+   :post [(boolean? %)]}
+  (and (some? selected-point)
+    (selection-point? selected-point)
+    (cell? selected-point)
+    (symbolic-column? (symbolize-form selected-point))))
 
 (defn cell-selected? [selected-point current-point]
   {:pre [(or (nil? selected-point) (selection-point? selected-point))

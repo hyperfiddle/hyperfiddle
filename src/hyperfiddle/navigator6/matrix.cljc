@@ -109,6 +109,7 @@
     (dom/td (dom/props {:style {:--cell-index index}
                         :role :radio
                         :tabindex "0"
+                        :data-tooltip (e/server ({false (str "Can't select this cell. Column object is not Identifiable. " (type (hfql/symbolic-edge cellT)) " : " (hfql/symbolic-edge cellT))} (selection2/cell-selectable? cellT)))
                         :aria-selected (e/server (selection2/cell-selected? selection/*local-selection cellT))})
             (let [GetCellT (e/server (utils/Delay cellT))
                   event (dom/On* "click" cell-ignore-click-on-interactive-content nil) ; TODO hoist
