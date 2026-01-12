@@ -42,49 +42,6 @@
     (ident? router-query) (list router-query)
     :else router-query))
 
-
-
-;; TODO refactor this fn. Logic is convoluted.
-#_(letfn [(select-recursion-point [stepT] ":: stepT → Maybe (stepT | nil)" ; because we want a different default based on no stepT vs no children
-          (if stepT
-            (if (::ana/recursion-point (hfql/metas stepT))
-              (if-let [recursive-child (first (filter (comp ::ana/recursive-child hfql/metas) (unwrap stepT)))]
-                (just (if (empty? (unwrap recursive-child))
-                        nil
-                        recursive-child))
-                (just stepT))
-              (just stepT))
-            nothing))
-        (expand-collection [stepT]
-          (let [val-at-point (hfql/nav stepT)
-                recursive? (::ana/recursion-point (hfql/metas stepT))
-                can-recur? (>= (::ana/recursion-limit (hfql/metas stepT) 0) 1)
-                many? (multiplicity-many-value? val-at-point)
-                ]
-            (->
-              (cond
-                (and recursive? can-recur? many?) (from-maybe (hfql/hfql {* [*]} val-at-point) (select-recursion-point stepT))
-                (and recursive? (not can-recur?) many?) (hfql/hfql {* [*]} val-at-point) ; loses static columns from recursion
-                (and (not recursive?) many?) (hfql/hfql {* [*]} val-at-point)
-                (not many?) stepT
-                :else (throw (ex-info "Unknown case" {:state [recursive? can-recur? many?]})))
-              (hfql/set-parent stepT))
-            ))]
-  (defn- select-next-child [sitemap stepT [column rowT]]
-    (if rowT ; if a row is selected
-      (or (when column ; if a column is also selected
-            (try (expand-collection (or (hfql/find-child column (try (hfql/augment-with-suggestions! rowT) ; find the column in the augmented row, when possible.
-                                                                     (catch #?(:clj Throwable, :cljs :default) t
-                                                                       #?(:clj (clojure.tools.logging/debug t))
-                                                                       rowT)))
-                                      rowT))
-                 (catch #?(:clj Throwable, :cljs :default) _ (prn _))))
-        (some->> (resolve-route sitemap (normalize-router-query (::hfql/select (hfql/metas rowT))))
-          (hfql/seed (hfql/scope rowT)))
-        (from-maybe rowT (select-recursion-point rowT)))
-      #_(when column ; bogus case, can't select a column without an identifiable object
-        (try (hfql/find-child column (hfql/augment-with-suggestions! stepT)) (catch #?(:clj Throwable, :cljs :default) _ nil))))))
-
 (defn- render-type [hfqlT]
   (let [metas (hfql/metas hfqlT)]
     (if (hfql/multiplicity-many? hfqlT)

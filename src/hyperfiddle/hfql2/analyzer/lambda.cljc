@@ -28,6 +28,7 @@
 (comment
   (anonymous? '(fn []))
   (parse-lambda '(fn []))
+  (parse-lambda ''1)
   )
 
 (comment

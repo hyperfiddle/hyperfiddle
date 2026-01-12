@@ -45,8 +45,8 @@
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
 (defpointfree metas (comp fst runCofreeT))
 (defpointfree pull-has-star? (comp ::ana/has-star? metas))
-(defpointfree free-call? (comp ana/free-call? metas))
-(defpointfree fullfilled? (some-fn seeded? free-call?))
+(defpointfree partial? (comp ::ana/partial metas))
+(defpointfree fullfilled? (some-fn seeded? (complement partial?)))
 (defn hfql? [o] (instance? hyperfiddle.hfql2.coalgebra.HFQLT o))
 
 (declare unchunk-seq)
@@ -61,13 +61,12 @@
 (defn filtered [object] (safe-vary-meta object assoc ::filtered true))
 (defn filtered? [object] (::filtered (meta object)))
 
-(defn unfold [ast] (let [ast (co/tag-root ast)] (unfoldT (partial hfqlT ast) ast)))
-(defn hfql* [analyzed-hfql] #_(seed {}) (unfold analyzed-hfql))
+(defn hfql* [analyzed-hfql] #_(seed {}) (unfoldT hfqlT analyzed-hfql))
 
 (defn build-hfql
   ([hfql-expression] (build-hfql {} hfql-expression))
   ([&env hfql-expression]
-   (unfold (ana/analyze (or &env {}) hfql-expression))))
+   (unfoldT hfqlT (ana/analyze (or &env {}) hfql-expression))))
 
 (defmacro hfql
   ([hfql-form] `(hfql* (ana/hfql ~hfql-form)))
@@ -392,7 +391,9 @@
       :hyperfiddle.hfql2.analyzer/form [:a :b :c],
       :hyperfiddle.hfql2.analyzer/lexical-env '{},
       :hyperfiddle.hfql2.analyzer/symbolic-edges [:a :b :c]
-      :hyperfiddle.hfql2.analyzer/has-star? false}
+      :hyperfiddle.hfql2.analyzer/has-star? false
+      :hyperfiddle.hfql2.analyzer/parent _
+      :hyperfiddle.hfql2.analyzer/partial _}
   )
 
 (defn symbolic-edge* [metas]
@@ -426,9 +427,9 @@
      (do
        (assert (= (::ana/type (metas hfqlT-a)) (::ana/type (metas hfqlT-b))))
        (seed (merge (scope hfqlT-a) (scope hfqlT-b))
-         (unfold (case (::ana/type (metas hfqlT-a))
-                   ::ana/pull (combine-pull (::co/AST (metas hfqlT-a)) (::co/AST (metas hfqlT-b)))
-                   ::ana/traversal (throw (ex-info "TODO" {}))
+         (unfoldT hfqlT (case (::ana/type (metas hfqlT-a))
+                          ::ana/pull (combine-pull (::co/AST (metas hfqlT-a)) (::co/AST (metas hfqlT-b)))
+                          ::ana/traversal (throw (ex-info "TODO" {}))
                    (throw (ex-info "Can't combine." (::ana/type (metas hfqlT-a))))))))))
   ([hfqlT-a hfqlT-b & hfqlTs]
    (reduce combine (combine hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
@@ -456,7 +457,9 @@
       :hyperfiddle.hfql2.coalgebra/static-children _
       :hyperfiddle.hfql2.coalgebra/scope '{a 1, b 2}
       :hyperfiddle.hfql2.analyzer/has-star? false
-      :hyperfiddle.hfql2.coalgebra/root _})
+      :hyperfiddle.hfql2.analyzer/parent _
+      :hyperfiddle.hfql2.analyzer/partial _
+      })
 
 ;; (defn filter-pull [pred pullT]
 ;;   (assert (= ::ana/pull (::ana/type (metas pullT))))
@@ -938,8 +941,8 @@ identifier, though it might not be serializable."
        "John")
 
   (pull query)
-  := {john {:person/first-name "John"}} ; note "john" isn't quoted
-  (get-in *1 [john :person/first-name])
+  := {'john {:person/first-name "John"}} ; note "john" isn't quoted
+  (get-in *1 ['john :person/first-name])
   := "John"
   )
 

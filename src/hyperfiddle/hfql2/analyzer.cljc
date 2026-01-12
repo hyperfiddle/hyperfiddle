@@ -2,6 +2,7 @@
   (:require [clojure.core :as cc]
             [contrib.data :refer [update-existing]]
             [contrib.walk :refer [prewalk postwalk]]
+            [hyperfiddle.hfql2.analyzer.lambda :refer [lambda?]]
             [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.pair :refer [pair pair? fst snd]]
@@ -20,11 +21,6 @@
   (and (seq? form)
     (let [[f & _args] form]
       (and (symbol? f) (not (#{'fn `fn 'fn* 'quote 'var 'hfql `hfql} f))))))
-
-(defn- lambda? [form]
-  (and (seq? form)
-    (let [[f & _args] form]
-      (#{'fn `fn 'fn*} f))))
 
 (defn quoted? [form]
   (and (seq? form) (= 'quote (first form))))
@@ -98,9 +94,9 @@
     (record? form)        ::literal
     (map? form)           ::traversals
     (vector? form)        ::pull
-    (lambda? form)        ::lambda
     (quoted-var-form? form) ::quoted-var
     (quoted? form)        ::literal
+    (lambda? form)        ::lambda
     ;; TODO ifn? – maybe
     ;; TODO? method sym
     :else
@@ -269,7 +265,9 @@
        %
        {::type        (projection-type form)
         ::form        (#'quote form)
-        ::lexical-env (lexical-bindings-map env)}
+        ::lexical-env (lexical-bindings-map env)
+        ::partial true ; a partial point depends on %. % is late-bound.
+        }
        (case (projection-type form)
          ::star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
          ::recur     {::recursion-limit (if (nat-int? form) form ##Inf)}
@@ -303,11 +301,12 @@
                             ::recursion-limit (::recursion-limit (φ env recursion))})))
          ::fn        {::symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
                       ::value form} ; already resolved
-         ::lambda    (let [base {::symbolic-edge (let [[_fn ?name ?args] form]
+         ::lambda    (let [base {::symbolic-edge (let [[_fn ?name ?parameters] form]
                                                    (if (symbol? ?name)
                                                      `(~'fn ~?name ~'…)
                                                      '(fn anonymous …)))
                                  ::parameters '(%)
+                                 ::partial true
                                  ::value form}]
                        (if-let [kw (get-kw-fn-form-kw form)]
                          (merge base (select-keys (φ env kw) #{::symbolic-edge ::form-resolved ::form-short}) {::kind ::keyword-fn})
@@ -318,6 +317,7 @@
                         ::var (var-resolver env f)
                         ::parameters params
                         ::arguments (replace {'% ''%} params)
+                        ::partial (contains? (set params) '%)
                         ::form-resolved (resolver env f)
                         ::lexical-env (let [params (remove #{'%} params)]
                                         (merge (lexical-bindings-map env)
@@ -329,8 +329,11 @@
                                   {::edge edge, ::lexical-env (::lexical-env edge)})
                            continuation (φ env (snd form))]
                        (merge base
+                         {::partial (and (::partial edge) (::partial continuation))}
                          (when (= ::star (::kind continuation)) {::multiplicity ::many})
-                         (when (or (= ::recur (::type continuation)) (and (::recursion-point continuation) (not= ::pull (::type continuation))))
+                         (when (or (= ::recur (::type continuation))
+                                 #_(and (::recursion-point continuation) (not= ::pull (::type continuation))) ; TODO cleanup, understand why this used to be necessary.
+                                 )
                            {::recursion-point true
                             ::recursion-limit (::recursion-limit continuation)})
                          ))))
@@ -491,8 +494,3 @@
 ;;   )
 
 
-(defn free-call? [point]
-  (case (::type point)
-    ::call (empty? (filter #{'%} (::parameters point)))
-    ::traversal (free-call? (::edge point))
-    false))
