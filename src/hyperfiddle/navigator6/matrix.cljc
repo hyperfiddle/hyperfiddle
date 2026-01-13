@@ -235,7 +235,9 @@
           (e/amb
             (MatrixHeader columnTs)
             (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
-                  [offsetV limitV offsetH limitH] (bounds-by-axis transpose (Scroll-window 24 rowTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))}))]
+                  itemTs-count (#(if single? columnTs-count rowTs-count))
+                  scroll-window (Scroll-window 24 itemTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))})
+                  [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)]
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
                 offsetH (min columnTs-count limitH)))
@@ -293,7 +295,7 @@
         [true false false (-> (hfql/hfql {* [key val]} (seq value) #_(map #(zipmap [:key :val] %) (seq value))) (hfql/set-parent stepT))]
         [false transpose? single? stepT]))))
 
-(e/defn RenderMatrix [stepT & [transpose? single?]]
+(e/defn RenderMatrix [stepT & {:keys [transpose? single?]}]
   (dom/fieldset
     (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))})))
     (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))})))
