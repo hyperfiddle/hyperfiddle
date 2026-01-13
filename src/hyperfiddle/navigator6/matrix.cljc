@@ -57,7 +57,7 @@
   (dom/thead
     (dom/tr
       (e/amb
-        (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :style {:width "100%"}})
+        (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :title "Transpose" :style {:width "100%"}})
                 (Command (constantly [`Transpose!]) (dom/On* "click" identity nil) (constantly nil)))
         (let [shorten (e/server (name-shortener (map hfql/symbolic-edge columnsT)))
               columns-index (e/server (into {} (map (juxt hfql/id identity)) columnsT))]

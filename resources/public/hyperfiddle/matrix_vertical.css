@@ -71,10 +71,14 @@ table.matrix{
 
 
 
+
+
     }
     tbody{
-        th{
+        th[scope="row"]{
+
             left:0;
+
         }
 
 

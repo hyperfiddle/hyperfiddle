@@ -65,6 +65,8 @@ table.matrix.transposed{
         .transpose-affordance{
             position: sticky;
             top:0;
+            background: var(--diagonal), var(--background-pattern);
+            background-size: 100% 100%, var(--background-size);
         }
         th{
             justify-self: stretch;
@@ -73,8 +75,10 @@ table.matrix.transposed{
         }
     }
     tbody{
-        th{
+        th[scope="row"]{
+            position: sticky;
             top:0;
+            background: var(--background-pattern);
         }
         tr:first-child td{
             padding-left: 0.375em;
