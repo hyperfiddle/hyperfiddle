@@ -341,6 +341,7 @@
   (let [selection-point resolved-selection-point]
     (or (and (some? selection-point)
           (traversal-with-pull-continuation_in-pull? selection-point)
+          (not= ::ana/many (::ana/multiplicity (hfql/metas selection-point))) ; TODO extract to a generic predicate
           (step-over_traversal-with-pull-continuation_in-pull selection-point))
       (and (some? selection-point)
         #_(not (traversal-with-pull-continuation_in-pull? selection-point))
