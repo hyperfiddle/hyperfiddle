@@ -211,7 +211,8 @@
   (or
     ;; Selected point is identifiable.
     (and (selection-point? point) ; selected point is an HFQL point
-      (hfql/identifiable? (hfql/value-at-point point)) ; selected point's value is Identifiable
+      (hfql/identifiable? (hfql/value-at-point point)) ; selected point's value is Identifiable. This means we should be able to identify it. Not that identification is guaranteed to succeed.
+      (some? (hfql/identify (hfql/value-at-point point)))
       (or (and (row? point) ; selected point is a row
             (pair nil (symbolize-value point)))
         (and (cell? point) ; selected point is a cell
