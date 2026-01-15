@@ -46,11 +46,15 @@
 
 (def maybe-to-list ":: Maybe a → [a]" (maybe (list) list))
 
-(defn map-maybe ":: (a → Maybe b) → [a] → [b]"
-  ([f] (keep (fn [a]
-               (let [maybe-b (f a)]
-                 (when (just? maybe-b) maybe-b)))))
+(defn map-maybe ":: (a → Maybe b) → [a] → [b]" ; TODO generalize to Filterable so to preserve the input collection type.
+  ([f] (partial map-maybe f))
   ([f as]
-   (sequence (map-maybe f) as)))
+   (keep
+     (fn [a]
+       (let [maybe-a (f a)]
+         (if (just? maybe-a)
+           (from-just maybe-a)
+           nil)))
+     as)))
 
 (defn cat-maybes ":: [Maybe a] → [a]" [as] (map-maybe identity as))
