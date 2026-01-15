@@ -1,5 +1,5 @@
 (ns hyperfiddle.ct.monad
-  (:require [hyperfiddle.ct.function :refer [const id]]
+  (:require [hyperfiddle.ct.function :refer [const id flip]]
             [hyperfiddle.ct.functor :refer [fmap runIdentity #?(:cljs Identity)]]
             [hyperfiddle.ct.applicative :as A :refer [fapply pure *>]]
             [hyperfiddle.rcf :refer [tests]])
@@ -34,7 +34,7 @@
 
 (defmethod valid-bind-return-value? :default [input output] (isa? (type output) (type input)))
 
-(defn bind [ma a->mb]
+(defn bind ":: (a -> m b) -> m a -> m b" [ma a->mb]
   {:pre [(satisfies? Monad ma)]
    :post [(satisfies? Monad %) (valid-bind-return-value? ma %) #_(= (type ma) (type %))]}
   (binding [*context* ma]
@@ -43,6 +43,7 @@
                   (a->mb a))))))
 
 (def >>= bind)
+(def =<< ":: m a -> (a -> m b) -> m b. Flipped bind." (flip bind))
 
 (defn >> ">> :: :: forall a b. m a -> m b -> m b " [ma mb]
   (if (satisfies? MonadDiscard ma)

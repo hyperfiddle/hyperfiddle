@@ -111,7 +111,13 @@
   #?(:clj clojure.lang.IPending)
   #?(:clj (isRealized [_] (some? (some-> (aget !cache 0) deref))))
   #?(:cljs IPending)
-  #?(:cljs (-realized? [_] (some? (some-> (aget !cache 0) deref)))))
+  #?(:cljs (-realized? [_] (some? (some-> (aget !cache 0) deref))))
+
+  #?(:clj clojure.lang.Fn, :cljs function)
+
+  #?(:clj clojure.lang.IFn :cljs IFn)
+  (#?(:clj invoke :cljs -invoke) [this] (extract this))
+  )
 
 (defn thunk* [cache-strategy f]
   (assert (contains? CACHE-STRATEGIES cache-strategy))
@@ -150,4 +156,6 @@
   (thunk? *1)
   (extract *2)
   (fmap #(str % " world") *3)
-  (extract *1))
+  (extract *1)
+  (*2)
+  )
