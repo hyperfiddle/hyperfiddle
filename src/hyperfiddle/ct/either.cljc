@@ -1,11 +1,23 @@
 (ns hyperfiddle.ct.either
-  "The dual of Pair. Pair is a×b, Either is a|b.
-  The Either type represents values with two possibilities: a value of type Either a b is either Left a or Right b.
+  "The Either type represents values with two possibilities: a value of type Either a b is either Left a or Right b.
   The Either type is sometimes used to represent a value which is either correct
   or an error; by convention, the Left constructor is used to hold an error
   value and the Right constructor is used to hold a correct value (mnemonic: \"right\" also means \"correct\").
-
   https://hackage-content.haskell.org/package/base-4.22.0.0/docs/Data-Either.html
+
+  Either is the minimal definition of a coproduct. The categorical dual of a
+  product (e.g. Pair). Pair is a×b, Either is a|b. Isomorphically:
+   - a × b ⇔ a ∧ b
+   - a | b ⇔ a ∨ b – note this is OR, not XOR¹.
+
+  ¹ Either A B is inhabited whenever A is inhabited or B is inhabited, even if
+  both are inhabited. This is a common misconception: values vs propositions. An
+  *instance* of Either is always either Left a or Right b (constructors are
+  disjoint), so a single value cannot be both at once. But the *proposition* A ∨ B
+  means: you have evidence for A or evidence for B (and you can indicate
+  which). XOR is (A ∨ B) ∧ ¬(A ∧ B), which requires additionally proving that A
+  and B cannot both hold. 'Picking a side' at construction time does not provide
+  that impossibility proof.
   "
   (:require
    [hyperfiddle.ct.function :refer [const]]
