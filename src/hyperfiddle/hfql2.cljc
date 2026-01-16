@@ -17,6 +17,7 @@
    [hyperfiddle.ct.rose-tree :refer [rose-tree]]
    [hyperfiddle.ct.store :refer [pos peeks]]
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
+   [hyperfiddle.ct.either :refer [either left right unwrap!]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation -hfql-resolve -resolve-dispatch]]
@@ -33,11 +34,12 @@
 
 (def seed co/seed)
 (def nav* extract)
-(defpointfree nav (comp force-thunk nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate
+(defpointfree nav (comp unwrap! force-thunk nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate
 (defpointfree pull* (comp extract co/pull))
 (defpointfree pull (comp force-thunk pull*))
 (defpointfree next-steps unwrap)
-(defpointfree values (comp (fmap (comp force-thunk nav)) tree-seqT))
+(def ^:private from-either (either left identity))
+(defpointfree values (comp (fmap (comp #_from-either force-thunk nav)) tree-seqT))
 
 (defpointfree scope (comp pos snd runCofreeT))
 (defpointfree value-at-point (comp force-thunk '% scope))

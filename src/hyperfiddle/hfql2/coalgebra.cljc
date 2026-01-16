@@ -85,7 +85,7 @@
    [hyperfiddle.ct.rose-tree :refer [mapHead mapTail]]
    [hyperfiddle.ct.store :refer [store seek pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
-   [hyperfiddle.ct.monad :refer [=<<] ]
+   [hyperfiddle.ct.monad :refer [bind =<<]]
    [hyperfiddle.ct.either :as either]
    [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.hfql2.protocols :as hfqlp]
@@ -165,16 +165,18 @@
    (try
      (let [args (mapv (fn [parameter argument]
                         (if (symbol? parameter)
-                          (let [resolved (resolve parameter env)]
-                            (if (= '% parameter)
-                              (force-thunk resolved)
+                          (let [resolved (try (either/right (ensure-either (resolve parameter env)))
+                                              (catch #?(:clj Throwable, :cljs :default) err
+                                                (either/left err)) )]
+                            (either/either
+                              either/left
+                              (fn [b] (if (= '% parameter) (force-thunk b) b))
                               resolved))
                           (if (= ::unbound argument)
-                            (throw (ex-info "Unbound function argument" {:parameter parameter}))
-                            argument)))
+                            (either/left (ex-info "Unbound function argument" {:parameter parameter}))
+                            (either/right argument))))
                   (::ana/parameters point) (concat (::ana/arguments point) (repeat ::unbound)))]
-       (or (first (filter either/left? args))
-         (either/right args)))
+       (either/sequenceEither args))
      (catch #?(:clj Throwable, :cljs :default) err
        (either/left err)))))
 
@@ -701,7 +703,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                       '(nil)
                                       (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge point) point))))
                                           (either/either
-                                            () ; stop navigation at first error
+                                            (constantly ()) ; stop navigation at first error
                                             identity
                                             (force-thunk value) ; ⚠ will force all effects up to the root to compute children multiplicity
                                             )))
@@ -713,8 +715,11 @@ Pulling on non-maps (non associative) is perfectly fine.
                                (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
                                (fn [value_i]
                                  (binding [thunks/*cache-strategy* ::thunks/weak] ; lazy-seq spine do not hold onto navigated values. Leaves does.
-                                   (thunk (safe-ccp-nav forced nil value_i)))) ; hard-wired navigate call – a fan-out is never a leaf.
-                               either/right) ; distribute Right over all values of the sequence: Right [a] -> [Right a] (opposite of applicative `sequence`)
+                                   (thunk
+                                     (try
+                                       (either/right (safe-ccp-nav forced nil value_i)) ; hard-wired navigate call – a fan-out is never a leaf.
+                                       (catch #?(:clj Throwable, :cljs :default) err
+                                         (either/left err)))))))
                              (to-seq forced))
                            (meta forced)))))))))
            (lexical-env point)))))))

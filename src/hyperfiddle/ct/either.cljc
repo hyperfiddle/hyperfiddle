@@ -230,3 +230,21 @@
 (defn unwrap! ":: Throwable a => Either a b -> b. Given an Right b, return `b`. Given a Left a, throws a."
   [e]
   (either #(throw %) identity e))
+
+(defn sequenceEither ":: [Either a b] -> Either a [b]" ;; TODO define as an instance of Traversable on [Either a b] – not sure how to do it without typeclasses.
+  [eithers]
+  (reduce (fn [r x]
+            (either
+              left
+              (fn [b] (fmap #(conj % b) r))
+              x))
+    (right [])
+    eithers)
+  )
+
+(tests
+  (sequenceEither [(right 1) (right 2)])
+  := (right [1 2])
+  (sequenceEither [(left 1) (right 2)])
+  := (left 1)
+  )
