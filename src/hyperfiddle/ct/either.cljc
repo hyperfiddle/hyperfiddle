@@ -43,8 +43,9 @@
 (defn right? "right? :: Either a b -> Bool" [either] (instance? Right either)) ; isRight in haskell
 (defn from-right ":: b -> Either a b -> b. Return the contents of a Right-value or a default value otherwise."
   [b either] (if (right? either) (.-b either) b))
-(def rights ":: [Either a b] -> [b]. Extracts from a list of Either all the Right elements. All the Right elements are extracted in order."
-  (map-maybe (either (const nothing) just)))
+(defn rights ":: [Either a b] -> [b]. Extracts from a list of Either all the Right elements. All the Right elements are extracted in order."
+  [eithers]
+  (map-maybe (either (const nothing) just eithers)))
 
 (tests
   (either? (right 1))
@@ -74,8 +75,9 @@
 (defn left? "left? :: Either a b -> Bool" [either] (instance? Left either)) ; isLeft in haskell
 (defn from-left ":: a -> Either a b -> a. Return the contents of a Left-value or a default value otherwise." [a either]
   (if (left? either) (.-a either) a))
-(def lefts ":: [Either a b] -> [a]. Extracts from a list of Either all the Left elements. All the Left elements are extracted in order."
-  (map-maybe (either just (const nothing))))
+(defn lefts ":: [Either a b] -> [a]. Extracts from a list of Either all the Left elements. All the Left elements are extracted in order."
+  [eithers]
+  (map-maybe (either just (const nothing) eithers)))
 
 (tests
   (either? (left 1))
