@@ -33,8 +33,8 @@
   `(defn ~name [point#] (~f point#)))
 
 (def seed co/seed)
-(def nav* extract)
-(defpointfree nav (comp unwrap! force-thunk nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate
+(defpointfree nav* (comp force-thunk extract))
+(defpointfree nav (comp unwrap! nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate
 (defpointfree pull* (comp extract co/pull))
 (defpointfree pull (comp force-thunk pull*))
 (defpointfree next-steps unwrap)
@@ -722,10 +722,18 @@ identifier, though it might not be serializable."
 
 
 (defn- suggest-at-point! [hfqlT]
-  (if-let [suggestedT (suggest (force-thunk (value-at-point hfqlT)))] ; TODO confirm if `force-thunk` is necessary here. value-at-point already forces the thunk.
-    (hoistHfqlT (bf/first #(assoc % ::suggested true))
-      suggestedT) ; recursively map over CofreeT structure - lazily
-    hfqlT))
+  (either
+    (constantly nil)
+    (fn [v]
+      (try
+        (if-let [suggestedT (suggest v)] ; TODO confirm if `force-thunk` is necessary here. value-at-point already forces the thunk.
+          (hoistHfqlT (bf/first #(assoc % ::suggested true))
+            suggestedT) ; recursively map over CofreeT structure - lazily
+          hfqlT)
+        (catch #?(:clj Throwable, :cljs :default) err
+          (prn "Failed to suggest columns for " (type v) ".\n" err)
+          nil)))
+    (value-at-point hfqlT)))
 
 (declare parent set-parent)
 

@@ -8,6 +8,7 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2.analyzer :as ana :refer [unquote*]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
+            [hyperfiddle.ct.either :refer [either left?]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.hfql2.utils :refer [imap?]]
             [hyperfiddle.navigator6.extensions :as extensions]
@@ -72,9 +73,13 @@
        (case x
          ::not-found ""
          ::empty-cell ""
-         (if (or (set? x) (sequential? x) (array? x) (map? x))
-           (str-inline-coll x server-pretty)
-           ((get server-pretty (class x) pr-str) x))))))
+         (either
+           ex-message
+           (fn [x]
+             (if (or (set? x) (sequential? x) (array? x) (map? x))
+               (str-inline-coll x server-pretty)
+               ((get server-pretty (class x) pr-str) x)))
+           x)))))
 
 (defn as-coll [v] (if (or (array? v) (coll? v)) v [v])) ; TODO removeme, glitch guard
 
@@ -134,6 +139,7 @@
 (e/defn DefaultCellRenderer [object edgeT value]
   (RenderTooltip ::hfql/Tooltip object edgeT value)
   (let [pretty-v (e/Offload #(pretty-value value *server-pretty))]
+    (dom/props {:data-error (e/server (#(or (left? value) nil)))})
     (e/Reconcile
       #_(e/client (e/drain (e/Tap-diffs (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))))) ; FIXME not showing up
       (let [link-href (link-href object edgeT value)]
@@ -156,10 +162,10 @@
 
 (e/defn Render [object edge value] (RenderCell object edge value))
 (e/defn Render* [stepT]
-  (Render (e/Offload #(force ((glitch-guard hfql/value-at-point) stepT)))
+  (Render (e/Offload #(force ((glitch-guard hfql/value-at-point) stepT))) ; FIXME force is suspicious here. It shouldn't work.
     stepT
     (e/Offload #(if stepT
-                  (hfql/nav (get-leafT stepT))
+                  (hfql/nav* (get-leafT stepT))
                   ::empty-cell))))
 
 

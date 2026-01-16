@@ -108,6 +108,14 @@ table.matrix{
     }
 }
 
+table.matrix tr td[data-error="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 1px;               /* gap around the background */
+  background: oklch(89.2% 0.058 10.001);
+  z-index: -1;              /* behind content */
+}
+
 /* Stripped rows à la MacOs finder */
 table.matrix{
     --row-color-dark: #f2f2f2;
