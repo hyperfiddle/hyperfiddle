@@ -21,10 +21,13 @@
 (def <*> "<*> aka fapply :: f (a -> b) -> f a -> f b" fapply)
 (def <**> "<**> aka flipped fapply :: f a -> f (a -> b) -> f b" (flip <*>))
 
-(defn liftA2 "liftA2 :: (a -> b -> c) -> f a -> f b -> f c" [a->b->c fa fb]
-  (if (satisfies? ApplicativeLiftA2 fa)
-    (-liftA2 fa a->b->c fb)
-    (fapply (fmap a->b->c fa) fb)))
+(defn liftA2 "liftA2 :: (a -> b -> c) -> f a -> f b -> f c"
+  ([a->b->c] (partial liftA2 a->b->c))
+  ([a->b->c fa] (partial liftA2 a->b->c fa))
+  ([a->b->c fa fb]
+   (if (satisfies? ApplicativeLiftA2 fa)
+     (-liftA2 fa a->b->c fb)
+     (fapply (fmap #(partial a->b->c %) fa) fb))))
 
 (def ^:dynamic *context*)
 
@@ -56,9 +59,9 @@
     (binding [*context* IDf]
       (pure ((runIdentity IDf) (runIdentity IDa)))))
   ApplicativeLiftA2
-  (-liftA2 [fa a->b->c fb]
+  (-liftA2 [fa a->b->c fb] ; example impl
     (binding [*context* fa]
-      (fapply (fmap a->b->c fa) fb))))
+      (fapply (fmap #(partial a->b->c %) fa) fb))))
 
 (extend-type #?(:clj clojure.lang.Delay, :cljs Delay)
   Applicative
@@ -73,6 +76,8 @@
 (tests
   (fapply (Identity. inc) (Identity. 1))
   := (Identity. 2)
+  ((liftA2 +) (Identity. 1) (Identity. 2))
+  := (Identity. 3)
   )
 
 ;;; Laws
