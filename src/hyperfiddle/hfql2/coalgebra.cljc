@@ -180,7 +180,7 @@
 
 (def focus-arguments (comp local thunked resolve-arguments))
 
-(def ^:private from-either (either/either identity identity))
+(defn- from-either [e] (either/either identity identity e))
 
 (defn template-symbolic-edge [env point & [point-free?]]
   (let [edge (::ana/edge point)
@@ -271,8 +271,16 @@
                 (catch #?(:clj Throwable, :cljs :default) err
                   (either/left err))))))))))
 
-(defn- touch [object] (if (seqable? object) (doall object) object))
-(def ^:private star (mem-reader (thunked touch)))
+(defn- touch [object]
+  (try
+    (either/right
+      (if (seqable? object)
+        (doall object)
+        object))
+    (catch #?(:clj Throwable, :cljs :default) err
+      (either/left err))))
+
+(def ^:private star (mem-reader (thunked (=<< touch))))
 
 (defn- left "Variadic opposite of `{}` aka discard." [a & _] a) ; almost the K combinator
 (defn- right "Variadic `{}` aka discard." [& args] (last args)) ; almost (K I)
@@ -346,12 +354,16 @@ Pulling on non-maps (non associative) is perfectly fine.
   The alternative would be to throw. We prefer to let the user datafy beforehand and then call `*`.
   "
   [object]
-  (try
-    (->> (force-thunk (runReader star object)) ; expects an IPersistentMap or a sequences of MapEntries
-      (map key) ; do not use `keys` here. `doall` doesn't work as expected on it. See following RCF.
-      (map disambiguate-nums-from-recursion)
-      (doall))
-    (catch #?(:clj Throwable, :cljs :default) _ ())))
+  (->> (force-thunk (runReader star object)) ; expects an IPersistentMap or a sequences of MapEntries
+    (either/either
+      (constantly ())
+      (fn [associative]
+        (try
+          (->> associative
+            (map key) ; do not use `keys` here. `doall` doesn't work as expected on it. See following RCF.
+            (map disambiguate-nums-from-recursion)
+            (doall))
+          (catch #?(:clj Throwable, :cljs :default) _ ()))))))
 
 (tests
   "clojure.core/keys is a sneaky dodger" ; `vals` too and potentially others.
@@ -468,7 +480,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                       0
                                       (or (ffirst (filter (comp hyperfiddle.hfql2.coalgebra/star? extract second) (map-indexed vector children)))
                                         ##Inf))
-                      dynamic-keys (when star? (star-keys (get env '%)))
+                      dynamic-keys (when star? (star-keys (ensure-either (get env '%))))
                       star-kids (let [static-keys (set (map (comp symbolic-edge extract) kids))
                                       remaining-star-keys (remove static-keys dynamic-keys)]
                                   (unwrap (ana/analyze {} (vec remaining-star-keys))))
@@ -739,7 +751,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   := '({:a 1} 1)
  
 
-  (-values (seed {'% {:a 1, :b 2}} (-hfql [:a *]) ))
+  (-values (seed {'% {:a 1, :b 2}} (-hfql [:a *]) )) 
   := '({:a 1, :b 2} 1 2)
 
   (-values (seed {'% {1 :a, 2 :b}} (-hfql ['1 *])))
@@ -816,6 +828,14 @@ Pulling on non-maps (non associative) is perfectly fine.
   := '({:a 1, :b "b"} 1 2 "b")
   )
 
+(defn- extract-right-value-or-keep-left-error [x]
+  (if true #_(either/either? x)
+    (either/either
+      either/left
+      identity
+      x)
+    x))
+
 (defn- pull-algebra [W children]
   (let [point (fst (runCofreeT W))]
     (case (projection-type point)
@@ -838,11 +858,11 @@ Pulling on non-maps (non associative) is perfectly fine.
                       (map force-thunk children)
                       (force-thunk (first children)))
                     ;; bounded recursion case, no more children, return value as-is.
-                    (force-thunk (extract W)))]
+                    (extract-right-value-or-keep-left-error (force-thunk (extract W))))]
           (if (star-traversal? point) ; e.g. without this check {* [ns-name]} on (all-ns) would produce {nil (…)} because `*` is purely syntactic and is not a named point.
             val
             {key val})))
-      (fmap from-either (extract W)))))
+      (fmap extract-right-value-or-keep-left-error (extract W)))))
 
 (defn pull "Equivalent of `datomic.api/pull`. Reshape an HFQL tree `W` into a post-order version of the same tree.
   Lazy in theory, eager in practice.
@@ -965,7 +985,7 @@ Pulling on non-maps (non associative) is perfectly fine.
    )
 
 (tests
-  (from-either (force-thunk (extract (seed {'% {:a 1}} (-hfql *)))))
+  (from-either (force-thunk (extract (seed {'% {:a 1}} (-hfql *))))) 
   := {:a 1}
 
   (from-either (force-thunk (extract (seed {'% {:a 1}} (-hfql :a)))))
@@ -1072,7 +1092,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   "pull re-navigation on recursive pull"
-  (-values (pull (seed '{% 1} (-hfql {inc [str {identity 1}]}))))
+  (-retraverse (pull (seed '{% 1} (-hfql {inc [str {identity 1}]})))) 
   := '({inc {str "2", identity {inc {str "3", identity 3}}}}
        {str "2", identity {inc {str "3", identity 3}}}
        "2"
@@ -1092,7 +1112,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   := '(2 {str "2"} "2" 3 {str "3"} "3" 4 {str "4"} "4")
 
   "bounded pull"
-  (-values (pull (seed {'% 1} (-hfql {inc [str 2]}))))
+  (-retraverse (pull (seed {'% 1} (-hfql {inc [str 2]}))))
   := '({inc {str "2", inc {str "3", inc {str "4"}}}}
        {str "2", inc {str "3", inc {str "4"}}}
        "2"
@@ -1106,23 +1126,32 @@ Pulling on non-maps (non associative) is perfectly fine.
 #?(:clj
    (tests
      "unbounded pull" ; crashes on first value asked – because pull is a post-order traversal.
-     (first (-values (pull (seed {'% 1} (-hfql {inc [str ...]})))))
-     :throws java.lang.StackOverflowError))
+     (pull (seed {'% 1} (-hfql {inc [str ...]})))
+     := _ ; no crash
+
+     (take 0 (-retraverse (pull (seed {'% 1} (-hfql {inc [str ...]})))))
+     := _ ; same query, no crash
+
+     (first (-retraverse (pull (seed {'% 1} (-hfql {inc [str ...]})))))
+     :throws java.lang.StackOverflowError ; same query, asking for the first crashes (first is the root, accumulated in post-order)
+
+     nil))
 
 (tests
-  "reseeding"
+  "Reseeding – seeding twice"
+  (-values (seed {'% {:a 10}} (seed {'% {:a 1}} (-hfql [:a])))) ; (seed … (seed … query)
+  := '({:a 10} 10))
+
+(tests
+  "Reseeding – seeding children while traversing"
   (let [w (seed {'% 1} (-hfql {inc {inc {inc inc}}}) )]
-    (force-thunk (extract w)) := 2
+    (from-either (force-thunk (extract w))) := 2
     (let [w2 (first (unwrap w))]
       [(-values w2)
        (-values (seed {'% 10} w2))])
 
     := '[(3 4 5) (11 12 13)]
     ))
-
-(tests
-  (-values (seed {'% {:a 10}} (seed {'% {:a 1}} (-hfql [:a]))))
-  := '({:a 10} 10))
 
 (tests
   "dynamic scope injection"

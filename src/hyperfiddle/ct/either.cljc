@@ -227,3 +227,6 @@
 
   )
 
+(defn unwrap! ":: Throwable a => Either a b -> b. Given an Right b, return `b`. Given a Left a, throws a."
+  [e]
+  (either #(throw %) identity e))
