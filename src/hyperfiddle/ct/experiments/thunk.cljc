@@ -113,8 +113,6 @@
   #?(:cljs IPending)
   #?(:cljs (-realized? [_] (some? (some-> (aget !cache 0) deref))))
 
-  #?(:clj clojure.lang.Fn, :cljs function)
-
   #?(:clj clojure.lang.IFn :cljs IFn)
   (#?(:clj invoke :cljs -invoke) [this] (extract this))
   )

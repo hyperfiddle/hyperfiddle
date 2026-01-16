@@ -42,9 +42,9 @@
   Semigroup ; lawful semigroup impl that doesn't require wrapped values to themeselves be semigroup.
   (-<> [either-a either-b] (semigroup-mappend either-a either-b))
   Functor
-  (-fmap [_this f] (->Right (f b)))
+  (-fmap [_this f] (Right. (f b)))
   Bifunctor
-  (-bimap [_this _f g] (->Right (g b)))
+  (-bimap [_this _f g] (Right. (g b)))
   Applicative
   (-pure [_ a] (pure-either a))
   (-fapply [either-f either-v] (fapply-either either-f either-v))
@@ -75,7 +75,7 @@
   Functor
   (-fmap [this _f] this)
   Bifunctor
-  (-bimap [_this f _g] (->Left (f a)))
+  (-bimap [_this f _g] (Left. (f a)))
   Applicative
   (-pure [_ a] (pure-either a))
   (-fapply [either-f either-v] (fapply-either either-f either-v))
