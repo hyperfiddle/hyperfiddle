@@ -392,7 +392,6 @@
       :hyperfiddle.hfql2.analyzer/lexical-env '{},
       :hyperfiddle.hfql2.analyzer/symbolic-edges [:a :b :c]
       :hyperfiddle.hfql2.analyzer/has-star? false
-      :hyperfiddle.hfql2.analyzer/parent _
       :hyperfiddle.hfql2.analyzer/partial _}
   )
 
@@ -457,7 +456,6 @@
       :hyperfiddle.hfql2.coalgebra/static-children _
       :hyperfiddle.hfql2.coalgebra/scope '{a 1, b 2}
       :hyperfiddle.hfql2.analyzer/has-star? false
-      :hyperfiddle.hfql2.analyzer/parent _
       :hyperfiddle.hfql2.analyzer/partial _
       })
 
