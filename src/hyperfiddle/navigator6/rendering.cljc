@@ -9,6 +9,7 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2.analyzer :as ana :refer [unquote*]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
+            [hyperfiddle.hfql2.coalgebra :refer [vary-static-meta]]
             [hyperfiddle.ct.either :refer [either either? left? from-left from-right right left]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.hfql2.utils :refer [imap?]]
@@ -178,22 +179,28 @@
     (let [denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) (hfql/identify value), '%v (or (hfql/identify value) value)}]
       (template-link denv symbolic-link-href))))
 
+(e/declare ^:dynamic *error*)
+
 (e/defn DefaultCellRenderer [object edgeT value]
-  (RenderTooltip ::hfql/Tooltip object edgeT value)
-  (let [either-rendered-str (e/Task (pretty-printer value *server-pretty) #_(right "hello"))
-        pretty-v (either #(str (pr-str (type %)) ". " (ex-message %)) identity either-rendered-str)]
-    (dom/props {:data-error (#(or (left? either-rendered-str) nil))})
-    (e/Reconcile
-      #_(e/client (e/drain (e/Tap-diffs (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))))) ; FIXME not showing up
-      (let [link-href (link-href object edgeT value)]
-        (if (Swallow-empty-diffs (some? link-href))
-          (router/link (relativize-link-path link-href) (dom/text pretty-v))
-          (dom/text pretty-v))))))
+  (let [value (#(or (some-> *error* ex-message not-empty)
+                  (some-> *error* type)
+                  value))]
+    (RenderTooltip ::hfql/Tooltip object edgeT value)
+    (let [either-rendered-str (e/Task (pretty-printer value *server-pretty))
+          pretty-v (either #(str (pr-str (type %)) ". " (ex-message %)) identity either-rendered-str)]
+      (dom/props {:data-error (#(or (some? *error*) nil))}) ; nil removes the attribute. We want that over `false`.
+      (e/Reconcile
+        #_(e/client (e/drain (e/Tap-diffs (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))))) ; FIXME not showing up
+        (let [link-href (link-href object edgeT value)]
+          (if (Swallow-empty-diffs (some? link-href))
+            (router/link (relativize-link-path link-href) (dom/text pretty-v))
+            (dom/text pretty-v)))))))
 
 (e/declare Render)
 
 (e/defn RenderCell [either-object edgeT either-value]
-  (binding [Render DefaultCellRenderer]
+  (binding [Render DefaultCellRenderer
+            *error* (from-left nil either-value)]
     (e/Reconcile (e/call (Resolve (unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
                            Render)
                    ((glitch-guard some? either identity identity) either-object)

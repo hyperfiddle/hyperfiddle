@@ -688,7 +688,7 @@ identifier, though it might not be serializable."
 
 (extend-protocol Suggestable
   #?(:clj Throwable, :cljs js/Error)
-  (-suggest [_] (hfql [ex-message ex-data {ex-cause ...} #?(:clj .getStackTrace :cljs get-stack-trace)])))
+  (-suggest [_] (hfql [type ex-message ex-data {ex-cause ...} #?(:clj .getStackTrace :cljs get-stack-trace)])))
 
 #?(:clj
    (extend-type java.lang.StackTraceElement
