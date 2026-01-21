@@ -765,9 +765,10 @@ identifier, though it might not be serializable."
     (either
       (fn [err] (println "Failed to suggest columns:" (ex-message err)) nil)
       (fn [suggestedT]
-        (hoistHfqlT (bf/first #(assoc % ::suggested true))
-          suggestedT)) ; recursively map over CofreeT structure - lazily
-      )))
+        (if (some? suggestedT)
+          (hoistHfqlT (bf/first #(assoc % ::suggested true))
+            suggestedT) ; recursively map over CofreeT structure - lazily
+          hfqlT)))))
 
 (declare parent set-parent)
 
