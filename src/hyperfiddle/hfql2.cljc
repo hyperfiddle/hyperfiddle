@@ -721,11 +721,14 @@ identifier, though it might not be serializable."
       ;; Edge case of a record with no static fields but potentially some extra keys associated to it.
       ;; Real-world example: datomic.fulltext_index.PersistentFulltext accessible under d/db > :memidx > :fulltext
       (suggest-map record)
-      (hfql*
-        (ana/analyze {} (vec
-                          (concat
-                            record-entries
-                            (remove (set record-entries) (keys record)))))))))
+      (->> (keys record)
+        (map (fn [key] (cond (number? key) (list 'quote key) ; raw numbers are interpreted as recursion, not colums.
+                             :else key)))
+        (remove (set record-entries)) ; won't clash with numbers mapped to quoted numbers – record fields must be symbols.
+        (concat record-entries)
+        (vec)
+        (ana/analyze {})
+        (hfql*)))))
 
 (defn- multiplicity-many-value? [object] ; TODO promote to HFQL
   ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
