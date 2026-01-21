@@ -103,6 +103,7 @@
          (debug-exceptions `str-inline-coll
            (let [coll-count-upper-bound 1000
                  coll-count (bounded-count (inc coll-count-upper-bound) coll)
+                 items-qualifier (if (map? coll) "entries" "elements")
                  base (binding [*print-length* 1, *print-level* 2]
                         ;; `symbol` removes double quotes from the strings inside the collection
                         (if (map? coll)
@@ -117,10 +118,10 @@
                             str
                             (str/replace (str \newline) (str \space))
                             (str/trim))))]
-             (cond-> (doto base (->> (pr-str "base")))
+             (cond-> base
                (> coll-count 1) (str-insert-before-last " …")
-               (<= 2 coll-count coll-count-upper-bound) (str " " coll-count " elements")
-               (> coll-count coll-count-upper-bound) (str " " coll-count-upper-bound "+" " elements")
+               (<= 2 coll-count coll-count-upper-bound) (str " " coll-count " " items-qualifier)
+               (> coll-count coll-count-upper-bound) (str " " coll-count-upper-bound "+ " items-qualifier)
                )))))
     (catch #?(:clj Throwable, :cljs :default) t ; glitch guard
       (left t))))
