@@ -16,67 +16,122 @@
             [hyperfiddle.navigator6.selection :as selection]
             [hyperfiddle.navigator6.selection2 :as selection2]
             [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard Swallow-empty-diffs]]
-            [hyperfiddle.router5 :as router]))
+            [hyperfiddle.router5 :as router]
+            [missionary.core :as m])
+  #?(:cljs (:import [goog.math Long])))
 
-(e/declare *server-pretty)
+(e/declare ^:dynamic *server-pretty)
 
-#?(:clj (defn- map-keep-coll [f coll]
-          (debug-exceptions `map-keep-coll
-            (let [xform (comp (take 1) (map f))
-                  coll-of-same-type (into (try (empty coll)
-                                               (catch #?(:clj Throwable, :cljs :default) _
-                                                 (cond (imap? coll) {}
-                                                       (set? coll) #{}
-                                                       :else  [])))
-                                      xform coll)]
-              (cond
-                (vector? coll) coll-of-same-type
-                (reversible? coll) (ana/realize (rseq coll-of-same-type)) ; TODO move definition
-                (seq? coll) (ana/realize (reverse coll-of-same-type)) ; TODO move definition
-                :else coll-of-same-type
-                )))))
+(defn- fixed-size-number? [obj]
+  #?(:clj
+     (and (number? obj)
+       (or (instance? Long obj)
+         (instance? Integer obj)
+         (instance? Short obj)
+         (instance? Byte obj)
+         (instance? Double obj)
+         (instance? Float obj)))
+     :cljs
+     (or (number? obj)
+       ;; if your codebase uses goog.math.Long explicitly
+       (instance? goog.math.Long obj))))
 
-#?(:clj (defn str-insert-before-last[^String s ^Character c]
+(defn- bounded-size-value? [obj]
+  (or (nil? obj)
+    (boolean? obj)
+    (char? obj) ; Note in cljs chars are strings on length one.
+    (keyword? obj) ; generated keywords or syms could be arbitrarily large (like string) but this is not a real-world use case. We decide to ignore it.
+    (symbol? obj)
+    (fixed-size-number? obj)))
+
+(defn- user-pretty-printer-handler [obj] (get #?(:clj (if (bound? #'*server-pretty) *server-pretty {}) :cljs *server-pretty) (type obj)))
+
+(defmulti pretty-printer-dispatch type)
+(defmethod pretty-printer-dispatch :default [obj]
+  (cond
+    (some? (user-pretty-printer-handler obj)) (type obj)
+    (bounded-size-value? obj) ::bounded-size-value
+    (string? obj) ::string
+    (number? obj) ::unbounded-number
+    :else (type obj)))
+
+(defmulti -pretty-printer pretty-printer-dispatch)
+(defmethod -pretty-printer :default [obj]
+  (let [user-handler (user-pretty-printer-handler obj)]
+    (m/timeout (m/via m/blk
+                 (try (right ((or user-handler pr-str) obj))
+                      #?(:clj (catch Exception ex (left ex)))
+                      #?(:clj (catch Error err (left err))) ; Probably not safe. TODO Verify.
+                      #?(:cljs (catch :default err (left err)))))
+      1000
+      (left (ex-info "Rendering timeout" {:type (type obj)})))))
+
+(defmethod -pretty-printer ::bounded-size-value [obj] (m/sp (right (pr-str obj))))
+(defmethod -pretty-printer ::string [obj] (m/sp (right (let [len (count obj)] (pr-str (subs obj 0 (min len 100)))))))
+(defmethod -pretty-printer ::unbounded-number [obj] (m/sp (right (str (type obj))))) ; for now just render the type. TODO print a truncated, version if possible.
+
+(defn- map-keep-coll [f coll]
+  (debug-exceptions `map-keep-coll
+    (let [xform (comp (take 1) (map f))
+          coll-of-same-type (into (try (empty coll)
+                                       (catch #?(:clj Throwable, :cljs :default) _
+                                         (cond (imap? coll) {}
+                                               (set? coll) #{}
+                                               :else  [])))
+                              xform coll)]
+      (cond
+        (vector? coll) coll-of-same-type
+        (reversible? coll) (ana/realize (rseq coll-of-same-type)) ; Linear but max coll size is 1  ; TODO move realize definition
+        (seq? coll) (ana/realize (reverse coll-of-same-type)) ; Linear but max coll size is 1 ; TODO move realize definition
+        :else coll-of-same-type
+        ))))
+
+#?(:clj (defn str-insert-before-last[^String s ^String suffix]
           (let [sb (StringBuilder. s)
                 len (.length sb)]
-            (.insert sb (dec len) c)
+            (doseq [[idx ^Character c] (map-indexed vector (seq suffix))]
+              (.insert sb (+ (dec len) idx) c))
             (.toString sb))))
 
-#?(:clj
-   (defn- str-inline-coll [coll server-pretty]
-     (try
-       (debug-exceptions `str-inline-coll
-         (let [coll-count (count coll)
-               base (binding [*print-length* 1, *print-level* 2]
-                      ;; `symbol` removes double quotes from the strings inside the collection
-                      (if (map? coll)
-                        (if (empty? coll)
-                          "{}"
-                          (let [[[k v] _] (seq coll)]
-                            (str "{"
-                              ((get server-pretty (class k) strx/pprint-str) k)
-                              ((get server-pretty (class v) strx/pprint-str) v)
-                              "}")))
-                        (-> (map-keep-coll #(symbol ((get server-pretty (class %) strx/pprint-str) %)) coll)
-                          str
-                          (str/replace (str \newline) (str \space))
-                          (str/trim))))]
-           (cond-> base
-             (> coll-count 1) (str-insert-before-last \…)
-             (> coll-count 1) (str " " coll-count " elements")
-             )))
-       (catch Throwable t ; glitch guard
-         (ex-message t)))))
 
-#?(:clj
-   (defn- pretty-value [x server-pretty]
-     (debug-exceptions `pretty-value
-       (case x
-         ::not-found ""
-         ::empty-cell ""
-         (if (or (set? x) (sequential? x) (array? x) (map? x))
-           (str-inline-coll x server-pretty)
-           ((get server-pretty (class x) pr-str) x))))))
+(defn- str-inline-coll [coll server-pretty]
+  (try
+    (right
+      #?(:cljs (str (type coll)) ; TODO implement.
+         :clj
+         (debug-exceptions `str-inline-coll
+           (let [coll-count-upper-bound 1000
+                 coll-count (bounded-count (inc coll-count-upper-bound) coll)
+                 base (binding [*print-length* 1, *print-level* 2]
+                        ;; `symbol` removes double quotes from the strings inside the collection
+                        (if (map? coll)
+                          (if (empty? coll)
+                            "{}"
+                            (let [[[k v] _] (seq coll)]
+                              (str "{"
+                                ((get server-pretty (type k) strx/pprint-str) k)
+                                ((get server-pretty (type v) strx/pprint-str) v)
+                                "}")))
+                          (-> (map-keep-coll #(symbol ((get server-pretty (type %) (comp str/trim strx/pprint-str)) %)) coll) ; not linear
+                            str
+                            (str/replace (str \newline) (str \space))
+                            (str/trim))))]
+             (cond-> (doto base (->> (pr-str "base")))
+               (> coll-count 1) (str-insert-before-last " …")
+               (<= 2 coll-count coll-count-upper-bound) (str " " coll-count " elements")
+               (> coll-count coll-count-upper-bound) (str " " coll-count-upper-bound "+" " elements")
+               )))))
+    (catch #?(:clj Throwable, :cljs :default) t ; glitch guard
+      (left t))))
+
+(defn- pretty-printer [obj user-handlers]
+  (binding [*server-pretty user-handlers]
+    (case obj
+      ::not-found (m/sp (right ""))
+      ::empty-cell (m/sp (right ""))
+      (if (or (set? obj) (sequential? obj) (array? obj) (map? obj))
+        (m/sp (str-inline-coll obj user-handlers))
+        (-pretty-printer obj)))))
 
 (defn as-coll [v] (if (or (array? v) (coll? v)) v [v])) ; TODO removeme, glitch guard
 
@@ -84,14 +139,6 @@
   (if (vector? symbolic-link-href)
     symbolic-link-href
     ['. [symbolic-link-href]]))
-
-(e/defn RenderInlineColl [_object edge value]
-  (let [pretty-v (e/Offload #(str-inline-coll (as-coll value) *server-pretty))
-        symbolic-link-href (::hfql/link (meta edge))]
-    (e/Reconcile
-      (if (Swallow-empty-diffs (some? symbolic-link-href))
-        (router/link (relativize-link-path symbolic-link-href) (dom/text pretty-v))
-        (dom/text pretty-v))) ))
 
 (e/defn Resolve [fq-sym fallback] (get e/*exports* fq-sym fallback))
 
@@ -127,13 +174,15 @@
         (get denv symbolic-link symbolic-link)))))
 
 (defn- link-href [object edgeT value]
-  (let [denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) (hfql/identify value), '%v (or (hfql/identify value) value)}]
-    (when-let [symbolic-link-href (unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
+  (when-let [symbolic-link-href (unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
+    (let [denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) (hfql/identify value), '%v (or (hfql/identify value) value)}]
       (template-link denv symbolic-link-href))))
 
 (e/defn DefaultCellRenderer [object edgeT value]
   (RenderTooltip ::hfql/Tooltip object edgeT value)
-  (let [pretty-v (e/Offload #(pretty-value value *server-pretty))]
+  (let [either-rendered-str (e/Task (pretty-printer value *server-pretty) #_(right "hello"))
+        pretty-v (either #(str (pr-str (type %)) ". " (ex-message %)) identity either-rendered-str)]
+    (dom/props {:data-error (#(or (left? either-rendered-str) nil))})
     (e/Reconcile
       #_(e/client (e/drain (e/Tap-diffs (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))))) ; FIXME not showing up
       (let [link-href (link-href object edgeT value)]
@@ -141,25 +190,10 @@
           (router/link (relativize-link-path link-href) (dom/text pretty-v))
           (dom/text pretty-v))))))
 
-#_(defn- log-cell-eventual-error! [either-value]
-  {:pre [(either? either-value)]
-   :post [(nil? %)]}
-  (either
-    (fn [err] #?(:clj (log/info err (str (ex-message err) " – " (ex-data err)))
-                 :cljs (js/console.error err)))
-    (constantly nil)
-    either-value)
-  nil)
-
-(e/defn ErrorCellRenderer [_object _edgeT value]
-  #_(e/server (log-cell-eventual-error! value) nil)
-  (dom/props {:data-error true})
-  (dom/text (e/server (ex-message value))))
-
 (e/declare Render)
 
 (e/defn RenderCell [either-object edgeT either-value]
-  (binding [Render ({true ErrorCellRenderer, false DefaultCellRenderer} (left? either-value))]
+  (binding [Render DefaultCellRenderer]
     (e/Reconcile (e/call (Resolve (unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
                            Render)
                    ((glitch-guard some? either identity identity) either-object)
