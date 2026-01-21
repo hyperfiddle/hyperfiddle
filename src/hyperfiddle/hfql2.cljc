@@ -704,6 +704,11 @@ identifier, though it might not be serializable."
 
 (defn suggest [object] (unwrap! (suggest* object)))
 
+(defn suggest-map [object]
+  ;; TODO render the type in UI if the map-like object is of an interesting type (e.g. IRecords)
+  ;; See edge case in `suggest-record` for records with no static fields.
+  (hfql ^{::value-type ::map} {* ^{::value-type ::map-entry} [key val]} (seq object)))
+
 (defn- suggest-record [record]
   (let [basis #?(:clj
                  (-> (class record)
@@ -712,12 +717,15 @@ identifier, though it might not be serializable."
                  :cljs
                  (.getBasis (type record)))
         record-entries (map keyword basis)]
-    (hfql*
-      (ana/analyze {} (vec
-                        (concat
-                          record-entries
-                          (remove (set record-entries) (keys record)))
-                          )))))
+    (if (empty? basis)
+      ;; Edge case of a record with no static fields but potentially some extra keys associated to it.
+      ;; Real-world example: datomic.fulltext_index.PersistentFulltext accessible under d/db > :memidx > :fulltext
+      (suggest-map record)
+      (hfql*
+        (ana/analyze {} (vec
+                          (concat
+                            record-entries
+                            (remove (set record-entries) (keys record)))))))))
 
 (defn- multiplicity-many-value? [object] ; TODO promote to HFQL
   ;; `coll?` is not enough. E.g. datomic.api.EntityMap is `coll?` but isn't `map?`.
@@ -730,9 +738,6 @@ identifier, though it might not be serializable."
       #?(:clj (contrib.data/array? object)))))
 
 (defn suggest-collection [coll] (hfql {* [*]} (co/to-seq coll)))
-
-(defn suggest-map [object]
-  (hfql ^{::value-type ::map} {* ^{::value-type ::map-entry} [key val]} (seq object)))
 
 (defmethod -suggest :default [object]
   (let [user-suggestion (hyperfiddle.hfql2.protocols/-suggest object)]
