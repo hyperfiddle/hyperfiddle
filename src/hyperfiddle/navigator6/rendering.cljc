@@ -128,7 +128,7 @@
 
 (defn- pretty-printer [obj user-handlers]
   (binding [*server-pretty user-handlers]
-    (case obj
+    (condp = obj
       ::not-found (m/sp (right ""))
       ::empty-cell (m/sp (right ""))
       (if (or (set? obj) (sequential? obj) (array? obj) (map? obj))
