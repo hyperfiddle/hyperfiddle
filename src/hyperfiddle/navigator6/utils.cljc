@@ -19,10 +19,10 @@
 
 (defn glitch-guard
   ([f] (glitch-guard some? f))
-  ([pred f]
-   (fn [a & as]
-     (when (pred a)
-       (apply f a as)))))
+  ([pred f & as]
+   (fn [b & bs]
+     (when (pred b)
+       (apply f (concat as [b] bs))))))
 
 (defn caching-nth
   "Returns f where (f i) ≈ (nth coll i) but caches prefix in a vector.

@@ -1,6 +1,7 @@
 (ns hyperfiddle.navigator6.rendering
   (:require [clojure.string :as str]
             [clojure.pprint :refer [cl-format]]
+            #?(:clj [clojure.tools.logging :as log])
             [contrib.data :refer [#?(:clj array?)]]
             [dustingetz.str :as strx]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
@@ -8,7 +9,7 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2.analyzer :as ana :refer [unquote*]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
-            [hyperfiddle.ct.either :refer [either left?]]
+            [hyperfiddle.ct.either :refer [either either? left? from-left from-right right left]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.hfql2.utils :refer [imap?]]
             [hyperfiddle.navigator6.extensions :as extensions]
@@ -73,13 +74,9 @@
        (case x
          ::not-found ""
          ::empty-cell ""
-         (either
-           ex-message
-           (fn [x]
-             (if (or (set? x) (sequential? x) (array? x) (map? x))
-               (str-inline-coll x server-pretty)
-               ((get server-pretty (class x) pr-str) x)))
-           x)))))
+         (if (or (set? x) (sequential? x) (array? x) (map? x))
+           (str-inline-coll x server-pretty)
+           ((get server-pretty (class x) pr-str) x))))))
 
 (defn as-coll [v] (if (or (array? v) (coll? v)) v [v])) ; TODO removeme, glitch guard
 
@@ -103,13 +100,11 @@
 
 (e/defn RenderTooltip* [tooltip-ident object edgeT value]
   (let [tooltip-qualified-ident (hyperfiddle.hfql2.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
-        Tooltip (Resolve tooltip-qualified-ident (get {::hfql/ColumnHeaderTooltip DefaultColumnHeaderTooltip} tooltip-ident (e/fn [& _])))]
-    (e/Reconcile
-      (when (Swallow-empty-diffs (some? Tooltip))
-        (let [show? (dom/Mouse-over?)]
-          (dom/props
-            {:data-tooltip
-             (e/Reconcile (when show? (Tooltip object edgeT value)))}))))) )
+        Tooltip (Resolve tooltip-qualified-ident (get {::hfql/ColumnHeaderTooltip DefaultColumnHeaderTooltip} tooltip-ident (e/fn [_object _edge _value])))
+        show? (dom/Mouse-over?)] ; TODO perf – factor out. Today it mounts two event handlers per cell (mouseenter + mouseleave).
+    (dom/props
+      {:data-tooltip
+       (e/Reconcile (when show? (Tooltip object edgeT value)))})) )
 
 (e/declare *rowT)
 
@@ -139,7 +134,6 @@
 (e/defn DefaultCellRenderer [object edgeT value]
   (RenderTooltip ::hfql/Tooltip object edgeT value)
   (let [pretty-v (e/Offload #(pretty-value value *server-pretty))]
-    (dom/props {:data-error (e/server (#(or (left? value) nil)))})
     (e/Reconcile
       #_(e/client (e/drain (e/Tap-diffs (.setAttribute dom/node "data-empty" (e/server (= ::not-found value)))))) ; FIXME not showing up
       (let [link-href (link-href object edgeT value)]
@@ -147,11 +141,31 @@
           (router/link (relativize-link-path link-href) (dom/text pretty-v))
           (dom/text pretty-v))))))
 
+#_(defn- log-cell-eventual-error! [either-value]
+  {:pre [(either? either-value)]
+   :post [(nil? %)]}
+  (either
+    (fn [err] #?(:clj (log/info err (str (ex-message err) " – " (ex-data err)))
+                 :cljs (js/console.error err)))
+    (constantly nil)
+    either-value)
+  nil)
+
+(e/defn ErrorCellRenderer [_object _edgeT value]
+  #_(e/server (log-cell-eventual-error! value) nil)
+  (dom/props {:data-error true})
+  (dom/text (e/server (ex-message value))))
+
 (e/declare Render)
-(e/defn RenderCell [object edgeT value]
-  (binding [Render DefaultCellRenderer]
+
+(e/defn RenderCell [either-object edgeT either-value]
+  (binding [Render ({true ErrorCellRenderer, false DefaultCellRenderer} (left? either-value))]
     (e/Reconcile (e/call (Resolve (unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
-                           Render) object edgeT #_(vary-meta edge dissoc ::hfql/Render) value))))
+                           Render)
+                   ((glitch-guard some? either identity identity) either-object)
+                   edgeT
+                   #_(vary-meta edge dissoc ::hfql/Render)
+                   ((glitch-guard some? either identity identity) either-value)))))
 
 (defn- get-leafT [stepT] ; TODO questionable logic
   ;; Idea here is to display "leaf values" in the following case:
@@ -162,11 +176,11 @@
 
 (e/defn Render [object edge value] (RenderCell object edge value))
 (e/defn Render* [stepT]
-  (Render (e/Offload #(force ((glitch-guard hfql/value-at-point) stepT))) ; FIXME force is suspicious here. It shouldn't work.
+  (Render (e/Offload #((glitch-guard hfql/value-at-point*) stepT))
     stepT
     (e/Offload #(if stepT
                   (hfql/nav* (get-leafT stepT))
-                  ::empty-cell))))
+                  (right ::empty-cell)))))
 
 
 

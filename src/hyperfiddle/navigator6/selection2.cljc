@@ -24,7 +24,8 @@
    [hyperfiddle.hfql2 :as hfql :refer [hfql?]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve]]
    [hyperfiddle.hfql2.analyzer :as ana]
-   [hyperfiddle.hfql2.coalgebra  :as coalgebra :refer [star-traversal?]]
+   [hyperfiddle.hfql2.coalgebra :as coalgebra :refer [star-traversal?]]
+   [hyperfiddle.ct.either :refer [right]]
    [hyperfiddle.navigator6 :as-alias navigator]
    [hyperfiddle.rcf :refer [tests]]
    ))
@@ -285,7 +286,7 @@
   (or
     (and (some? point)
       (hfql? point)
-      (hfql/update-scope point assoc '% value-at-point))
+      (hfql/update-scope point assoc '% (right value-at-point)))
     nil))
 
 (defn- find-value-at-point [selection-point]

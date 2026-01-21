@@ -13,17 +13,20 @@
    [hyperfiddle.ct.bifunctor :as bf]
    [hyperfiddle.ct.pair :refer [pair fst snd swap]]
    [hyperfiddle.ct.comonad :refer [extract]]
+   [hyperfiddle.ct.monad :refer [bind =<<]]
    [hyperfiddle.ct.cofree :refer [tree-seqT unwrap runCofreeT]]
    [hyperfiddle.ct.rose-tree :refer [rose-tree]]
    [hyperfiddle.ct.store :refer [pos peeks]]
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
-   [hyperfiddle.ct.either :refer [either left right unwrap!]]
+   [hyperfiddle.ct.either :refer [either either? left right unwrap!]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation -hfql-resolve -resolve-dispatch]]
    [hyperfiddle.hfql2.utils :refer [has-meta? imap?]]
    #?(:cljs [goog.string :as gstring])
-   #?(:cljs [goog.string.format]))
+   #?(:cljs [goog.string.format])
+   #?(:cljs [cljs.stacktrace :as cljs-stacktrace])
+   #?(:cljs [goog.userAgent.product :as user-agent-product]))
   #?(:cljs (:require-macros [hyperfiddle.hfql2 :refer [hfql defpointfree]])))
 
 (defmacro defpointfree
@@ -42,7 +45,12 @@
 (defpointfree values (comp (fmap (comp #_from-either force-thunk nav)) tree-seqT))
 
 (defpointfree scope (comp pos snd runCofreeT))
-(defpointfree value-at-point (comp force-thunk '% scope))
+(defpointfree value-at-point* (comp force-thunk '% scope))
+(defn value-at-point [stepT]
+  (let [value (value-at-point* stepT)]
+    (if (either? value)
+      (unwrap! value)
+      value)))
 (defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
 (defpointfree metas (comp fst runCofreeT))
@@ -664,7 +672,37 @@ identifier, though it might not be serializable."
        (catch ClassNotFoundException _
          nil))))
 
-(defmulti suggest type)
+
+;; Exceptions
+#?(:cljs
+   (defn- get-stack-trace [ex]
+     (when-let [stack (.-stack ^js/Error ex)]
+       (cljs-stacktrace/parse-stacktrace {} stack
+         (cond
+           user-agent-product/CHROME  :chrome
+           user-agent-product/FIREFOX :firefox
+           user-agent-product/SAFARI  :safari
+           user-agent-product/IE      :ie
+           :else        :unknown)
+         nil))))
+
+(extend-protocol Suggestable
+  #?(:clj Throwable, :cljs js/Error)
+  (-suggest [_] (hfql [ex-message ex-data {ex-cause ...} #?(:clj .getStackTrace :cljs get-stack-trace)])))
+
+#?(:clj
+   (extend-type java.lang.StackTraceElement
+     Suggestable
+     (-suggest [_] (hfql [.getClassName .getMethodName .getFileName .getLineNumber .isNativeMethod .getModuleName .getModuleVersion .getClassLoaderName]))))
+
+(defmulti -suggest type)
+
+(defn suggest* [object]
+  (try (right (-suggest object))
+       (catch #?(:clj Throwable, :cljs :default) err
+         (left err))))
+
+(defn suggest [object] (unwrap! (suggest* object)))
 
 (defn- suggest-record [record]
   (let [basis #?(:clj
@@ -696,7 +734,7 @@ identifier, though it might not be serializable."
 (defn suggest-map [object]
   (hfql ^{::value-type ::map} {* ^{::value-type ::map-entry} [key val]} (seq object)))
 
-(defmethod suggest :default [object]
+(defmethod -suggest :default [object]
   (let [user-suggestion (hyperfiddle.hfql2.protocols/-suggest object)]
     (if (or (nil? user-suggestion) (::default (metas user-suggestion)))
       (cond
@@ -722,18 +760,14 @@ identifier, though it might not be serializable."
 
 
 (defn- suggest-at-point! [hfqlT]
-  (either
-    (constantly nil)
-    (fn [v]
-      (try
-        (if-let [suggestedT (suggest v)] ; TODO confirm if `force-thunk` is necessary here. value-at-point already forces the thunk.
-          (hoistHfqlT (bf/first #(assoc % ::suggested true))
-            suggestedT) ; recursively map over CofreeT structure - lazily
-          hfqlT)
-        (catch #?(:clj Throwable, :cljs :default) err
-          (prn "Failed to suggest columns for " (type v) ".\n" err)
-          nil)))
-    (value-at-point hfqlT)))
+  (->> (value-at-point* hfqlT)
+    (=<< suggest*)
+    (either
+      (fn [err] (println "Failed to suggest columns:" (ex-message err)) nil)
+      (fn [suggestedT]
+        (hoistHfqlT (bf/first #(assoc % ::suggested true))
+          suggestedT)) ; recursively map over CofreeT structure - lazily
+      )))
 
 (declare parent set-parent)
 

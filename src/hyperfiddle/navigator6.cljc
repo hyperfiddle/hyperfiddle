@@ -19,6 +19,7 @@
             [dustingetz.loader :as loader]
             [hyperfiddle.ct.function :refer [flip]]
             [hyperfiddle.ct.maybe :refer [just nothing from-maybe]]
+            [hyperfiddle.ct.either :refer [either right]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2.analyzer :as ana]
@@ -64,15 +65,19 @@
     (e/Reconcile
       (case (e/Offload #((glitch-guard render-type) hfqlT))
         (::pull ::star) hfqlT
-        (let [value ((glitch-guard hfql/nav) hfqlT) ; runs IO
-              suggestedT (hfql/suggest value)
-              newStepT (-> suggestedT
-                         ((glitch-guard (flip hfql/seed)) (assoc ((glitch-guard hfql/scope) hfqlT) '% value))
-                         ((glitch-guard hfql/set-parent) hfqlT))]
-          (e/Reconcile
-            (if (#(and (some? suggestedT) (not= hfqlT suggestedT)))
-              newStepT
-              hfqlT)))))))
+        (let [either-value ((glitch-guard hfql/nav*) hfqlT) ; runs IO
+              value (either identity identity either-value)]
+          (either
+            (fn [suggestion-err]
+              (-> (hfql/hfql [*] (right suggestion-err))
+                ((glitch-guard hfql/set-parent) hfqlT)))
+            (fn [suggestedT]
+              (if (and (some? suggestedT) (not= hfqlT suggestedT))
+                (-> suggestedT
+                  ((glitch-guard (flip hfql/seed)) (assoc ((glitch-guard hfql/scope) hfqlT) (symbol "%") (right value)))
+                  ((glitch-guard hfql/set-parent) hfqlT))
+                hfqlT))
+            (hfql/suggest* value)))))))
 
 (defn inject-dynamic-bindings [e-bindings stepT]
   (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))

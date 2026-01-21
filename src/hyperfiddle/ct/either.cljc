@@ -114,7 +114,7 @@
   ([a->c] (partial either a->c))
   ([a->c b->c] (partial either a->c b->c))
   ([a->c b->c either-a-b]
-   {:pre [(either? either-a-b)]}
+   (assert (either? either-a-b) (str "Not an instance of Either: " (type either-a-b)))
    (cond
      (left? either-a-b) (a->c (from-left nil either-a-b))
      (right? either-a-b) (b->c (from-right nil either-a-b))
