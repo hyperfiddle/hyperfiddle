@@ -10,6 +10,7 @@
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.monad :refer [join]]
             [hyperfiddle.ct.monoid :refer [mappend]]
+            [hyperfiddle.ct.either :refer [from-right]]
             [hyperfiddle.hfql2.analyzer :as ana]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.ct.experiments.thunk :as thunks]
@@ -25,6 +26,14 @@
      (nil? a) false
      (nil? b) true
      :else (comparator a b))))
+
+(defn- compare-eithers
+  "Wrap a comparator such that compared values are considered instances of Either and sorted accordingly:
+  - instances of `Right a` are sorted according to `a`.
+  - instances of `Left b` are NOT sorted according to `b`. All lefts get sorted last, like nil."
+  ([comparator] (partial compare-eithers comparator))
+  ([comparator a b]
+   (comparator (from-right nil a) (from-right nil b))))
 
 (defn- force-cell-value! "Equivalent to hfql/nav, but log a TRACE-level message if the cell wasn't realized already. Because we want to know if sorting causes unexpected IO."
   [cellT]
@@ -107,7 +116,13 @@
         (case order
           nil rowsT ; no sort, or default sort, bypass.
           .   rowsT ; natural order, bypass as an optimization: avoid worst case of sort time complexity: an already sorted collection.
-          (sort-by (hfql/find-cell-by-column columnT) (interruptible-comparator (compare-cells (compare-fallback-to-identity (compare-nils-last (directional-comparator order)))))
+          (sort-by (hfql/find-cell-by-column columnT)
+            (interruptible-comparator
+              (compare-cells
+                (compare-fallback-to-identity
+                  (compare-eithers
+                    (compare-nils-last
+                      (directional-comparator order))))))
             (map hfql/augment-with-suggestions! rowsT)))) ; TODO only augment with sorted column(s), if not already present
       #?(:clj (catch missionary.Cancelled ex (throw ex)))
       (catch #?(:clj Throwable, :cljs :default) ex
