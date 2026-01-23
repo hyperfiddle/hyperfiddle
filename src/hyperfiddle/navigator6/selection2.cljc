@@ -430,7 +430,7 @@
 
 
 (comment
-  (hfql/value-at-point _selection-point)
+  (hfql/value-at-point* _selection-point)
   (hfql/nav _selection-point)
   (hfql/nav (hfql/parent _selection-point))
   (resolve-selection-coordinates _selection-point (pair nil '(hyperfiddle.hfql2/nth 2)))
@@ -751,7 +751,7 @@
                                          ))]
         (or
           ;; Navigation happens on the selected point:
-          (and #_(hfql/identifiable? (hfql/value-at-point selected-point)) ; not all points are Identifiable (e.g. maps) but can be navigated anyway using `hfql/current-point`'s DI.
+          (and #_(hfql/identifiable? (from-right nil (hfql/value-at-point* selected-point))) ; not all points are Identifiable (e.g. maps) but can be navigated anyway using `hfql/current-point`'s DI.
             (not (some? navigator-select-command))
             selected-point)
           ;; Navigation doesn't happen on the selected point

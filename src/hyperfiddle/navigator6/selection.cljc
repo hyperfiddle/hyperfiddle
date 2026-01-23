@@ -40,40 +40,6 @@
     (hfql/wrap-in-pull stepT) ; FIXME highly questionable
     #_(throw (ex-info "No pull child" {:type (::ana/type (hfql/metas stepT))}))))
 
-#_(defn resolve-selected-object-BIG-O-1 [[column row] bindings childrenT]
-  (when childrenT
-    (when row
-      (let [val-at-point (hfql/value-at-point childrenT)]
-        (or (and (= row (hfql/identify val-at-point)) ; direct identity equality case
-              childrenT)
-          (and (utils/imap? val-at-point) ; map lookup case
-            (not (hfql/multiplicity-many? childrenT))
-            (-> (case column
-                  key (hfql/hfql key (find val-at-point row))
-                  (hfql/hfql val (find val-at-point row)) ; mapentry is not interesting on its own, shortcut to val
-                  )
-              (hfql/set-parent childrenT)))
-          (when-let [resolved (hfql/hfql-resolve row)]
-            (when (not= resolved row)
-              (when (hfql/multiplicity-many? childrenT)
-                (hfql/update-scope (first (unwrap childrenT)) assoc '% resolved)))
-            ))))))
-
-#_(defn resolve-selected-object-BIG-O-N [[column row] bindings childrenT]
-  #?(:clj
-     (debug-exceptions `resolve-selected-object
-       (with-bindings bindings
-         [column
-          (when childrenT
-            (when row
-              (or
-                (resolve-selected-object-BIG-O-1 [column row] bindings childrenT)
-                (do
-                  (clojure.tools.logging/warn "O(n) scan")
-                  (if (hfql/multiplicity-many? childrenT)
-                    (hfql/find-child-by #(= row (hfql/identify (hfql/value-at-point %))) childrenT)
-                    (hfql/find-child column (hfql/augment-with-suggestions! (select-pull-step childrenT))))))))]))))
-
 #_(defn ^:deprecated get-rows-container [stepT]
   (case (::ana/type (hfql/metas stepT))
     ::ana/traversal (if (= ::ana/many (::ana/multiplicity (hfql/metas stepT)))

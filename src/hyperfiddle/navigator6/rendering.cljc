@@ -255,18 +255,7 @@
               (str/trim)
               (strx/blank->nil)))))
 
-(defn- render-step-title [stepT *parent-selection-symbolic]
-  (selection2/point-symbolic-name stepT *parent-selection-symbolic)
-  #_(pr-str (or
-            #_(some-> stepT hfql/symbolic-edge-computed)
-            #_(let [[col rowT] *parent-selection] col) ; FIXME
-            ;; FIXME
-            #_(when-let [map-entry-pointT (and stepT (hfql/lookup ::ana/form-resolved stepT `val))]
-              (hfql/identify (hfql/value-at-point map-entry-pointT)))
-            ;; FIXME
-            #_(when-let [parentT (and stepT (hfql/parent stepT))]
-              (hfql/identify (hfql/value-at-point parentT)))
-            )))
+(defn- render-step-title [stepT *parent-selection-symbolic] (selection2/point-symbolic-name stepT *parent-selection-symbolic))
 
 (e/defn Step-Title [stepT]
   (dom/span

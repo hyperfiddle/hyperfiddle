@@ -101,7 +101,7 @@
   (e/client
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
       (let [id (e/server (hash [(::ana/id ((glitch-guard hfql/metas) stepT)) ; HACK
-                                (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
+                                (object-level-identity ((glitch-guard hfql/value-at-point*) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
                                 ]))]
         (rebooting id ; glitch guard
           (e/server
@@ -112,7 +112,6 @@
                     (with-local-search ::search   ; injects *local-search and interpret search commands
                       (let [stepT (e/server (ReshapeNavigationStep stepT))]
                         (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                            #_(e/server #(selection/resolve-selected-object-BIG-O-N % e/*bindings* ((glitch-guard selection/get-rows-container) stepT)))
                             (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
                           (e/amb
                             (e/call (ResolveRenderer stepT) ; call renderer for current point
