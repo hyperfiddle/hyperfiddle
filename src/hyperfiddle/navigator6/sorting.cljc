@@ -107,10 +107,12 @@
 
 (def COLLECTION-LIMIT 10000)
 
-(defn sort-rows-by-columns "TODO support multi-column sort." [columnT-specs rowsT]
+(defn sort-rows-by-columns "TODO support multi-column sort." [disabled? columnT-specs rowsT]
   ;; (def _args [columnT-specs rowsT])
-  (if (>= (bounded-count COLLECTION-LIMIT rowsT) COLLECTION-LIMIT)
-    rowsT
+  (cond
+    disabled? rowsT
+    (>= (bounded-count COLLECTION-LIMIT rowsT) COLLECTION-LIMIT) rowsT
+    :else
     (try
       (let [[columnT order] (first columnT-specs)] ; TODO support multi-column sort
         (case order
@@ -139,14 +141,16 @@
 
 (e/defn DefaultSort [rowsT] [[(first (unwrap (first rowsT))) '<]])
 
+(e/declare ^:dynamic *disabled?*)
 (e/declare ^:dynamic *sort-spec*)
 
-(e/defn Sorted [rowsT Body]
+(e/defn Sorted [disabled? rowsT Body]
   (let [!sort-spec (e/server (atom [])) ; (e/Snapshot (DefaultSort rowsT)) ; will eagerly compute all cells in first column
         sort-spec (e/server (e/watch !sort-spec))]
-    (binding [*sort-spec* (e/server sort-spec)]
+    (binding [*disabled?* disabled?
+              *sort-spec* (e/server sort-spec)]
       #_(e/server (prn "sort-spec" sort-spec) nil)
-      (->> (Body (e/server (Offload #(sort-rows-by-columns sort-spec rowsT) {:label 'sort})))
+      (->> (Body (e/server (Offload #(sort-rows-by-columns *disabled?* sort-spec rowsT) {:label 'sort})))
         (forms/Interpreter {`Sort! (e/fn [Getter direction]
                                      (e/server ((constantly nil) direction Getter)) ; HACK must touch both args on server, otherwise the `case` do not run.
                                      (case (e/server (reset! !sort-spec [[(Getter) direction]]) nil)

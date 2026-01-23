@@ -255,8 +255,8 @@
               (str/trim)
               (strx/blank->nil)))))
 
-(defn- render-step-title [stepT *parent-selection]
-  (selection2/point-symbolic-name stepT)
+(defn- render-step-title [stepT *parent-selection-symbolic]
+  (selection2/point-symbolic-name stepT *parent-selection-symbolic)
   #_(pr-str (or
             #_(some-> stepT hfql/symbolic-edge-computed)
             #_(let [[col rowT] *parent-selection] col) ; FIXME
@@ -273,7 +273,7 @@
     (dom/props {:class "title"
                 :style {:order -3}
                 :data-tooltip (e/server (table-title-tooltip-content stepT))})
-    (dom/text (e/server (render-step-title stepT selection/*parent-selection)))))
+    (dom/text (e/server (render-step-title stepT selection/*parent-selection-symbolic)))))
 
 (comment
   (hfql/describe-column (get dustingetz.namespace-explorer/sitemap `all-ns))

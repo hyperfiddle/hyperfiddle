@@ -71,7 +71,8 @@
                         (dom/span
                           (dom/props {:class "sort-handle"
                                       :title "Sort"
-                                      :data-sort-order (str (e/server (column-sort-order columnT sort/*sort-spec*)))})
+                                      :data-sort-order (str (e/server (column-sort-order columnT sort/*sort-spec*)))
+                                      :disabled sort/*disabled?*})
                           (let [!direction (atom (cycle ['. '> '<]))
                                 direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
                                 [t err] (e/Token direction)]
@@ -104,9 +105,9 @@
          event))))
 
 
-(e/defn MatrixCell [index cellT]
+(e/defn MatrixCell [row-index cell-index cellT]
   (e/client
-    (dom/td (dom/props {:style {:--cell-index index}
+    (dom/td (dom/props {:style {:--cell-index cell-index}
                         :role :radio
                         :tabindex "0"
                         :data-tooltip (e/server ({false (str "Can't select this cell. Column object is not Identifiable. " (type (hfql/symbolic-edge cellT)) " : " (hfql/symbolic-edge cellT))} (selection2/cell-selectable? cellT)))
@@ -117,11 +118,11 @@
               (e/Reconcile
                 (when token
                   (dom/props {:aria-busy true})
-                  (dispatch-event! :up dom/node (munge-str `Select!) GetCellT)
+                  (dispatch-event! :up dom/node (munge-str `Select!) [row-index GetCellT])
                   (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
             (e/server (rendering/Render* cellT))))) ; :detail is the name of the spec-defined data slot. I didn't choose the name.
 
-(e/defn RowHandle [group-id rowT]
+(e/defn RowHandle [group-id row-index rowT]
   (dom/th (dom/props {:scope :row})
           (let [value-at-point (e/server ((glitch-guard hfql/value-at-point) rowT))
                 klass (dustingetz.loader/Initialized (e/server (str (type value-at-point))) "")
@@ -130,13 +131,12 @@
                 [token _] (forms/Checkbox! ::row (e/server (selection2/row-selected? selection/*local-selection rowT))
                             :type :radio
                             :name (str group-id)
-                            :disabled (not identifiable?)
+                            :disabled nil #_(not identifiable?)
                             :data-tooltip ({true nil false (str "Object isn't Identifiable and cannot be selected. Type: " klass)} identifiable?)
-                            :data-identifiable (str identifiable?)
                             :style {:cursor ({true "normal" false "not-allowed"} identifiable?)})]
             (e/Reconcile
               (when token
-                (dispatch-event! :up dom/node (munge-str `Select!) GetRowT)
+                (dispatch-event! :up dom/node (munge-str `Select!) [row-index GetRowT])
                 (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
           (e/amb)))
 
@@ -150,7 +150,7 @@
                   :data-empty (str (e/server (nil? rowT)))})
       (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
       (let [rowT (e/server (e/Offload #(hfql/augment-with-suggestions! rowT)))]
-        (RowHandle row-group-id rowT)
+        (RowHandle row-group-id row-index rowT)
         (let [cellsT (e/server (e/Offload (fn [] (let [cellsT ((maybe unwrap) rowT)
                                                       selected-colsT (set (mapv hfql/id columnsT))]
                                                   (filterv #(selected-colsT (hfql/id %)) cellsT)))))
@@ -159,7 +159,7 @@
             ;; e/for on client = ultra smooth row positioning but glitchy row content
             ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
             (e/for [col-index (IndexRing limitH offsetH)]
-              (MatrixCell col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
+              (MatrixCell row-index col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
 
 (e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
   (e/client
@@ -317,6 +317,7 @@
                               ((glitch-guard unwrap) stepT))))
           rowsT-count (e/server (e/Offload #(bounded-count COLLECTION-LIMIT rowsT)
                                   #_{:label 'count-rows})) ; 𝓞(n)
+          disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection)) ; Use case: allow positional selection on unidentifiable rows.
           ]
       (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
         rowsT-count
@@ -332,8 +333,8 @@
                                       (rendering/format-collection-count rowsT-count COLLECTION-LIMIT))))))
             (e/amb
               (in top-left (dom/span (dom/props {:style {:order -2}})
-                                   (search/SearchInput! false)))
-              (sort/Sorted (e/server rowsT)
+                                     (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
+              (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
                     (Matrix columnsT rowsT-count rowsT :transpose? transpose?, :single? single? :is-map? is-map?)))))))))))

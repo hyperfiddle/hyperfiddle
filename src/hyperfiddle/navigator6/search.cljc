@@ -55,7 +55,7 @@
     (strx/includes-str? (pretty-print object) needle)
     (strx/any-matches? [object] needle)))
 
-(defn- prefix-filterer
+(defn- prefix-filterer ; experiment – TODO future work
   "Take a filtering predicate pred :: String -> Any -> Bool and return a function f :: String -> [Any] -> [Any].
 
   The returned function `f` will filter the given collection like regular
@@ -163,7 +163,7 @@
 
 
 #?(:clj
-   (defn eager-search-BIG-O-N-SQUARE-streamy []
+   (defn eager-search-BIG-O-N-SQUARE-streamy [] ; TODO experiment – future work
      (fn [pretty-print-map rowTs columnTs needle]
        (m/relieve {}
          (mx/throttle 100

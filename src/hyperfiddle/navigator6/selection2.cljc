@@ -25,7 +25,7 @@
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as coalgebra :refer [star-traversal?]]
-   [hyperfiddle.ct.either :refer [right]]
+   [hyperfiddle.ct.either :refer [either either? right left from-right]]
    [hyperfiddle.navigator6 :as-alias navigator]
    [hyperfiddle.rcf :refer [tests]]
    ))
@@ -194,50 +194,79 @@
 
 (defn- symbolize-value [point]
   (hfql/identify
-    (or (and (row? point) ; a row holds the current value but doesn't project it on its own. Cells does.
-          (hfql/value-at-point point))
-      ;; a cell have the row value in scope and we want the symbolic coordinates to be [symbolic-column symbolic-row-value].
-      ;; So we treat the same as rows with regard to coordinates.
-      ;; Why? because UI concerns: We want to highlight the cell as "selected" onto a grid. So we must now which row and column of the grid.
-      ;; One could ask if we should use the value-at-point – i.e. the row's value – or the value after calling `nav` – i.e. the cell's value.
-      ;; The answer is we want the value-at-point (row) because we want to select the cell *in the context of a row*
-      ;; If we call `nav` then we will select the cell's content, lose the row context, and we won't be able to tell onto which row it was selected.
-      (and (cell? point)
-        (hfql/value-at-point point))
-      nil)))
+    (from-right nil
+      (or (and (row? point) ; a row holds the current value but doesn't project it on its own. Cells does.
+            (hfql/value-at-point* point))
+        ;; a cell have the row value in scope and we want the symbolic coordinates to be [symbolic-column symbolic-row-value].
+        ;; So we treat the same as rows with regard to coordinates.
+        ;; Why? because UI concerns: We want to highlight the cell as "selected" onto a grid. So we must now which row and column of the grid.
+        ;; One could ask if we should use the value-at-point – i.e. the row's value – or the value after calling `nav` – i.e. the cell's value.
+        ;; The answer is we want the value-at-point (row) because we want to select the cell *in the context of a row*
+        ;; If we call `nav` then we will select the cell's content, lose the row context, and we won't be able to tell onto which row it was selected.
+        (and (cell? point)
+          (hfql/value-at-point* point))
+        nil))))
 
-(defn symbolic-selection-coordinates [point]
-  {:pre [(selection-point? point)]
-   :post [(symbolic-selection-coordinates? %)]}
-  (or
-    ;; Selected point is identifiable.
-    (and (selection-point? point) ; selected point is an HFQL point
-      (hfql/identifiable? (hfql/value-at-point point)) ; selected point's value is Identifiable. This means we should be able to identify it. Not that identification is guaranteed to succeed.
-      (some? (hfql/identify (hfql/value-at-point point)))
-      (or (and (row? point) ; selected point is a row
-            (pair nil (symbolize-value point)))
-        (and (cell? point) ; selected point is a cell
-          (pair (symbolize-form point) (symbolize-value point)))
-        (and
-          (println "selected point is a selectable HFQL point but is neither a row nor a cell" (type point) point)
-          (pair nil nil))))
-    ;; Selected point is not identifiable.
-    ;; We can still generate coordinates if:
-    ;;  - the select point is a cell
-    ;;  - and either:
-    ;;    - the parent is identifiable
-    ;;    - the parent's parent (grandparent) multiplicity is ONE
-    ;; Why? because it implies the current point is a row (see definition of `cell?`).
-    ;; And a row is necessarily a pull, so we know the cell is addressable by a column of the pull + the object at point.
-    ;; Addressing the object at point will require DI, and can ONLY be defined under multiplicity one.
-    (and (selection-point? point)
-      (cell? point)
-      (or (hfql/identifiable? (hfql/value-at-point (hfql/parent point)))
-        (not (hfql/multiplicity-many? (hfql/parent (hfql/parent point)))))
-      (symbolic-column? (symbolize-form point)) ; ensure column is representable (e.g. arbitrary object as a key in a map is not URL-representable)
-      (pair (symbolize-form point) `(hfql/current-point)))
-    (do (println "selected object is not a selectable HFQL point and cannot be selected" (type point) point)
-        (pair nil nil))))
+(defn symbolic-selection-coordinates 
+  ([point] (symbolic-selection-coordinates point nil))
+  ([point row-positional-index]
+   {:pre [(selection-point? point) (or (nil? row-positional-index) (nat-int? row-positional-index))]
+    :post [(symbolic-selection-coordinates? %)]}
+   (or
+     ;; Selected point is identifiable.
+     (and (selection-point? point) ; selected point is an HFQL point
+       (hfql/identifiable? (from-right nil (hfql/value-at-point* point))) ; selected point's value is Identifiable. This means we should be able to identify it. Not that identification is guaranteed to succeed.
+       (some? (hfql/identify (from-right nil (hfql/value-at-point* point)))) ; value is identified
+       (or (and (row? point) ; selected point is a row
+             (pair nil (symbolize-value point)))
+         (and (cell? point) ; selected point is a cell
+           (pair (symbolize-form point) (symbolize-value point)))
+         (and
+           (println "Selected point cannot be selected because while it is a selectable HFQL point, it is neither a row nor a cell." (type point) point)
+           (pair nil nil))))
+     ;; Selected point is not identifiable.
+     ;; We can still generate coordinates if:
+     ;;  - the select point is a cell
+     ;;  - and either:
+     ;;    - the parent is identifiable
+     ;;    - the parent's parent (grandparent) multiplicity is ONE
+     ;; Why? because it implies the current point is a row (see definition of `cell?`).
+     ;; And a row is necessarily a pull, so we know the cell is addressable by a column of the pull + the object at point.
+     ;; Addressing the object at point will require DI, and can ONLY be defined under multiplicity one.
+     (and (selection-point? point)
+       (cell? point)
+       (or (hfql/identifiable? (from-right nil (hfql/value-at-point* (hfql/parent point))))
+         (not (hfql/multiplicity-many? (hfql/parent (hfql/parent point)))))
+       (symbolic-column? (symbolize-form point)) ; ensure column is representable (e.g. arbitrary object as a key in a map is not URL-representable)
+       (pair (symbolize-form point) `(hfql/current-point)))
+     ;; Selected point is not identifiable.
+     ;; If it's a row then the row object isn't identifiable either.
+     ;; If it's a cell then the row object for this cell is not identifiable either.
+     ;; But if we know the row's positional index we can still generate coordinates.
+     ;; Resolving those coordinates will require DI and can only be resolved under multiplicity MANY.
+     ;; So if this is a row, the parent must be multiplicity MANY.
+     ;; If this is a cell, the grandparent must be multiplicity MANY.
+     (and (selection-point? point)
+       (nat-int? row-positional-index)
+       (row? point)
+       (hfql/multiplicity-many? (hfql/parent point))
+       (pair nil `(hfql/nth ~row-positional-index)))
+     (and (selection-point? point)
+       (nat-int? row-positional-index)
+       (cell? point)
+       (hfql/multiplicity-many? (hfql/parent (hfql/parent point)))
+       (pair (symbolize-form point) `(hfql/nth ~row-positional-index)))
+     ;; At this point we have a selectable HFQL point that is
+     ;; not identifiable
+     ;; the parent is not identifiable
+     ;; there is no known positional index
+     ;; We can't produce selection coordinates for this point.
+     (and (selection-point? point)
+       (not (nat-int? row-positional-index))
+       (do (println "Selected point cannot be selected because it is neither Identifiable nor reliably addressable by positional index" (type point) point)
+           (pair nil nil)))
+     (do (println "Selected point cannot be selected because it is not a selectable HFQL point." (type point) point)
+         (pair nil nil)))))
 
 (tests
   (defrecord TestType [a b]
@@ -267,9 +296,17 @@
 
 (defn resolve-identifiable-object [symbolic-constructor-form]
   {:pre [(or (nil? symbolic-constructor-form) (symbolic-constructor-form? symbolic-constructor-form))]
-   #_#_:post [(or (nil? %) (hfql/identifiable? %))]}
+   :post [(or (nil? %) (either? %))]}
   (or (and (some? symbolic-constructor-form)
-        (hfql/hfql-resolve symbolic-constructor-form))
+        (try
+          (let [resolved (hfql/hfql-resolve symbolic-constructor-form)]
+            (or (and (either? resolved)
+                  resolved)
+              (and (some? resolved)
+                (right resolved))
+              nil))
+          (catch #?(:clj Throwable, :cljs :default) err
+            (left err))))
     nil))
 
 (tests
@@ -286,15 +323,15 @@
   (or
     (and (some? point)
       (hfql? point)
-      (hfql/update-scope point assoc '% (right value-at-point)))
+      (hfql/update-scope point assoc '% value-at-point))
     nil))
 
 (defn- find-value-at-point [selection-point]
   {:pre [(selection-point? selection-point)]}
   ;; special case ; TODO document
   (or (and (= ::hfql/map-entry (::hfql/value-type (hfql/metas selection-point)))
-        (hfql/value-at-point (hfql/parent selection-point)))
-    (hfql/value-at-point selection-point)))
+        (hfql/value-at-point* (hfql/parent selection-point)))
+    (hfql/value-at-point* selection-point)))
 
 (letfn [(traversal? [selection-point] (= ::ana/traversal (::ana/type (hfql/metas selection-point))))
         (pull? [selection-point] (and (some? selection-point)
@@ -353,20 +390,26 @@
       (and (not (some? selection-point))
         nil))))
 
+(declare selection-positional-index)
+
 (defn resolve-selection-coordinates [selection-point symbolic-selection-coordinates]
   {:pre [(selection-point? selection-point)
          (or (nil? symbolic-selection-coordinates) (symbolic-selection-coordinates? symbolic-selection-coordinates))]
    :post [(or (nil? %) (selection-point? %))]}
+  ;; (def _selection-point selection-point)
   (when-not (row? selection-point)
     (println `resolve-selection-coordinates "WARNING: the received selection point is not a row."))
   (or
     ;; selection coordinates are valid – we should be able to resolve an object
     (and (symbolic-selection-coordinates? symbolic-selection-coordinates)
       (let [[symbolic-column symbolic-constructor-form] symbolic-selection-coordinates
-            identifiable-object (binding [hfql/*value-at-point* (find-value-at-point selection-point)]
-                                  (resolve-identifiable-object symbolic-constructor-form))]
-        (or (and (some? identifiable-object) ; we've found an identifiable object – we should be able to produce a row or a cell
-              (let [seeded-selection-point (hydrate-point selection-point identifiable-object)]
+            either-identifiable-object (binding [hfql/*collection-at-point* (hfql/nav* (hfql/parent selection-point)) ; cached
+                                                 hfql/*value-at-point* (find-value-at-point selection-point)]
+                                         (resolve-identifiable-object symbolic-constructor-form))
+            eventual-positional-index (selection-positional-index symbolic-selection-coordinates)]
+        (or (and (some? either-identifiable-object) ; we've found an identifiable object – we should be able to produce a row or a cell
+              (let [seeded-selection-point (-> (hydrate-point selection-point either-identifiable-object)
+                                             (coalgebra/vary-static-meta assoc ::hfql/positional-index eventual-positional-index))]
                 (or (and (some? symbolic-column)
                       (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
                             (row? seeded-selection-point)
@@ -384,6 +427,14 @@
           nil)))
     ;; no valid selection coordinates
     nil))
+
+
+(comment
+  (hfql/value-at-point _selection-point)
+  (hfql/nav _selection-point)
+  (hfql/nav (hfql/parent _selection-point))
+  (resolve-selection-coordinates _selection-point (pair nil '(hyperfiddle.hfql2/nth 2)))
+  )
 
 (tests
   "Resolve a selected row"
@@ -751,13 +802,37 @@
   (let [[sitemap-symbolic-entry & args] navigator-select-command]
     (cons sitemap-symbolic-entry (map (fn [symbolic-arg]
                                         (case symbolic-arg
-                                          % (hfql/value-at-point selected-point)
-                                          %v (hfql/nav selected-point)
+                                          %  (either (comp symbol pr-str type) identity (hfql/value-at-point* selected-point))
+                                          %v (either (comp symbol pr-str type) (hfql/nav* selected-point))
                                           symbolic-arg))
                                    args))))
 
-
 ;;;; Dectecting selection state in UI
+;;;;; Detecting positional indexing
+
+(defn- positional-symbolic-constructor-form? [value]
+  {:post [(boolean? %)]}
+  (and (symbolic-constructor-form? value)
+    (= `hfql/nth (first value))
+    (nat-int? (second value))))
+
+(defn- positional-symbolic-selection-coordinates? [pair]
+  {:post [(boolean? %)]}
+  (and (symbolic-selection-coordinates? pair)
+    (let [[_symbolic-column symbolic-constructor-form] pair]
+      (positional-symbolic-constructor-form? symbolic-constructor-form))))
+
+;;;;; Extracting positional index out of symbolic coordinates
+
+(defn- selection-positional-index [selection-coordinates]
+  {:pre [(symbolic-selection-coordinates? selection-coordinates)]
+   :post [(or (nil? %) (nat-int? %))]}
+  (or (and (positional-symbolic-selection-coordinates? selection-coordinates)
+        (let [[_symbolic-column symbolic-constructor-form] selection-coordinates
+              [_symbol-named-nth index] symbolic-constructor-form]
+          index))
+    nil))
+
 ;;;;; Detecting a selected row
 
 (defn row-selected? [selected-point current-point]
@@ -771,10 +846,12 @@
         (row? selected-point)
         (or (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
           (and
-            (hfql/identifiable? (hfql/value-at-point selected-point))
-            (hfql/identifiable? (hfql/value-at-point current-point))
-            (= (hfql/identify (hfql/value-at-point selected-point))
-              (hfql/identify (hfql/value-at-point current-point))))))
+            (hfql/identifiable? (from-right nil (hfql/value-at-point* selected-point)))
+            (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
+            (= (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
+              (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
+          (= (::hfql/positional-index (hfql/metas selected-point))
+            (::hfql/positional-index (hfql/metas current-point)))))
     false)
   )
 
@@ -805,8 +882,14 @@
               (and
                 (= (hfql/symbolic-edge selected-point)
                   (hfql/symbolic-edge current-point))
-                (= (hfql/identify (hfql/value-at-point selected-point))
-                  (hfql/identify (hfql/value-at-point current-point))))))
+                (or
+                  (let [selected-identity (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
+                        current-identity (hfql/identify (from-right nil (hfql/value-at-point* current-point)))]
+                    (and (some? selected-identity)
+                      (some? current-identity)
+                      (= selected-identity current-identity)))
+                  (= (::hfql/positional-index (hfql/metas (hfql/parent selected-point)))
+                    (::hfql/positional-index (hfql/metas (hfql/parent current-point))))))))
           ;; 2026-01-08 Edge case: traversal with a pull continuation inside of a pull.
           ;; See comments for `step-over-eventual_traversal-with-pull-continuation_in-pull`.
           ;; In this case the selected-point is one extra step ahead of current-point. So we want to match against its parent – the actual cell.
@@ -820,39 +903,70 @@
 ;;;; Naming points
 ;;;;; Infering a title from navigation point
 
-(defn point-symbolic-name [current-point]
-  {:pre [(or (nil? current-point) (hfql? current-point))]
-   :post [(string? %)]}
-  (or (and (some? current-point)
-        (or (let [symbolic-column (symbolize-form current-point)
-                  symbolic-constructor-form (symbolize-value current-point)]
-              (or (and (some? symbolic-column) ; A ∧ B
-                    (some? symbolic-constructor-form)
-                    (pr-str (list symbolic-column (symbolize-value current-point))))
-                (and (some? symbolic-column) ; A ∧ ¬B
-                  (nil? symbolic-constructor-form)
-                  (pr-str symbolic-column))
-                (and (nil? symbolic-column) ; ¬A ∧ B
-                  (some? symbolic-constructor-form)
-                  (let [parent-edge (and (hfql/parent current-point)
-                                      (symbolize-form (hfql/parent current-point)))]
-                    (and (some? parent-edge)
-                      ;; Edge case: both the parent and the current selected *cell* are Identifiable
-                      ;; We want to favor `(column parent-row)` over just `cell`'s symbolic identity
-                      ;; More so, we want to prevent the incorrect: `(column cell)` symbolic form.
-                      ;; Real-world case: jgit's GitRepository/.getRepository return a FileRepository. Both are Identifiable.
-                      ;; As of 2026-01-06 the UI produced `(.getRepository FileRepository)` which is wrong.
-                      ;; The correct form is `(.getRepository GitRepository)`.
-                      #_(pr-str (list parent-edge symbolic-constructor-form)) ; wrong
-                      (pr-str (list parent-edge (symbolize-value (hfql/parent current-point))))
-                      )))
-                (and (nil? symbolic-column) ; ¬ A ∧ ¬ B ; always false – to cover truth table.
-                  (nil? symbolic-constructor-form)
-                  nil)))
-          (some-> (symbolize-value current-point) pr-str)
-          (some-> (hfql/symbolic-edge-computed current-point) pr-str)
-          (point-symbolic-name (hfql/parent current-point))))
-    "Anonymous value"))
+(defn point-symbolic-name
+  ([current-point] (point-symbolic-name current-point nil))
+  ([current-point parent-selection-coordinates]
+   {:pre [(or (nil? current-point) (hfql? current-point))
+          (or (nil? parent-selection-coordinates) (symbolic-selection-coordinates? parent-selection-coordinates))]
+    :post [(string? %)]}
+   (or (and (some? current-point)
+         (or (let [symbolic-column (symbolize-form current-point)
+                   symbolic-constructor-form (symbolize-value current-point)]
+               (or (and (some? symbolic-column)
+                     (some? symbolic-constructor-form)
+                     (pr-str (list symbolic-column (symbolize-value current-point))))
+                 (and (some? symbolic-column)
+                   (nil? symbolic-constructor-form)
+                   (pr-str symbolic-column))
+                 (and (nil? symbolic-column)
+                   (some? symbolic-constructor-form)
+                   (let [parent-edge (and (hfql/parent current-point)
+                                       (symbolize-form (hfql/parent current-point)))
+                         parent-symbolic-value (symbolize-value (hfql/parent current-point))]
+                     (or
+                       ;; Edge cases: parent and the current selected *cell* are Identifiable
+                       ;; We want to favor `(column parent-row)` over just `cell`'s symbolic identity
+                       ;; More so, we want to prevent the incorrect: `(column cell)` symbolic form.
+                       ;; Real-world case: jgit's GitRepository/.getRepository return a FileRepository. Both are Identifiable.
+                       ;; As of 2026-01-06 the UI produced `(.getRepository FileRepository)` which is wrong.
+                       ;; The correct form is `(.getRepository GitRepository)`.
+                       ;; (pr-str (list parent-edge symbolic-constructor-form)) ; wrong
+                       (and (some? parent-edge)
+                         (some? parent-symbolic-value)
+                         (pr-str (list parent-edge parent-symbolic-value)))
+                       (and (some? parent-edge)
+                         (nil? parent-symbolic-value)
+                         (some? parent-selection-coordinates)
+                         ;; Below is duplicated – Ⓐ – TODO cleanup
+                         (let [[symbolic-column symbolic-constructor-form] parent-selection-coordinates]
+                           (or (and (= `hfql/nth (first symbolic-constructor-form)) ; This is a positional addressing situation.
+                                 (nil? symbolic-column)
+                                 (pr-str (list 'nth '% (second symbolic-constructor-form))))
+                             (and
+                               (= `hfql/nth (first symbolic-constructor-form))
+                               (some? symbolic-column)
+                               (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form)))))))))))
+                 (and (nil? symbolic-column)
+                   (nil? symbolic-constructor-form)
+                   (some? parent-selection-coordinates) ; Anonymous point but we may have more info by interpreting the symbolic coords.
+                   ;; Below is duplicated – Ⓐ – TODO cleanup
+                   (let [[symbolic-column symbolic-constructor-form] parent-selection-coordinates]
+                     (or (and (= `hfql/nth (first symbolic-constructor-form)) ; This is a positional addressing situation.
+                           (nil? symbolic-column)
+                           (pr-str (list 'nth '% (second symbolic-constructor-form))))
+                       (and
+                         (= `hfql/nth (first symbolic-constructor-form))
+                         (some? symbolic-column)
+                         (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form))))))))))
+           (some-> (symbolize-value current-point) pr-str)
+           (some-> (hfql/symbolic-edge-computed current-point) pr-str)
+           (point-symbolic-name (hfql/parent current-point))))
+     "Anonymous value")))
+
+
+(comment
+  (point-symbolic-name _current-point (pair :kw '(hyperfiddle.hfql2/nth 3)))
+  )
 
 ;;;; Reshaping values
 ;;;;;; Detecting and rendering anonymous collections as tables

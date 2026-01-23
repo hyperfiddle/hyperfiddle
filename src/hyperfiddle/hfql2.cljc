@@ -577,6 +577,7 @@
 ;; TODO disambiguate – following "nav" should be exposed here but name is already taken by `nav` above.
 #_(defn nav [object k v] (hyperfiddle.hfql2.protocols/nav object k v))
 
+(def ^{:dynamic true, :doc "HFQL will bind this var to the current collection being traversed in the context where `hfql-resolve` is called."} *collection-at-point*)
 (def ^{:dynamic true, :doc "HFQL will bind this var to the current value in the context where `hfql-resolve` is called."} *value-at-point*)
 (defn hfql-resolve [symbolic-object-constructor] (-hfql-resolve symbolic-object-constructor))
 
@@ -636,8 +637,13 @@ identifier, though it might not be serializable."
         nil)))
   )
 
-(defmethod -hfql-resolve 'clojure.core/find [[_ key]] (clojure.core/find *value-at-point* (or (-hfql-resolve key) key))) ; Hum, isn't it the wrong place to resolve the inner value?
+(defmethod -hfql-resolve 'clojure.core/find [[_ key]] (fmap #(clojure.core/find % (or (-hfql-resolve key) key)) *value-at-point*)) ; Hum, isn't it the wrong place to resolve the inner value?
 (defmethod -hfql-resolve `current-point [[_]] *value-at-point*)
+(defmethod -hfql-resolve 'hyperfiddle.hfql2/nth [[_ index]]
+  (try (fmap #(nth % index nil) *collection-at-point*)
+       (catch #?(:clj Throwable, :cljs :default) t
+         (println "Failed to resolve by positional index running (nth % " index ") in collection of type:" (type (either identity identity *collection-at-point*)) "." t)
+         nil)))
 
 (def DEFAULT-SUGGESTION (hfql ^::default [identity identify type]))
 
@@ -796,9 +802,9 @@ identifier, though it might not be serializable."
                   (empty? suggested?) hfqlT
 
                   (= ::ana/pull hfqlT-type suggestedT-type)
-                  (hoistHfqlT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` looses static metadata.
+                  (hoistHfqlT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` loses static metadata.
                                           (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
-                    (combine hfqlT suggestedT)) ; FIXME looses static metadata :(
+                    (combine hfqlT suggestedT)) ; FIXME loses static metadata :(
                   (and (= ::ana/pull hfqlT-type)
                     (= '[*] (::ana/form (metas hfqlT)))) (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))
                   (= ::ana/pull hfqlT-type) hfqlT
@@ -806,6 +812,7 @@ identifier, though it might not be serializable."
                   :else hfqlT
                   )))
             hfqlT)
+        (co/vary-static-meta #(merge (metas hfqlT) %)) ; FIXME don't lose static metadata
         (set-parent (parent hfqlT))))))
 
 (comment

@@ -12,20 +12,20 @@
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.selection :refer [with-local-selection]])))
 
-(e/declare *local-selection *parent-selection)
+(e/declare *local-selection *local-selection-symbolic *parent-selection *parent-selection-symbolic)
 
 ;; (symbolic-cell-coordinates hyperfiddle.navigator6.matrix/_cellT)
 ;; (symbolic-row-coordinates hyperfiddle.navigator6.matrix/_cellT)
 
 (e/defn WithLocalSelection [state-key resolve-fn Body]
   (e/client
-    (binding [*local-selection (e/server (let [selection-state (get state/*local-state state-key)
-                                               resolve-fn ((e/capture-fn) resolve-fn)]
-                                           (Offload #(resolve-fn (to-pair selection-state)) {:label 'resolve-selected-object})))]
-      (->> (Body)
-        (utils/InterceptCommand `SetSelection!
-          (e/fn [[_ Getter]]
-            [`state/ReplaceState! assoc state-key (e/server ((glitch-guard selection2/symbolic-selection-coordinates) (Getter)))]))))))
+    (binding [*local-selection-symbolic (e/server (to-pair (get state/*local-state state-key)))]
+      (binding [*local-selection (e/server (let [resolve-fn ((e/capture-fn) resolve-fn)]
+                                             (Offload #(resolve-fn (to-pair *local-selection-symbolic)) {:label 'resolve-selected-object})))]
+        (->> (Body)
+          (utils/InterceptCommand `SetSelection!
+            (e/fn [[_ [row-index Getter]]]
+              [`state/ReplaceState! assoc state-key (e/server ((glitch-guard selection2/symbolic-selection-coordinates) (Getter) row-index))])))))))
 
 (defmacro with-local-selection [state-key resolve-fn & body]
   `(WithLocalSelection ~state-key ~resolve-fn (e/fn [] ~@body)))

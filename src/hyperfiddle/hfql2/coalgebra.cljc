@@ -707,19 +707,23 @@ Pulling on non-maps (non associative) is perfectly fine.
                                             identity
                                             (force-thunk value) ; ⚠ will force all effects up to the root to compute children multiplicity
                                             )))
-                             scope (dissoc scope ::BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE)]
+                             ;; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
+                             childT (unfoldT coalgebra (first children)) ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
+                             scope (dissoc scope ::BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE)
+                             ]
                          (with-meta ; carry metadata over
-                           (map ; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
-                                        ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
-                             (comp (flip seed (unfoldT coalgebra (first children)))
-                               (partial assoc scope '%) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
-                               (fn [value_i]
-                                 (binding [thunks/*cache-strategy* ::thunks/weak] ; lazy-seq spine do not hold onto navigated values. Leaves does.
-                                   (thunk
-                                     (try
-                                       (either/right (safe-ccp-nav forced nil value_i)) ; hard-wired navigate call – a fan-out is never a leaf.
-                                       (catch #?(:clj Throwable, :cljs :default) err
-                                         (either/left err)))))))
+                           ;; Can't use `sequence` here. `sequence` produces a chunked iterator seq and we must not force any form of batching in presence of IO. The user decides upstream.
+                           (map-indexed  ; Record item's index for eventual positional selection.
+                             (fn [positional-index value_i]
+                               (let [% (binding [thunks/*cache-strategy* ::thunks/weak] ; lazy-seq spine do not hold onto navigated values. Leaves does.
+                                         (thunk
+                                           (try
+                                             (either/right (safe-ccp-nav forced nil value_i)) ; hard-wired navigate call – a fan-out is never a leaf.
+                                             (catch #?(:clj Throwable, :cljs :default) err
+                                               (either/left err)))))]
+                                 (-> (seed (assoc scope '% %) childT) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
+                                   (vary-static-meta assoc ::hfql/positional-index positional-index) ; note positional index isn't a stable identity in the general case.
+                                   )))
                              (to-seq forced))
                            (meta forced)))))))))
            (lexical-env point)))))))
