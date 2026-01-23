@@ -80,7 +80,7 @@
 
 (defmacro hfql
   ([hfql-form] `(hfql* (ana/hfql ~hfql-form)))
-  ([hfql-form x] `(seed {~''% ~x} (hfql ~hfql-form))))
+  ([hfql-form x] `(seed {~''% (right ~x)} (hfql ~hfql-form))))
 
 
 

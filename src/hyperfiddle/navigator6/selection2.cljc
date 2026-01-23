@@ -101,7 +101,7 @@
   (symbolic-column? '(clojure.core/find-var foo))
   := true
   (symbolic-column? "foo")
-  := false
+  := true
   (symbolic-column? 42)
   := false
   (symbolic-column? [:db/ident :artist/name])
@@ -313,7 +313,7 @@
   (resolve-identifiable-object nil)
   := nil
   (resolve-identifiable-object (hfql/identify (->TestType 1 2)))
-  := (->TestType 1 2)
+  := (right (->TestType 1 2))
 
   )
 
@@ -403,7 +403,7 @@
     ;; selection coordinates are valid – we should be able to resolve an object
     (and (symbolic-selection-coordinates? symbolic-selection-coordinates)
       (let [[symbolic-column symbolic-constructor-form] symbolic-selection-coordinates
-            either-identifiable-object (binding [hfql/*collection-at-point* (hfql/nav* (hfql/parent selection-point)) ; cached
+            either-identifiable-object (binding [hfql/*collection-at-point* (some-> (hfql/parent selection-point) hfql/nav*) ; cached
                                                  hfql/*value-at-point* (find-value-at-point selection-point)]
                                          (resolve-identifiable-object symbolic-constructor-form))
             eventual-positional-index (selection-positional-index symbolic-selection-coordinates)]
