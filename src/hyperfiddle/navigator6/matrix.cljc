@@ -112,7 +112,7 @@
                         :role :radio
                         :tabindex "0"
                         :data-tooltip (e/server ({false (str "Can't select this cell. Column object is not Identifiable. " (type (hfql/symbolic-edge cellT)) " : " (hfql/symbolic-edge cellT))} (selection2/cell-selectable? cellT)))
-                        :aria-selected (e/server (selection2/cell-selected? selection/*local-selection cellT))})
+                        :aria-selected (e/server (selection2/cell-selected? selection/*local-selection cellT selection/*local-selection-symbolic))})
             (let [GetCellT (e/server (utils/Delay cellT))
                   event (dom/On* "click" cell-ignore-click-on-interactive-content nil) ; TODO hoist
                   [token err] (e/Token event)]
@@ -129,7 +129,7 @@
                 klass (dustingetz.loader/Initialized (e/server (str (type value-at-point))) "")
                 identifiable? (dustingetz.loader/Initialized (e/server (hfql/identifiable? value-at-point)) true) ; FIXME ideally default value should be false but the mouse cusor doesn't update for some reason if set to false.
                 GetRowT (e/server (utils/Delay rowT))
-                [token _] (forms/Checkbox! ::row (e/server (selection2/row-selected? selection/*local-selection rowT))
+                [token _] (forms/Checkbox! ::row (e/server (selection2/row-selected? selection/*local-selection rowT selection/*local-selection-symbolic))
                             :type :radio
                             :name (str group-id)
                             :disabled nil #_(not identifiable?)
@@ -301,7 +301,7 @@
     (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))})))
     (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))})))
     (e/client (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))})))
-    (dom/props {:class "" #_"entity-children hyperfiddle-navigator6__block"})
+    (dom/props {:class [({true "error"} (e/server (some? (::hfql/error ((glitch-guard hfql/metas) stepT)))))]})
     (let [... (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) (reshape-maps transpose? single? stepT)) {:label 'run-query}))
           is-map? (e/server (nth ... 0))
           transpose? (e/server (nth ... 1)) ; workaround sited destructuring

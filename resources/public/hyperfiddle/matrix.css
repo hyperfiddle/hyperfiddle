@@ -112,7 +112,7 @@ table.matrix tr td[data-error="true"]::before {
   content: "";
   position: absolute;
   inset: 1px;               /* gap around the background */
-  background: oklch(89.2% 0.058 10.001);
+  background: var(--row-color-error-highlight);
   z-index: -1;              /* behind content */
 }
 
@@ -120,6 +120,9 @@ table.matrix tr td[data-error="true"]::before {
 table.matrix{
     --row-color-dark: #f2f2f2;
     --row-color-light: white;
+    --row-color-error-dark: oklch(89.2% 0.058 10.001);
+    --row-color-error-light: oklch(96.9% 0.015 12.422);
+    --row-color-error-highlight: var(--row-color-error-dark);
     overscroll-behavior: none; /* disable rubber-band effect to hide non-stripped background */
 
     --background-pattern: repeating-linear-gradient(
@@ -171,6 +174,12 @@ table.matrix .matrix__diagonal
     background-repeat: no-repeat;
 }
 
+/* Error state */
+
+fieldset:has(> table.matrix).error > table.matrix{
+    --row-color-light: oklch(from var(--row-color-error-light) l calc(c * 0.60) h);
+    --row-color-dark: oklch(from var(--row-color-error-dark) l calc(c * 0.60) h)
+}
 
 /* selection */
 table.matrix[role=radiogroup]{

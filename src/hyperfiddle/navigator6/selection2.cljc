@@ -25,7 +25,7 @@
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as coalgebra :refer [star-traversal?]]
-   [hyperfiddle.ct.either :refer [either either? right left from-right]]
+   [hyperfiddle.ct.either :refer [either either? right left right? left? from-right from-left]]
    [hyperfiddle.navigator6 :as-alias navigator]
    [hyperfiddle.rcf :refer [tests]]
    ))
@@ -403,28 +403,51 @@
     ;; selection coordinates are valid – we should be able to resolve an object
     (and (symbolic-selection-coordinates? symbolic-selection-coordinates)
       (let [[symbolic-column symbolic-constructor-form] symbolic-selection-coordinates
+            cell-selection? (some? symbolic-column)
+            ;; We call into userland to resolve.
             either-identifiable-object (binding [hfql/*collection-at-point* (some-> (hfql/parent selection-point) hfql/nav*) ; cached
                                                  hfql/*value-at-point* (find-value-at-point selection-point)]
-                                         (resolve-identifiable-object symbolic-constructor-form))
-            eventual-positional-index (selection-positional-index symbolic-selection-coordinates)]
-        (or (and (some? either-identifiable-object) ; we've found an identifiable object – we should be able to produce a row or a cell
-              (let [seeded-selection-point (-> (hydrate-point selection-point either-identifiable-object)
-                                             (coalgebra/vary-static-meta assoc ::hfql/positional-index eventual-positional-index))]
-                (or (and (some? symbolic-column)
-                      (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
-                            (row? seeded-selection-point)
-                            (step-over-eventual_traversal-with-pull-continuation_in-pull ; Edge case
-                              (or ; perf optimization – attempt to resolve without suggesting.
-                                (hfql/find-cell-by-symbolic-column symbolic-column seeded-selection-point)
-                                (hfql/find-cell-by-symbolic-column symbolic-column (hfql/augment-with-suggestions! seeded-selection-point)))))
-                        (and ; we are resolving a cell selection but the given selection point is not a row. We can't focus on a cell.
-                          (not (row? seeded-selection-point))
-                          (println "The given selection contains a column and so targets a cell. But the current selection point is not a row. Can't focus on a cell on an object that is not a row." (::ana/type (hfql/metas seeded-selection-point)))
-                          (def _selection-point seeded-selection-point) ; G – for me, for debugging.
-                          nil)))
-                  ;; there's no symbolic column to focus on. This is a row selection.
-                  seeded-selection-point)))
-          nil)))
+                                         ;; An object can be Identifiable, identification can succeed, but resolution can fail (e.g. incorrect DI, external dependency failure, …)
+                                         ;; `resolve-identifiable-object` can return:
+                                         ;; - nil: object isn't resolvable
+                                         ;; - Right `x`: object is resolvable and successfully resolved to `x`
+                                         ;; - Left `x`: object is resolvable but resolution failed
+                                         (resolve-identifiable-object symbolic-constructor-form))]
+        ;; Resolution succeeded – we should be able to produce a row or a cell
+        (or
+          (and (right? either-identifiable-object)
+            (let [seeded-selection-point (-> (hydrate-point selection-point either-identifiable-object)
+                                           (coalgebra/vary-static-meta assoc ::hfql/positional-index (selection-positional-index symbolic-selection-coordinates)))]
+              (or (and cell-selection?
+                    (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
+                          (row? seeded-selection-point)
+                          (step-over-eventual_traversal-with-pull-continuation_in-pull ; Edge case
+                            (or ; perf optimization – attempt to resolve without suggesting.
+                              (hfql/find-cell-by-symbolic-column symbolic-column seeded-selection-point)
+                              (hfql/find-cell-by-symbolic-column symbolic-column (hfql/augment-with-suggestions! seeded-selection-point)))))
+                      (and ; we are resolving a cell selection but the given selection point is not a row. We can't focus on a cell.
+                        (not (row? seeded-selection-point))
+                        (println "The given selection contains a column and so targets a cell. But the current selection point is not a row. Can't focus on a cell on an object that is not a row." (::ana/type (hfql/metas seeded-selection-point)))
+                        (def _selection-point seeded-selection-point) ; G – for me, for debugging.
+                        nil)))
+                ;; there's no symbolic column to focus on. This is a row selection.
+                seeded-selection-point)))
+          ;; Object was Identifiable, got identified, but identification failed.
+          (and (left? either-identifiable-object)
+            ;; let user explore the resolution error. Doesn't differentiate row from cell selection.
+            (-> (hydrate-point selection-point (right (from-left nil either-identifiable-object))) ; reinject error as a value
+              (coalgebra/vary-static-meta assoc
+                ::hfql/positional-index (selection-positional-index symbolic-selection-coordinates)
+                ::hfql/error (from-left nil either-identifiable-object)
+                )))
+          ;; Unexpected resolution outcome.
+          (and (some? either-identifiable-object)
+            (not (either? either-identifiable-object))
+            (println "Unexpected selection coordinates resolution result. Expected one of \"unresolvable\", \"successfully resolved\" or \"failed to resolve\". Received: " (type either-identifiable-object) ".")
+            nil)
+          ;; Unresolvable object. Do nothing.
+          (and (nil? either-identifiable-object)
+            nil))))
     ;; no valid selection coordinates
     nil))
 
@@ -835,24 +858,35 @@
 
 ;;;;; Detecting a selected row
 
-(defn row-selected? [selected-point current-point]
-  {:pre [(or (nil? selected-point) (selection-point? selected-point))
-         (or (nil? current-point) (selection-point? current-point))]
-   :post [(boolean? %)]}
-  (or (and (some? selected-point)
-        (some? current-point)
-        (selection-point? selected-point)
-        (selection-point? current-point)
-        (row? selected-point)
-        (or (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
-          (and
-            (hfql/identifiable? (from-right nil (hfql/value-at-point* selected-point)))
-            (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
-            (= (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
-              (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
-          (= (::hfql/positional-index (hfql/metas selected-point))
-            (::hfql/positional-index (hfql/metas current-point)))))
-    false)
+(defn row-selected?
+  ([selected-point current-point] (row-selected? selected-point current-point nil))
+  ([selected-point current-point selected-point-symbolic]
+   {:pre [(or (nil? selected-point) (selection-point? selected-point))
+          (or (nil? current-point) (selection-point? current-point))
+          (or (nil? selected-point-symbolic) (symbolic-selection-coordinates? selected-point-symbolic))]
+    :post [(boolean? %)]}
+   (or (and (some? selected-point)
+         (some? current-point)
+         (selection-point? selected-point)
+         (selection-point? current-point)
+         (row? selected-point)
+         (or (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
+           ;; If we have symbolic coordinates, compare them with the current point directly.
+           ;; This is not just a shortcut, the selected point can fail to resolve (see `resolve-selection-coordinates`).
+           (and (some? selected-point-symbolic)
+             (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
+             (= (second selected-point-symbolic)
+               (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
+           ;; We don't have symbolic selection coordinates, or they don't match, but we have a selected object.
+           ;; This can happen when the selected object isn't globally identifiable (e.g. positional indexing)
+           (and
+             (hfql/identifiable? (from-right nil (hfql/value-at-point* selected-point)))
+             (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
+             (= (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
+               (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
+           (= (::hfql/positional-index (hfql/metas selected-point))
+             (::hfql/positional-index (hfql/metas current-point)))))
+     false))
   )
 
 ;;;;; Detecting a selected cell
@@ -865,40 +899,50 @@
     (cell? selected-point)
     (symbolic-column? (symbolize-form selected-point))))
 
-(defn cell-selected? [selected-point current-point]
-  {:pre [(or (nil? selected-point) (selection-point? selected-point))
-         (or (nil? current-point) (selection-point? current-point))]
-   :post [(boolean? %)]}
-  (or (and (some? selected-point)
-        (some? current-point)
-        (selection-point? selected-point)
-        (selection-point? current-point)
-        (or
-          ;; Base case
-          (and
-            (cell? selected-point)
-            (or
-              (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
-              (and
-                (= (hfql/symbolic-edge selected-point)
-                  (hfql/symbolic-edge current-point))
-                (or
-                  (let [selected-identity (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
-                        current-identity (hfql/identify (from-right nil (hfql/value-at-point* current-point)))]
-                    (and (some? selected-identity)
-                      (some? current-identity)
-                      (= selected-identity current-identity)))
-                  (= (::hfql/positional-index (hfql/metas (hfql/parent selected-point)))
-                    (::hfql/positional-index (hfql/metas (hfql/parent current-point))))))))
-          ;; 2026-01-08 Edge case: traversal with a pull continuation inside of a pull.
-          ;; See comments for `step-over-eventual_traversal-with-pull-continuation_in-pull`.
-          ;; In this case the selected-point is one extra step ahead of current-point. So we want to match against its parent – the actual cell.
-          ;; This behavior is not a band-aid. It is specific to a UI-based navigator over a tree-seqed HFQL structure. It is a UX concern.
-          ;; REPLs – for instance – are not impacted by this edge case.
-          (and
-            (traversal-with-pull-continuation_in-pull? current-point)
-            (cell-selected? (hfql/parent selected-point) current-point))))
-    false))
+(defn cell-selected?
+  ([selected-point current-point] (cell-selected? selected-point current-point nil))
+  ([selected-point current-point selected-point-symbolic]
+   {:pre [(or (nil? selected-point) (selection-point? selected-point))
+          (or (nil? current-point) (selection-point? current-point))
+          (or (nil? selected-point-symbolic) (symbolic-selection-coordinates? selected-point-symbolic))]
+    :post [(boolean? %)]}
+   (or (and (some? selected-point)
+         (some? current-point)
+         (selection-point? selected-point)
+         (selection-point? current-point)
+         (or
+           ;; Base case
+           (and
+             (cell? selected-point)
+             (or
+               (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
+               ;; First, check with symbolic coordinates
+               (and (= (first selected-point-symbolic)
+                      (hfql/symbolic-edge current-point))
+                 (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
+                 (= (second selected-point-symbolic)
+                   (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
+               ;; Then, check with resolved selected point
+               (and
+                 (= (hfql/symbolic-edge selected-point)
+                   (hfql/symbolic-edge current-point))
+                 (or
+                   (let [selected-identity (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
+                         current-identity (hfql/identify (from-right nil (hfql/value-at-point* current-point)))]
+                     (and (some? selected-identity)
+                       (some? current-identity)
+                       (= selected-identity current-identity)))
+                   (= (::hfql/positional-index (hfql/metas (hfql/parent selected-point)))
+                     (::hfql/positional-index (hfql/metas (hfql/parent current-point))))))))
+           ;; 2026-01-08 Edge case: traversal with a pull continuation inside of a pull.
+           ;; See comments for `step-over-eventual_traversal-with-pull-continuation_in-pull`.
+           ;; In this case the selected-point is one extra step ahead of current-point. So we want to match against its parent – the actual cell.
+           ;; This behavior is not a band-aid. It is specific to a UI-based navigator over a tree-seqed HFQL structure. It is a UX concern.
+           ;; REPLs – for instance – are not impacted by this edge case.
+           (and
+             (traversal-with-pull-continuation_in-pull? current-point)
+             (cell-selected? (hfql/parent selected-point) current-point))))
+     false)))
 
 ;;;; Naming points
 ;;;;; Infering a title from navigation point
@@ -957,7 +1001,13 @@
                        (and
                          (= `hfql/nth (first symbolic-constructor-form))
                          (some? symbolic-column)
-                         (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form))))))))))
+                         (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form))))))))
+                 (and (::hfql/error (hfql/metas current-point))
+                   (or (and (some? parent-selection-coordinates)
+                         (or (and (some? (first parent-selection-coordinates)) ; col × row
+                               (pr-str (list* parent-selection-coordinates)))
+                           (pr-str (second parent-selection-coordinates)))) ; row only
+                     (str (type (::hfql/error (hfql/metas current-point))))))))
            (some-> (symbolize-value current-point) pr-str)
            (some-> (hfql/symbolic-edge-computed current-point) pr-str)
            (point-symbolic-name (hfql/parent current-point))))
