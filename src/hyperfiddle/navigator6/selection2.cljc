@@ -435,11 +435,20 @@
           ;; Object was Identifiable, got identified, but identification failed.
           (and (left? either-identifiable-object)
             ;; let user explore the resolution error. Doesn't differentiate row from cell selection.
-            (-> (hydrate-point selection-point (right (from-left nil either-identifiable-object))) ; reinject error as a value
-              (coalgebra/vary-static-meta assoc
-                ::hfql/positional-index (selection-positional-index symbolic-selection-coordinates)
-                ::hfql/error (from-left nil either-identifiable-object)
-                )))
+            (let [target-point (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
+                                     cell-selection?
+                                     (row? selection-point)
+                                     (step-over-eventual_traversal-with-pull-continuation_in-pull ; Edge case
+                                       (or ; perf optimization – attempt to resolve without suggesting.
+                                         (hfql/find-cell-by-symbolic-column symbolic-column selection-point)
+                                         (hfql/find-cell-by-symbolic-column symbolic-column (hfql/augment-with-suggestions! selection-point)))))
+                                 ;; otherwise fallback to row selection
+                                 selection-point)]
+              (-> (hfql/hfql [*] (from-left nil either-identifiable-object)) ; reinject error as a value – intentionally severs the HFQL tree to render a generic error.
+                (hfql/set-parent target-point) ; graft this generic HFQL tree onto the failed parent. Use case: render title in the context of parent selection.
+                (coalgebra/vary-static-meta assoc
+                  ::hfql/positional-index (selection-positional-index symbolic-selection-coordinates)
+                  ::hfql/error (from-left nil either-identifiable-object)))))
           ;; Unexpected resolution outcome.
           (and (some? either-identifiable-object)
             (not (either? either-identifiable-object))
@@ -874,6 +883,7 @@
            ;; If we have symbolic coordinates, compare them with the current point directly.
            ;; This is not just a shortcut, the selected point can fail to resolve (see `resolve-selection-coordinates`).
            (and (some? selected-point-symbolic)
+             (nil? (first selected-point-symbolic)) ; not a cell selection
              (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
              (= (second selected-point-symbolic)
                (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
@@ -912,28 +922,40 @@
          (selection-point? current-point)
          (or
            ;; Base case
-           (and
-             (cell? selected-point)
+           ;; (cell? selected-point) ;; TODO why was this necessary? Is it still necessary? Removing it seem harmless for now.
+           (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
+           ;;; First, check with symbolic coordinates
+           ;; Case where the current point is not identifiable.
+           (and (= (first selected-point-symbolic) (hfql/symbolic-edge current-point)) ; column matches
+             (= `(hfql/current-point) (second selected-point-symbolic))
              (or
-               (= selected-point current-point) ; Ideal path FIXME G — I don't remember why but this is always false for now.
-               ;; First, check with symbolic coordinates
-               (and (= (first selected-point-symbolic)
-                      (hfql/symbolic-edge current-point))
-                 (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
-                 (= (second selected-point-symbolic)
-                   (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
-               ;; Then, check with resolved selected point
-               (and
-                 (= (hfql/symbolic-edge selected-point)
-                   (hfql/symbolic-edge current-point))
-                 (or
-                   (let [selected-identity (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
-                         current-identity (hfql/identify (from-right nil (hfql/value-at-point* current-point)))]
-                     (and (some? selected-identity)
-                       (some? current-identity)
-                       (= selected-identity current-identity)))
-                   (= (::hfql/positional-index (hfql/metas (hfql/parent selected-point)))
-                     (::hfql/positional-index (hfql/metas (hfql/parent current-point))))))))
+               ;; this is redundant with the `hfql/current-point` check above, but we want to ensure they always line up.
+               (not (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point))))
+               (and (println "Invariant violation: `hfql/current-point` is selected but the current point is Identifiable. Selection should use the object's symbolic identity instead.")
+                 nil)))
+           ;; Case where the current point is identifiable
+           (and
+             (= (first selected-point-symbolic) (hfql/symbolic-edge current-point)) ; column matches
+             (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point))) ; current point is identifiable
+             (= (second selected-point-symbolic) ; current row's identity matches the symbolic constructor
+               (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
+           ;; Then, check with resolved selected point
+           (and
+             (= (hfql/symbolic-edge selected-point) (hfql/symbolic-edge current-point)) ; columns matches
+             (let [selected-identity (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
+                   current-identity (hfql/identify (from-right nil (hfql/value-at-point* current-point)))]
+               (or
+                 ;; Case where both are identifiable – this cell is selected if their identities match.
+                 (and (some? selected-identity)
+                   (some? current-identity)
+                   (= selected-identity current-identity))
+                 ;; Case where the current point isn't identifiable but we can match by positional index.
+                 (and
+                   ;; (some? selected-identity) ; TODO is this check necessary? why?
+                   (some? (some-> selected-point hfql/parent hfql/metas ::hfql/positional-index))
+                   (some? (some-> current-point hfql/parent hfql/metas ::hfql/positional-index))
+                   (= (some-> selected-point hfql/parent hfql/metas ::hfql/positional-index)
+                     (some-> current-point hfql/parent hfql/metas ::hfql/positional-index))))))
            ;; 2026-01-08 Edge case: traversal with a pull continuation inside of a pull.
            ;; See comments for `step-over-eventual_traversal-with-pull-continuation_in-pull`.
            ;; In this case the selected-point is one extra step ahead of current-point. So we want to match against its parent – the actual cell.
@@ -956,60 +978,107 @@
    (or (and (some? current-point)
          (or (let [symbolic-column (symbolize-form current-point)
                    symbolic-constructor-form (symbolize-value current-point)]
-               (or (and (some? symbolic-column)
+               (or
+                 ;; Case where both symbolic column and value are known at the current point.
+                 (and (some? symbolic-column)
                      (some? symbolic-constructor-form)
                      (pr-str (list symbolic-column (symbolize-value current-point))))
+                 ;; Case where only the column is known at the current point and the value isn't Identifiable.
                  (and (some? symbolic-column)
                    (nil? symbolic-constructor-form)
                    (pr-str symbolic-column))
+                 ;; Case where no column is selected but the selected value is Identifiable
+                 ;; We want to infer "from which column" this point was selected.
+                 ;; So we look at the parent, if any, to infer selection in the context of the parent.
                  (and (nil? symbolic-column)
                    (some? symbolic-constructor-form)
-                   (let [parent-edge (and (hfql/parent current-point)
+                   (let [parent-edge (and (hfql/parent current-point) ; there's a parent.
                                        (symbolize-form (hfql/parent current-point)))
-                         parent-symbolic-value (symbolize-value (hfql/parent current-point))]
+                         parent-symbolic-value (and (hfql/parent current-point)
+                                                 (symbolize-value (hfql/parent current-point)))]
                      (or
-                       ;; Edge cases: parent and the current selected *cell* are Identifiable
+                       ;; Edge case: both parent and the current selected *cell* are Identifiable
                        ;; We want to favor `(column parent-row)` over just `cell`'s symbolic identity
-                       ;; More so, we want to prevent the incorrect: `(column cell)` symbolic form.
+                       ;; More so, we want to prevent the incorrect `(column cell)` symbolic form.
                        ;; Real-world case: jgit's GitRepository/.getRepository return a FileRepository. Both are Identifiable.
                        ;; As of 2026-01-06 the UI produced `(.getRepository FileRepository)` which is wrong.
                        ;; The correct form is `(.getRepository GitRepository)`.
-                       ;; (pr-str (list parent-edge symbolic-constructor-form)) ; wrong
                        (and (some? parent-edge)
                          (some? parent-symbolic-value)
                          (pr-str (list parent-edge parent-symbolic-value)))
+                       ;; Edge case: the parent is a cell selection on a non-identifiable value AND the selected cell is identifiable.
+                       ;; We know the parent's column but not the parent's row. We also know the current point's symbolic value.
+                       ;; Real-world case: selecting `type` on an Exception instance:
+                       ;; - `type` is the column
+                       ;; - Exceptions are not Identifiable
+                       ;; - `type` points to a Class object, which are identifiable – by canonical name.
+                       ;; Which one should we favor?
+                       ;; A. `type` – local, path based, relative.
+                       ;; B. `(Class/forName <canonicalName>)` – global, absolute.
+                       ;; We decide we prefer `A.` over `B.`
                        (and (some? parent-edge)
                          (nil? parent-symbolic-value)
                          (some? parent-selection-coordinates)
-                         ;; Below is duplicated – Ⓐ – TODO cleanup
                          (let [[symbolic-column symbolic-constructor-form] parent-selection-coordinates]
-                           (or (and (= `hfql/nth (first symbolic-constructor-form)) ; This is a positional addressing situation.
+                           (or
+                             ;; Case where we select "hfql/current-point", a non-identifiable object only addressable by the current scope.
+                             (and (= `hfql/current-point (first symbolic-constructor-form))
+                               (some? symbolic-column)
+                               (pr-str symbolic-column))
+                             ;; Below is duplicated – Ⓐ – TODO cleanup
+                             ;; Case where we select a row by positional index.
+                             (and (= `hfql/nth (first symbolic-constructor-form)) ; This is a positional addressing situation.
                                  (nil? symbolic-column)
                                  (pr-str (list 'nth '% (second symbolic-constructor-form))))
-                             (and
-                               (= `hfql/nth (first symbolic-constructor-form))
+                             ;; Case where we select a cell by positional index.
+                             (and (= `hfql/nth (first symbolic-constructor-form))
                                (some? symbolic-column)
                                (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form)))))))))))
+                 ;; Case where the current point is anonymous (e.g. a non-identifiable row).
+                 ;; So there's no selected column, and the row coordinate is unknown.
+                 ;; UNLESS it can be identified by positional index.
                  (and (nil? symbolic-column)
                    (nil? symbolic-constructor-form)
-                   (some? parent-selection-coordinates) ; Anonymous point but we may have more info by interpreting the symbolic coords.
+                   (some? parent-selection-coordinates) ; Anonymous point but we may have more info by interpreting symbolic coordinates.
                    ;; Below is duplicated – Ⓐ – TODO cleanup
                    (let [[symbolic-column symbolic-constructor-form] parent-selection-coordinates]
-                     (or (and (= `hfql/nth (first symbolic-constructor-form)) ; This is a positional addressing situation.
+                     (or
+                       ;; Case where we select a row by positional index.
+                       (and (= `hfql/nth (first symbolic-constructor-form)) ; This is a positional addressing situation.
                            (nil? symbolic-column)
                            (pr-str (list 'nth '% (second symbolic-constructor-form))))
-                       (and
-                         (= `hfql/nth (first symbolic-constructor-form))
+                       ;; Case where we select a cell by positional index.
+                       (and (= `hfql/nth (first symbolic-constructor-form))
                          (some? symbolic-column)
                          (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form))))))))
-                 (and (::hfql/error (hfql/metas current-point))
+                 ;; Case where we render a navigation (selection) error. E.g. when resolving fails.
+                 ;; The title is the one of the expected navigation, not the one of the error object.
+                 (and (::hfql/error (hfql/metas current-point)) ; error flag
                    (or (and (some? parent-selection-coordinates)
                          (or (and (some? (first parent-selection-coordinates)) ; col × row
                                (pr-str (list* parent-selection-coordinates)))
                            (pr-str (second parent-selection-coordinates)))) ; row only
+                     ;; We don't know the current point's corrdinates because there's no parent. (e.g. top-level navigation failed)
+                     ;; The best title we can produce is the one of the error itself.
+                     ;; It's better than nothing.
                      (str (type (::hfql/error (hfql/metas current-point))))))))
-           (some-> (symbolize-value current-point) pr-str)
-           (some-> (hfql/symbolic-edge-computed current-point) pr-str)
+           ;; Case where we have:
+           ;; - no error
+           ;; - no selected column
+           ;; - couldn't identify selection in parent's context (relative, path based)
+           ;;   - can't tell if selection was by positional index
+           ;; We attempt to generate a title from the current point's value.
+           (or
+             (some-> (symbolize-value current-point) pr-str)
+             (some-> (hfql/symbolic-edge-computed current-point) pr-str))
+           ;; Fallback case: we can't generate a title for the current point. It means:
+           ;; - no error
+           ;; - no selected column
+           ;; - couldn't identify selection in parent's context (relative, path based)
+           ;;   - can't tell if selection was by positional index
+           ;; - value at point isn't Identifiable.
+           ;;   - can't generate a title from current point.
+           ;; We assume this is a cell selection and we retry with the parent.
            (point-symbolic-name (hfql/parent current-point))))
      "Anonymous value")))
 

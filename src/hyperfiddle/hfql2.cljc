@@ -504,7 +504,7 @@
         (map (fn [part] (or (identify part) part))
           (normalize-edge
             (co/symbolic-edge hfqlT ::co/point-free false))))
-    (identify (value-at-point hfqlT))))
+    (either (comp symbol pr-str type) identify (value-at-point* hfqlT))))
 
 (defn- call-matches? [edgeA edgeB]
   (when (and (seq? edgeA) (seq? edgeB)) ; call form
