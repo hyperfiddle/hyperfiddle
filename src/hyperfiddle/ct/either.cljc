@@ -37,7 +37,7 @@
 
 (declare either semigroup-mappend pure-either fapply-either monad-bind)
 
-(defrecord Right [b]
+(deftype Right [b]
   Either
   Semigroup ; lawful semigroup impl that doesn't require wrapped values to themeselves be semigroup.
   (-<> [either-a either-b] (semigroup-mappend either-a either-b))
@@ -49,7 +49,13 @@
   (-pure [_ a] (pure-either a))
   (-fapply [either-f either-v] (fapply-either either-f either-v))
   Monad
-  (-bind [ma a->mb] (monad-bind ma a->mb)))
+  (-bind [ma a->mb] (monad-bind ma a->mb))
+
+  Object
+  #?(:clj (equals [_this other] (and (instance? Right other) (= b (.-b other)))))
+  #?(:clj (hashCode [this] (clojure.lang.Murmur3/mixCollHash (.hashCode Right) (hash b))))
+  (toString [_this]
+    (str "#" `Right [b])))
 
 (defn right ":: b -> Right b" [b] (->Right b))
 (defn right? "right? :: Either a b -> Bool" [either] (instance? Right either)) ; isRight in haskell
@@ -57,7 +63,9 @@
   [b either] (if (right? either) (.-b either) b))
 (defn rights ":: [Either a b] -> [b]. Extracts from a list of Either all the Right elements. All the Right elements are extracted in order."
   [eithers]
-  (map-maybe (either (const nothing) just eithers)))
+  (map-maybe (either (const nothing) just) eithers))
+
+#?(:clj (defmethod print-method Right [^Right v ^java.io.Writer w] (.write w (.toString v))))
 
 (tests
   (either? (right 1))
@@ -68,7 +76,7 @@
   := [1 2]
   )
 
-(defrecord Left [a]
+(deftype Left [a]
   Either
   Semigroup ; lawful semigroup impl that doesn't require wrapped values to themeselves be semigroup.
   (-<> [either-a either-b] (semigroup-mappend either-a either-b))
@@ -81,7 +89,14 @@
   (-fapply [either-f either-v] (fapply-either either-f either-v))
   Monad
   (-bind [ma a->mb] (monad-bind ma a->mb))
+
+  Object
+  #?(:clj (equals [_this other] (and (instance? Left other) (= a (.-a other)))))
+  #?(:clj (hashCode [this] (clojure.lang.Murmur3/mixCollHash (.hashCode Left) (hash a))))
+  (toString [this]
+    (str "#" `Left [a]))
   )
+
 
 (defn left ":: a -> Left a" [a] (->Left a))
 (defn left? "left? :: Either a b -> Bool" [either] (instance? Left either)) ; isLeft in haskell
@@ -89,7 +104,9 @@
   (if (left? either) (.-a either) a))
 (defn lefts ":: [Either a b] -> [a]. Extracts from a list of Either all the Left elements. All the Left elements are extracted in order."
   [eithers]
-  (map-maybe (either just (const nothing) eithers)))
+  (map-maybe (either just (const nothing)) eithers))
+
+#?(:clj (defmethod print-method Left [^Left v ^java.io.Writer w] (.write w (.toString v))))
 
 (tests
   (either? (left 1))
