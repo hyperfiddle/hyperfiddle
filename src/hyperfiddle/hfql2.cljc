@@ -45,12 +45,7 @@
 (defpointfree values (comp (fmap (comp #_from-either force-thunk nav)) tree-seqT))
 
 (defpointfree scope (comp pos snd runCofreeT))
-(defpointfree value-at-point* (comp force-thunk '% scope))
-(defn value-at-point [stepT]
-  (let [value (value-at-point* stepT)]
-    (if (either? value)
-      (unwrap! value)
-      value)))
+(defpointfree value-at-point (comp force-thunk '% scope))
 (defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
 (defpointfree metas (comp fst runCofreeT))
@@ -504,7 +499,7 @@
         (map (fn [part] (or (identify part) part))
           (normalize-edge
             (co/symbolic-edge hfqlT ::co/point-free false))))
-    (either (comp symbol pr-str type) identify (value-at-point* hfqlT))))
+    (either (comp symbol pr-str type) identify (value-at-point hfqlT))))
 
 (defn- call-matches? [edgeA edgeB]
   (when (and (seq? edgeA) (seq? edgeB)) ; call form
@@ -774,7 +769,7 @@ identifier, though it might not be serializable."
 
 
 (defn- suggest-at-point! [hfqlT]
-  (->> (value-at-point* hfqlT)
+  (->> (value-at-point hfqlT)
     (=<< suggest*)
     (either
       (fn [err] (println "Failed to suggest columns:" (ex-message err)) nil)

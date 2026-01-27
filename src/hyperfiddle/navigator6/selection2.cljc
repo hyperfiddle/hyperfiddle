@@ -196,7 +196,7 @@
   (hfql/identify
     (from-right nil
       (or (and (row? point) ; a row holds the current value but doesn't project it on its own. Cells does.
-            (hfql/value-at-point* point))
+            (hfql/value-at-point point))
         ;; a cell have the row value in scope and we want the symbolic coordinates to be [symbolic-column symbolic-row-value].
         ;; So we treat the same as rows with regard to coordinates.
         ;; Why? because UI concerns: We want to highlight the cell as "selected" onto a grid. So we must now which row and column of the grid.
@@ -204,7 +204,7 @@
         ;; The answer is we want the value-at-point (row) because we want to select the cell *in the context of a row*
         ;; If we call `nav` then we will select the cell's content, lose the row context, and we won't be able to tell onto which row it was selected.
         (and (cell? point)
-          (hfql/value-at-point* point))
+          (hfql/value-at-point point))
         nil))))
 
 (defn symbolic-selection-coordinates 
@@ -215,8 +215,8 @@
    (or
      ;; Selected point is identifiable.
      (and (selection-point? point) ; selected point is an HFQL point
-       (hfql/identifiable? (from-right nil (hfql/value-at-point* point))) ; selected point's value is Identifiable. This means we should be able to identify it. Not that identification is guaranteed to succeed.
-       (some? (hfql/identify (from-right nil (hfql/value-at-point* point)))) ; value is identified
+       (hfql/identifiable? (from-right nil (hfql/value-at-point point))) ; selected point's value is Identifiable. This means we should be able to identify it. Not that identification is guaranteed to succeed.
+       (some? (hfql/identify (from-right nil (hfql/value-at-point point)))) ; value is identified
        (or (and (row? point) ; selected point is a row
              (pair nil (symbolize-value point)))
          (and (cell? point) ; selected point is a cell
@@ -235,7 +235,7 @@
      ;; Addressing the object at point will require DI, and can ONLY be defined under multiplicity one.
      (and (selection-point? point)
        (cell? point)
-       (or (hfql/identifiable? (from-right nil (hfql/value-at-point* (hfql/parent point))))
+       (or (hfql/identifiable? (from-right nil (hfql/value-at-point (hfql/parent point))))
          (not (hfql/multiplicity-many? (hfql/parent (hfql/parent point)))))
        (symbolic-column? (symbolize-form point)) ; ensure column is representable (e.g. arbitrary object as a key in a map is not URL-representable)
        (pair (symbolize-form point) `(hfql/current-point)))
@@ -330,8 +330,8 @@
   {:pre [(selection-point? selection-point)]}
   ;; special case ; TODO document
   (or (and (= ::hfql/map-entry (::hfql/value-type (hfql/metas selection-point)))
-        (hfql/value-at-point* (hfql/parent selection-point)))
-    (hfql/value-at-point* selection-point)))
+        (hfql/value-at-point (hfql/parent selection-point)))
+    (hfql/value-at-point selection-point)))
 
 (letfn [(traversal? [selection-point] (= ::ana/traversal (::ana/type (hfql/metas selection-point))))
         (pull? [selection-point] (and (some? selection-point)
@@ -462,7 +462,7 @@
 
 
 (comment
-  (hfql/value-at-point* _selection-point)
+  (hfql/value-at-point _selection-point)
   (hfql/nav _selection-point)
   (hfql/nav (hfql/parent _selection-point))
   (resolve-selection-coordinates _selection-point (pair nil '(hyperfiddle.hfql2/nth 2)))
@@ -783,7 +783,7 @@
                                          ))]
         (or
           ;; Navigation happens on the selected point:
-          (and #_(hfql/identifiable? (from-right nil (hfql/value-at-point* selected-point))) ; not all points are Identifiable (e.g. maps) but can be navigated anyway using `hfql/current-point`'s DI.
+          (and #_(hfql/identifiable? (from-right nil (hfql/value-at-point selected-point))) ; not all points are Identifiable (e.g. maps) but can be navigated anyway using `hfql/current-point`'s DI.
             (not (some? navigator-select-command))
             selected-point)
           ;; Navigation doesn't happen on the selected point
@@ -834,7 +834,7 @@
   (let [[sitemap-symbolic-entry & args] navigator-select-command]
     (cons sitemap-symbolic-entry (map (fn [symbolic-arg]
                                         (case symbolic-arg
-                                          %  (either (comp symbol pr-str type) identity (hfql/value-at-point* selected-point))
+                                          %  (either (comp symbol pr-str type) identity (hfql/value-at-point selected-point))
                                           %v (either (comp symbol pr-str type) (hfql/nav* selected-point))
                                           symbolic-arg))
                                    args))))
@@ -884,16 +884,16 @@
            ;; This is not just a shortcut, the selected point can fail to resolve (see `resolve-selection-coordinates`).
            (and (some? selected-point-symbolic)
              (nil? (first selected-point-symbolic)) ; not a cell selection
-             (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
+             (hfql/identifiable? (from-right nil (hfql/value-at-point current-point)))
              (= (second selected-point-symbolic)
-               (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
+               (hfql/identify (from-right nil (hfql/value-at-point current-point)))))
            ;; We don't have symbolic selection coordinates, or they don't match, but we have a selected object.
            ;; This can happen when the selected object isn't globally identifiable (e.g. positional indexing)
            (and
-             (hfql/identifiable? (from-right nil (hfql/value-at-point* selected-point)))
-             (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point)))
-             (= (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
-               (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
+             (hfql/identifiable? (from-right nil (hfql/value-at-point selected-point)))
+             (hfql/identifiable? (from-right nil (hfql/value-at-point current-point)))
+             (= (hfql/identify (from-right nil (hfql/value-at-point selected-point)))
+               (hfql/identify (from-right nil (hfql/value-at-point current-point)))))
            (= (::hfql/positional-index (hfql/metas selected-point))
              (::hfql/positional-index (hfql/metas current-point)))))
      false))
@@ -930,20 +930,20 @@
              (= `(hfql/current-point) (second selected-point-symbolic))
              (or
                ;; this is redundant with the `hfql/current-point` check above, but we want to ensure they always line up.
-               (not (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point))))
+               (not (hfql/identifiable? (from-right nil (hfql/value-at-point current-point))))
                (and (println "Invariant violation: `hfql/current-point` is selected but the current point is Identifiable. Selection should use the object's symbolic identity instead.")
                  nil)))
            ;; Case where the current point is identifiable
            (and
              (= (first selected-point-symbolic) (hfql/symbolic-edge current-point)) ; column matches
-             (hfql/identifiable? (from-right nil (hfql/value-at-point* current-point))) ; current point is identifiable
+             (hfql/identifiable? (from-right nil (hfql/value-at-point current-point))) ; current point is identifiable
              (= (second selected-point-symbolic) ; current row's identity matches the symbolic constructor
-               (hfql/identify (from-right nil (hfql/value-at-point* current-point)))))
+               (hfql/identify (from-right nil (hfql/value-at-point current-point)))))
            ;; Then, check with resolved selected point
            (and
              (= (hfql/symbolic-edge selected-point) (hfql/symbolic-edge current-point)) ; columns matches
-             (let [selected-identity (hfql/identify (from-right nil (hfql/value-at-point* selected-point)))
-                   current-identity (hfql/identify (from-right nil (hfql/value-at-point* current-point)))]
+             (let [selected-identity (hfql/identify (from-right nil (hfql/value-at-point selected-point)))
+                   current-identity (hfql/identify (from-right nil (hfql/value-at-point current-point)))]
                (or
                  ;; Case where both are identifiable – this cell is selected if their identities match.
                  (and (some? selected-identity)

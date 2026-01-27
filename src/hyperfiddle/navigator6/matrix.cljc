@@ -125,7 +125,7 @@
 
 (e/defn RowHandle [group-id row-index rowT]
   (dom/th (dom/props {:scope :row})
-          (let [value-at-point (e/server ((glitch-guard some? either identity identity) ((glitch-guard hfql/value-at-point*) rowT)))
+          (let [value-at-point (e/server ((glitch-guard some? either identity identity) ((glitch-guard hfql/value-at-point) rowT)))
                 klass (dustingetz.loader/Initialized (e/server (str (type value-at-point))) "")
                 identifiable? (dustingetz.loader/Initialized (e/server (hfql/identifiable? value-at-point)) true) ; FIXME ideally default value should be false but the mouse cusor doesn't update for some reason if set to false.
                 GetRowT (e/server (utils/Delay rowT))
@@ -291,7 +291,7 @@
 
 (defn- reshape-maps [transpose? single? stepT]
   (when stepT
-    (let [value (from-right nil (hfql/value-at-point* stepT))]
+    (let [value (from-right nil (hfql/value-at-point stepT))]
       (if (and (imap? value) (not (record? value)))
         [true false false (-> (hfql/hfql {* [key val]} (seq value) #_(map #(zipmap [:key :val] %) (seq value))) (hfql/set-parent stepT))]
         [false transpose? single? stepT]))))
