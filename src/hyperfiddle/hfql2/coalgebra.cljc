@@ -608,15 +608,33 @@ Pulling on non-maps (non associative) is perfectly fine.
     (fmap #(-> (HFQLT. %) (vary-static-meta assoc ::hfql/parent this))
       (unwrap CofreeT)))
 
-  #?(:clj Object)
+  Object
   #?(:clj (equals [this other] (hfqlt-equals this other)))
   #?(:clj (hashCode [this] (hfqlt-hash this)))
+  (toString [this]
+    (let [[metas scope] ((juxt fst snd) (runCofreeT this))
+          % (get (pos scope) '%)
+          seeded? (some? %)
+          realized? (or (and (thunk? %) (realized? %)) seeded?)
+          error? (cond
+                   (and (thunk? %) (clojure.core/realized? %)) (left? (force-thunk %))
+                   (either? %) (left? %)
+                   :else :unknown)]
+      (str "#hfql/" (name (::ana/type metas :hfql/hfql)) " "
+        {:form (::ana/form (fst (runCofreeT this)))
+         :seeded? seeded?
+         :realized? realized?
+         :error? error?})))
 
   #?(:cljs cljs.core/IEquiv)
   #?(:cljs (-equiv [this other] (hfqlt-equals this other)))
   #?(:cljs cljs.core/IHash)
   #?(:cljs (-hash [this] (hfqlt-hash this)))
   )
+
+#?(:clj
+   (defmethod print-method HFQLT [v ^java.io.Writer w]
+     (.write w (.toString v))))
 
 (defn ->hfqlT [fwa] (->HFQLT (->CofreeT fwa)))
 
