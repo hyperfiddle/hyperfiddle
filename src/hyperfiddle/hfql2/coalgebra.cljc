@@ -86,7 +86,7 @@
    [hyperfiddle.ct.store :refer [store seek pos #?(:cljs Store) memoize-1]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader]]
    [hyperfiddle.ct.monad :refer [bind =<<]]
-   [hyperfiddle.ct.either :as either]
+   [hyperfiddle.ct.either :as either :refer [either? left?]]
    [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.hfql2.protocols :as hfqlp]
    [hyperfiddle.rcf :refer [tests tap %]]
@@ -429,6 +429,7 @@ Pulling on non-maps (non associative) is perfectly fine.
     (take-while some?)
     (take-while (fn [%] (contains? (::env (extract %)) '%)))
     (last)
+    (mapHead #(assoc % ::ana/recursion-root true))
     ))
 
 (defn hfqlT

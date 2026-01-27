@@ -894,8 +894,10 @@
              (hfql/identifiable? (from-right nil (hfql/value-at-point current-point)))
              (= (hfql/identify (from-right nil (hfql/value-at-point selected-point)))
                (hfql/identify (from-right nil (hfql/value-at-point current-point)))))
-           (= (::hfql/positional-index (hfql/metas selected-point))
-             (::hfql/positional-index (hfql/metas current-point)))))
+           (and (some? (::hfql/positional-index (hfql/metas selected-point)))
+             (some? (::hfql/positional-index (hfql/metas current-point)))
+             (= (::hfql/positional-index (hfql/metas selected-point))
+               (::hfql/positional-index (hfql/metas current-point))))))
      false))
   )
 

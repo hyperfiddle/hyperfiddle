@@ -1052,3 +1052,21 @@ identifier, though it might not be serializable."
           java.util.Date/new #inst "2026-01-08T14:45:04.555-00:00"}
 
      ))
+
+
+(defn recursion-end?! ; ! because this runs IO
+  "State if the given point is a recursion point and if recursion should stop. Recursion stops on nil values.
+  At the HFQL tree-seqing level, recuring forever on nil is allowed because `nil` is not treated as a special value.
+  But we haven't found a valid use case to recur on nil in a UI."
+  [hfqlT]
+  (let [metas (metas hfqlT)]
+    (or (and (::ana/recursion-root metas)
+          (= (right nil) (value-at-point hfqlT)))
+      (and (::ana/recursion-point metas)
+        (= (right nil) (nav* hfqlT))))))
+
+(comment
+
+  (pull (hfql [ex-message {ex-cause ...}] (ex-info "err" {})))
+
+  )

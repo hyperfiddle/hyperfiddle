@@ -45,8 +45,10 @@
 
 (defn- render-type [hfqlT]
   (let [metas (hfql/metas hfqlT)]
-    (if (hfql/multiplicity-many? hfqlT)
-      ::star
+    (or (and (hfql/multiplicity-many? hfqlT)
+          ::star)
+      (and (hfql/recursion-end?! hfqlT) ; will run IO
+        ::recursion-end)
       (case (::ana/type metas)
         ::ana/star ::star
         ::ana/pull ::pull
@@ -65,6 +67,7 @@
     (e/Reconcile
       (case (e/Offload #((glitch-guard render-type) hfqlT))
         (::pull ::star) hfqlT
+        ::recursion-end hfqlT
         (let [either-value ((glitch-guard hfql/nav*) hfqlT) ; runs IO
               value (either identity identity either-value)]
           (either
