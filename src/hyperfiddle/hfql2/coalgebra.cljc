@@ -91,7 +91,7 @@
    [hyperfiddle.hfql2.protocols :as hfqlp]
    [hyperfiddle.rcf :refer [tests tap %]]
    [hyperfiddle.hfql2.analyzer :as ana]
-   [hyperfiddle.hfql2.utils :refer [has-meta?]]
+   [hyperfiddle.hfql2.utils :refer [has-meta? original-object]]
    [hyperfiddle.ct.experiments.thunk :as thunks :refer [thunk thunk? force-thunk]])
   #?(:clj (:import [hyperfiddle.ct.store Store]))
   #?(:cljs (:require-macros [hyperfiddle.hfql2.coalgebra :refer [-hfql]])))
@@ -221,6 +221,32 @@
 
 (def mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
 
+(defn- fmap-original-objects [f objs]
+  (let [ret (f (map original-object objs))
+        recovered (reduce (fn [r obj]
+                            (if (identical? ret (original-object obj))
+                              (reduced obj)
+                              r))
+                    ::not-found
+                    objs)]
+    (if (identical? ::not-found recovered)
+      (hfqlp/datafy ret)
+      recovered)))
+
+(defn- fmap-original-object [f obj]
+  (fmap-original-objects (comp f first) [obj]))
+
+#?(:clj
+   (tests
+     (let [obj (hfqlp/datafy (.iterator (java.util.Collections/singleton 1)))]
+       (fmap-original-objects (fn [args] (apply identity args)) [obj])
+       := obj)
+
+     (let [obj (hfqlp/datafy (.iterator (java.util.Collections/singleton 1)))]
+       (fmap-original-object identity obj)
+       := obj)
+     ))
+
 (defn- getter [point]
   (let [key (ana/unquote* (get point ::ana/form))]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
@@ -232,9 +258,9 @@
               (try
                 #?(:clj (log/debug "[IO]" `getter key))
                 (either/right
-                  (*navigate* % key (get % key)))
+                  (fmap-original-object (fn [%] (*navigate* % key (get % key))) %))
                 (catch #?(:clj Throwable, :cljs :default) err
-                  (either/left err)) ))))))))
+                  (either/left err))))))))))
 
 (defn- get-or-call [point]
   (mem-reader ; explicit reader for clarity
@@ -244,15 +270,17 @@
           (fn [%]
             (try
               (either/right
-                (let [ifn (::ana/value point)]
-                  (if (try (contains? % ifn) ; FIXME find a better check
-                           (catch #?(:clj Throwable, :cljs :default) _
-                             #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
-                             false))
-                    (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form point)))
-                        (*navigate* % ifn (get % ifn)))
-                    (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ana/form point)))
-                        (apply ifn [%])))))
+                (fmap-original-object (fn [%]
+                                        (let [ifn (::ana/value point)]
+                                          (if (try (contains? % ifn) ; FIXME find a better check
+                                                   (catch #?(:clj Throwable, :cljs :default) _
+                                                     #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
+                                                     false))
+                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form point)))
+                                                (*navigate* % ifn (get % ifn)))
+                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ana/form point)))
+                                                (apply ifn [%])))))
+                  %))
               (catch #?(:clj Throwable, :cljs :default) err
                 (either/left err)))))))))
 
@@ -269,7 +297,8 @@
             (fn [args]
               (try
                 #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge point)))
-                (either/right (apply call! args))
+                (either/right
+                  (fmap-original-objects (fn [args] (apply call! args)) args))
                 (catch #?(:clj Throwable, :cljs :default) err
                   (either/left err))))))))))
 
@@ -637,6 +666,7 @@ Pulling on non-maps (non associative) is perfectly fine.
      (.write w (.toString v))))
 
 (defn ->hfqlT [fwa] (->HFQLT (->CofreeT fwa)))
+(defn hfql? [obj] (instance? HFQLT obj))
 
 (defn- hfqlt-equals [^HFQLT this ^HFQLT other]
   (or (identical? this other)
@@ -679,11 +709,11 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn to-seq [seq-like]
   (cond
     (seq? seq-like) seq-like
-    (seqable? seq-like) (seq seq-like)
     ;; enumeration check must come before iterator check or java.util.zip.ZipFile$ZipEntryIterator (implementing both) will exhibit inconsistent behavior.
     ;; In other words `enumeration-seq` works consistently on java.util.zip.ZipFile$ZipEntryIterator, but `iterator-seq` doesn't. Not sure why.
     (enumeration? seq-like) (enumeration-to-seq seq-like)
     (iterator? seq-like) (iterator-to-seq seq-like)
+    (seqable? seq-like) (seq seq-like)
     :else seq-like))
 
 (defn unfoldT ; TODO docstring

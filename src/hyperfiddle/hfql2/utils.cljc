@@ -78,3 +78,8 @@
   #?(:clj (instance? java.util.Map x)
      :cljs (map? x) ; checks for cljs.core/IMap proto
      ))
+
+(defn original-object "Return the value associated with `:hyperfiddle.hfql2.protocols/obj` in obj's metadata, if any, or return obj." [obj]
+  (if (has-meta? obj)
+    (:hyperfiddle.hfql2.protocols/obj (meta obj) obj)
+    obj))

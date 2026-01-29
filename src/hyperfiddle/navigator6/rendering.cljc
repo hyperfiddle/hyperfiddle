@@ -8,11 +8,12 @@
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2.analyzer :as ana :refer [unquote*]]
+            [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2.coalgebra :refer [vary-static-meta]]
             [hyperfiddle.ct.either :refer [either either? left? from-left from-right right left]]
             [hyperfiddle.hfql2 :as hfql]
-            [hyperfiddle.hfql2.utils :refer [imap?]]
+            [hyperfiddle.hfql2.utils :refer [imap? original-object]]
             [hyperfiddle.navigator6.extensions :as extensions]
             [hyperfiddle.navigator6.selection :as selection]
             [hyperfiddle.navigator6.selection2 :as selection2]
@@ -226,7 +227,7 @@
   (Render (e/Offload #((glitch-guard hfql/value-at-point) stepT))
     stepT
     (e/Offload #(if stepT
-                  (hfql/nav* (get-leafT stepT))
+                  (fmap original-object (hfql/nav* (get-leafT stepT)))
                   (right ::empty-cell)))))
 
 

@@ -21,7 +21,7 @@
    [hyperfiddle.ct.either :refer [either either? left right unwrap!]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
-   [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation -hfql-resolve -resolve-dispatch]]
+   [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch]]
    [hyperfiddle.hfql2.utils :refer [has-meta? imap?]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format])
@@ -52,7 +52,7 @@
 (defpointfree pull-has-star? (comp ::ana/has-star? metas))
 (defpointfree partial? (comp ::ana/partial metas))
 (defpointfree fullfilled? (some-fn seeded? (complement partial?)))
-(defn hfql? [o] (instance? hyperfiddle.hfql2.coalgebra.HFQLT o))
+(defpointfree hfql? co/hfql?)
 
 (declare unchunk-seq)
 (defn navigable [nav-fn object]
@@ -1070,3 +1070,49 @@ identifier, though it might not be serializable."
   (pull (hfql [ex-message {ex-cause ...}] (ex-info "err" {})))
 
   )
+
+(defn- supports-nth? [obj]
+  (and (some? obj)
+    #?(:clj ;; from clojure.lang.RT/nth and nthFrom
+       (or (instance? clojure.lang.Indexed obj)
+         (instance? java.lang.CharSequence obj)
+         (.isArray (.getClass obj))
+         (instance? java.util.RandomAccess obj)
+         (instance? java.util.regex.Matcher obj)
+         (map-entry? obj)
+         (sequential? obj))
+       :cljs ;; from https://cljs.github.io/api/cljs.core/nth
+       (or (satisfies? IIndexed obj)
+         (string? obj)
+         (array? obj)
+         (or (implements? ISeq obj)
+           (implements? ISequential obj))
+         (native-satisfies? IIndexed obj)))))
+
+(defmethod hyperfiddle.hfql2.protocols/--datafy :default [obj]
+  (let [dispatched (hyperfiddle.hfql2.protocols/-datafy obj)] ; protocol dispatch has priority
+    (if (identical? obj dispatched)
+      (cond
+        (and (seqable? obj) (not (supports-nth? obj))) (seq obj)
+        ;; TODO what about records?
+        :else obj)
+      dispatched)))
+
+#?(:clj (defmethod hyperfiddle.hfql2.protocols/--datafy java.util.Iterator [obj] (iterator-seq obj)))
+#?(:clj (defmethod hyperfiddle.hfql2.protocols/--datafy java.util.Enumeration [obj] (enumeration-seq obj)))
+#?(:clj (prefer-method hyperfiddle.hfql2.protocols/--datafy java.util.Iterator java.util.Enumeration)) ;; ZipFile$ZipEntryIterator is both an Iterator and Enumeration.
+
+#?(:clj
+   (extend-protocol Datafiable
+     java.util.Spliterator
+     (-datafy [sp] (iterator-seq (java.util.Spliterators/iterator sp)))
+
+     java.util.stream.BaseStream
+     ;; streams are Closable, who's in charge of closing them? when?
+     (-datafy [s] (iterator-seq (.iterator s))) ; clojure 1.12 has `stream-seq!` but we chose retrocompat.
+     ))
+
+#?(:cljs
+   (extend-protocol Datafiable
+     ES6Iterator
+     (-datafy [o] (es6-iterator-seq o))))
