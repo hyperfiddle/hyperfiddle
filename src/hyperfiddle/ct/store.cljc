@@ -25,15 +25,17 @@
 
 
 (defn memoize-1 [f]
-  (let [state (object-array [#?(:clj (Object.), :cljs (js-obj)) nil])]
+  (let [sentinel #?(:clj (Object.) :cljs (js-obj))
+        state (volatile! [sentinel sentinel])] ; [args ret] ; using volatile for thread safety, prevents "args updated but ret not updated"
     (fn [& args]
-      (let [prev-args (aget state 0)
-            prev-ret (aget state 1)]
-        (aset state 0 args)
-        (if (= args prev-args)
+      (let [[prev-args prev-ret] @state]
+        (if (= args prev-args) ; TODO is this = allowed? Can it blow up on cursed objects?
           prev-ret
-          (do #?(:clj (clojure.tools.logging/trace 'memoize-1 '≠ {:prev-args prev-args, :next-args args}))
-              (aset state 1 (apply f args))))))))
+          (do
+            #?(:clj (clojure.tools.logging/trace 'memoize-1 '≠ {:prev-args prev-args, :next-args args}))
+            (let [ret (apply f args)]
+              (vreset! state [args ret]) ; retain BOTH args ret AFTER computation. Ensures ret is always in sync with args under concurrency.
+              ret)))))))
 
 
 
