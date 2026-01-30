@@ -904,7 +904,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                  (let [point (fst (runCofreeT W))]
                    (case (projection-type point)
                      ::ana/traversal (force-thunk value)
-                     (pair (symbolic-edge W ::point-free true) (force-thunk value)))))
+                     (pair (symbolic-edge W ::point-free true) (original-object (force-thunk value))))))
             (unwrap W)
             children)))
       ::ana/traversal
@@ -913,10 +913,10 @@ Pulling on non-maps (non associative) is perfectly fine.
               key (symbolic-edge W ::point-free true)
               val (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
                     (if (multiplicity-many? point)
-                      (map force-thunk children)
-                      (force-thunk (first children)))
+                      (map (comp original-object force-thunk) children)
+                      (original-object (force-thunk (first children))))
                     ;; bounded recursion case, no more children, return value as-is.
-                    (extract-right-value-or-keep-left-error (force-thunk (extract W))))]
+                    (original-object (extract-right-value-or-keep-left-error (force-thunk (extract W)))))]
           (if (star-traversal? point) ; e.g. without this check {* [ns-name]} on (all-ns) would produce {nil (…)} because `*` is purely syntactic and is not a named point.
             val
             {key val})))

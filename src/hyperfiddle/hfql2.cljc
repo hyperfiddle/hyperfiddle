@@ -22,7 +22,7 @@
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch]]
-   [hyperfiddle.hfql2.utils :refer [has-meta? imap?]]
+   [hyperfiddle.hfql2.utils :refer [has-meta? imap? original-object]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format])
    #?(:cljs [cljs.stacktrace :as cljs-stacktrace])
@@ -37,7 +37,7 @@
 
 (def seed co/seed)
 (defpointfree nav* (comp force-thunk extract))
-(defpointfree nav (comp unwrap! nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate
+(defpointfree nav (comp original-object unwrap! nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate
 (defpointfree pull* (comp extract co/pull))
 (defpointfree pull (comp force-thunk pull*))
 (defpointfree next-steps unwrap)
