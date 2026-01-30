@@ -118,7 +118,9 @@
                           (-> (map-keep-coll #(symbol ((get server-pretty (type %) (comp str/trim strx/pprint-str)) %)) coll) ; not linear
                             str
                             (str/replace (str \newline) (str \space))
-                            (str/trim))))]
+                            (str/trim)
+                            (str/replace #"^$" "()") ; empty coll can appear as nil and produce and empty string. Replace empty string by empty collection.
+                            )))]
              (cond-> base
                (> coll-count 1) (str-insert-before-last " …")
                (<= 2 coll-count coll-count-upper-bound) (str " " coll-count " " items-qualifier)
@@ -248,8 +250,11 @@
     (str/replace "items" "entries")
     (str/replace "item" "entry")))
 
-(defn format-query-meta [query-meta] (some-> query-meta not-empty (dustingetz.str/pprint-str :print-length 10 :print-level 15)))
-
+(defn format-query-meta [query-meta]
+  (some-> query-meta
+    not-empty
+    (dissoc :hyperfiddle.hfql2.protocols/obj)
+    (dustingetz.str/pprint-str :print-length 10 :print-level 15)))
 
 
 
