@@ -7,39 +7,43 @@
             #?(:clj [clojure.tools.logging])
             ))
 
+(defn- run-once
+  "Take a function `f` and return a function taking `x`, running `(f x)` once, and
+  caching the result. Subsequent calls will ignore `x` and return the first
+  run's cached result. Use case: The store comonad pairs an accessor (focus)
+  with a value. The accessor is supposed to be pure and the value is tied to the
+  Store comonad instance. Extracting a value out of a Store will always call
+  accessor with the same stored value. Changing the value will instantiate a new
+  Store. There is no point running the accessor more than once for a given instance."
+  [f]
+  (let [sentinel #?(:clj (Object.) :cljs (js-obj))
+        !cache (volatile! sentinel)]
+    (fn run-once [x]
+      (let [cached @!cache]
+        (if (identical? sentinel cached)
+          (vreset! !cache (f x))
+          cached)))))
+
 (defprotocol ComonadStore
   (-pos [wa] "pos :: w a -> s. Read the stored value")
   (-peek [s wa] "peek :: s -> w a -> a. Peek at what the current focus would be for a different stored value."))
 
-(defrecord Store [accessor value]
+(defrecord Store [raw-accessor cached-accessor value]
   Functor
-  (-fmap [fa f] (Store. (comp f accessor) value))
+  (-fmap [fa f] (let [accessor (comp f cached-accessor)]
+                  (Store. accessor (run-once accessor) value)))
   Comonad
-  (-extract [_wa] (accessor value))
-  (-duplicate [_wa] (Store. (fn [s] (Store. accessor s)) value))
+  (-extract [_wa] (cached-accessor value))
+  (-duplicate [_wa] (let [accessor (fn [s] (Store. raw-accessor cached-accessor s))]
+                      (Store. accessor (run-once accessor) value)))
   (-extend [wa k] (fmap k (duplicate wa)))
   ComonadStore
   (-pos [_wa] value)
-  (-peek [_wa s] (accessor s)))
+  (-peek [_wa s] (raw-accessor s)))
 
 
 
-(defn memoize-1 [f]
-  (let [sentinel #?(:clj (Object.) :cljs (js-obj))
-        state (volatile! [sentinel sentinel])] ; [args ret] ; using volatile for thread safety, prevents "args updated but ret not updated"
-    (fn [& args]
-      (let [[prev-args prev-ret] @state]
-        (if (= args prev-args) ; TODO is this = allowed? Can it blow up on cursed objects?
-          prev-ret
-          (do
-            #?(:clj (clojure.tools.logging/trace 'memoize-1 '≠ {:prev-args prev-args, :next-args args}))
-            (let [ret (apply f args)]
-              (vreset! state [args ret]) ; retain BOTH args ret AFTER computation. Ensures ret is always in sync with args under concurrency.
-              ret)))))))
-
-
-
-(defn store "store :: (s -> a) -> s -> Store s a" [accessor value] (->Store (memoize-1 accessor) value))
+(defn store "store :: (s -> a) -> s -> Store s a" [accessor value] (->Store accessor (run-once accessor) value))
 
 (defn pos "pos :: w a -> s. Read the stored value" [wa] (-pos wa))
 (defn peek "peek :: s -> w a -> a. Peek at what the current focus would be for a different stored value" [s wa] (-peek wa s))
@@ -51,7 +55,7 @@
 
 (defn seek "seek :: s -> w a -> w a. Set the stored value." [s wa]
   (if (instance? Store wa)
-    (store (:accessor wa) s)
+    (store (:raw-accessor wa) s)
     (extend (fn [w] (peek s w)) wa)))
 
 (defn seeks "seeks :: (s -> s) -> w a -> w a. Modify the stored value."

@@ -136,3 +136,21 @@
   :=
   8)
 
+(defn memoize-1
+  "Intercept calls to `f`. Caches passed arguments and the result of the first
+  application of `f`. Subsequent calls will run `f` if at least one of the newly
+  passed args isn't `identical?` to the previous corresponding one. Comparable
+  to clojure.core/memoize but only retain the last call and compare by
+  `identical?` instead of `=`. Image: LRU cache of size 1."
+  [f]
+  (let [sentinel #?(:clj (Object.) :cljs (js-obj))
+        !state (volatile! [[sentinel] sentinel])] ; [args ret] ; using volatile for thread safety, prevents "args updated but ret not updated"
+    (fn [& args]
+      (let [[prev-args prev-ret] @!state]
+        (if (every? true? (mapv identical? prev-args args)) ; perfs – could be optimized
+          prev-ret
+          (do
+            #?(:clj (clojure.tools.logging/trace 'memoize-1 '≠ {:prev-args prev-args, :next-args args}))
+            (let [ret (apply f args)]
+              (vreset! !state [args ret]) ; retain BOTH args and ret AFTER computation. Ensures ret is always in sync with args under concurrency.
+              ret)))))))
