@@ -1,6 +1,7 @@
 (ns hyperfiddle.navigator6
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
+            [hyperfiddle.api :as hf]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.entrypoint2 :refer [Index]]
             [hyperfiddle.router5 :as router]
@@ -147,6 +148,9 @@
     (binding [e/*bindings* (#(or e/*bindings* {}))]
       (e/client
         (dom/style (dom/text css tooltip/css))
+        (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))
+        (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
+        (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
         (Index sitemap entrypoints)
         (tooltip/TooltipArea
           (e/fn []
