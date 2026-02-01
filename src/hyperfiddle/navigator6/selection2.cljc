@@ -217,9 +217,11 @@
      (and (selection-point? point) ; selected point is an HFQL point
        (hfql/identifiable? (from-right nil (hfql/value-at-point point))) ; selected point's value is Identifiable. This means we should be able to identify it. Not that identification is guaranteed to succeed.
        (some? (hfql/identify (from-right nil (hfql/value-at-point point)))) ; value is identified
+       (symbolic-constructor-form? (symbolize-value point)) ; ensure identity is a valid symbolic form (qualified call)
        (or (and (row? point) ; selected point is a row
              (pair nil (symbolize-value point)))
          (and (cell? point) ; selected point is a cell
+           (symbolic-column? (symbolize-form point)) ; ensure column is representable
            (pair (symbolize-form point) (symbolize-value point)))
          (and
            (println "Selected point cannot be selected because while it is a selectable HFQL point, it is neither a row nor a cell." (type point) point)
