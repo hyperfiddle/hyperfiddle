@@ -403,10 +403,11 @@
   )
 
 (defn symbolic-edge* [metas]
-  (::ana/symbolic-edge
-   (case (::ana/type metas)
-     ::ana/traversal (::ana/edge metas)
-     metas)))
+  (or (::label metas)
+      (::ana/symbolic-edge
+       (case (::ana/type metas)
+         ::ana/traversal (::ana/edge metas)
+         metas))))
 
 (defn symbolic-edge [hfqlT]
   (when hfqlT
