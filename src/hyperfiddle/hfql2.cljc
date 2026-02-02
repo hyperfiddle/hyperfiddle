@@ -642,7 +642,7 @@ identifier, though it might not be serializable."
 (defmethod -hfql-resolve 'clojure.core/find [[_ key]]
   (bind *value-at-point*
     (fn [value]
-      (fmap (fn [resolved-key] (clojure.core/find value (or resolved-key key)))
+      (fmap (fn [resolved-key] (clojure.core/find (original-object value) (or resolved-key key)))
         (hfql-resolve key) ; Hum, isn't it the wrong place to resolve the inner value?
         ))))
 (defmethod -hfql-resolve `current-point [[_]] *value-at-point*)
@@ -711,7 +711,7 @@ identifier, though it might not be serializable."
 (defmulti -suggest type)
 
 (defn suggest* [object]
-  (try (right (-suggest object))
+  (try (right (-suggest (original-object object)))
        (catch #?(:clj Throwable, :cljs :default) err
          (left err))))
 
