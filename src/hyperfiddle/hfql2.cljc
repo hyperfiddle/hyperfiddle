@@ -574,7 +574,14 @@
 
 (def ^{:dynamic true, :doc "HFQL will bind this var to the current collection being traversed in the context where `hfql-resolve` is called."} *collection-at-point*)
 (def ^{:dynamic true, :doc "HFQL will bind this var to the current value in the context where `hfql-resolve` is called."} *value-at-point*)
-(defn hfql-resolve [symbolic-object-constructor] (-hfql-resolve symbolic-object-constructor))
+(defn hfql-resolve [symbolic-object-constructor]
+  (try
+    (let [resolved (-hfql-resolve symbolic-object-constructor)]
+      (if (either? resolved)
+        resolved
+        (right resolved)))
+    (catch #?(:clj Throwable, :cljs :default) t
+      (left t))))
 
 (defn identifiable [identify-fn object]
   (vary-meta object assoc `hyperfiddle.hfql2.protocols/-identify (#?(:clj bound-fn*, :cljs identity) identify-fn))) ; #?(:clj bound-fn* :cljs identity)
@@ -632,7 +639,12 @@ identifier, though it might not be serializable."
         nil)))
   )
 
-(defmethod -hfql-resolve 'clojure.core/find [[_ key]] (fmap #(clojure.core/find % (or (-hfql-resolve key) key)) *value-at-point*)) ; Hum, isn't it the wrong place to resolve the inner value?
+(defmethod -hfql-resolve 'clojure.core/find [[_ key]]
+  (bind *value-at-point*
+    (fn [value]
+      (fmap (fn [resolved-key] (clojure.core/find value (or resolved-key key)))
+        (hfql-resolve key) ; Hum, isn't it the wrong place to resolve the inner value?
+        ))))
 (defmethod -hfql-resolve `current-point [[_]] *value-at-point*)
 (defmethod -hfql-resolve 'hyperfiddle.hfql2/nth [[_ index]]
   (try (fmap #(nth % index nil) *collection-at-point*)

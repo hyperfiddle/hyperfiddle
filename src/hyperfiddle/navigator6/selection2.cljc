@@ -298,15 +298,7 @@
   {:pre [(or (nil? symbolic-constructor-form) (symbolic-constructor-form? symbolic-constructor-form))]
    :post [(or (nil? %) (either? %))]}
   (or (and (some? symbolic-constructor-form)
-        (try
-          (let [resolved (hfql/hfql-resolve symbolic-constructor-form)]
-            (or (and (either? resolved)
-                  resolved)
-              (and (some? resolved)
-                (right resolved))
-              nil))
-          (catch #?(:clj Throwable, :cljs :default) err
-            (left err))))
+        (hfql/hfql-resolve symbolic-constructor-form))
     nil))
 
 (tests
@@ -320,6 +312,7 @@
 ;;;;;; Turning symbolic selection coordinates into an HFQL selection point
 
 (defn- hydrate-point [point value-at-point]
+  {:pre [(or (nil? value-at-point) (either? value-at-point))]}
   (or
     (and (some? point)
       (hfql? point)
@@ -610,7 +603,7 @@
          (and (star-traversal? (hfql/metas current-point))
            (or (first (hfql/next-steps current-point))
              ;; Option `1.`
-             (first (hfql/next-steps (hydrate-point current-point '(nil)))))) ; should not run IO – not supposed to.
+             (first (hfql/next-steps (hydrate-point current-point (right '(nil))))))) ; should not run IO – not supposed to.
          ;; Traversal case, eventually recursive.
          (and (= ::ana/traversal (::ana/type (hfql/metas current-point)))
            (or (and (not (hfql/multiplicity-many? current-point))
@@ -834,8 +827,8 @@
   (let [[sitemap-symbolic-entry & args] navigator-select-command]
     (cons sitemap-symbolic-entry (map (fn [symbolic-arg]
                                         (case symbolic-arg
-                                          %  (either (comp symbol pr-str type) identity (hfql/value-at-point selected-point))
-                                          %v (either (comp symbol pr-str type) (hfql/nav* selected-point))
+                                          %  (hfql/value-at-point selected-point)
+                                          %v (hfql/nav* selected-point)
                                           symbolic-arg))
                                    args))))
 
