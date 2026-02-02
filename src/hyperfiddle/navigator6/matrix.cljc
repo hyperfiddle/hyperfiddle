@@ -105,7 +105,17 @@
          event))))
 
 
-(e/defn MatrixCell [row-index cell-index cellT]
+(defn- row-positional-index-from-hfql-for-this-cell
+  "Returns the positional index of the cell's parent row from HFQL metadata.
+  We use the HFQL metadata index instead of the UI's row-index because after drilling
+  into a selected row, the UI index reflects the position in the current view (e.g., 0
+  for the first visible row), but the HFQL metadata contains the actual position in the
+  parent collection (e.g., 1 if we drilled into the second row). The metadata index is
+  the correct one for generating selection coordinates."
+  [cellT]
+  (::hfql/positional-index (hfql/metas (hfql/parent cellT))))
+
+(e/defn MatrixCell [cell-index cellT]
   (e/client
     (dom/td (dom/props {:style {:--cell-index cell-index}
                         :role :radio
@@ -118,7 +128,7 @@
               (e/Reconcile
                 (when token
                   (dom/props {:aria-busy true})
-                  (dispatch-event! :up dom/node (munge-str `Select!) [row-index GetCellT])
+                  (dispatch-event! :up dom/node (munge-str `Select!) [(e/server (row-positional-index-from-hfql-for-this-cell cellT)) GetCellT])
                   (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
             (e/server (rendering/Render* cellT))))) ; :detail is the name of the spec-defined data slot. I didn't choose the name.
 
@@ -154,7 +164,7 @@
             ;; e/for on client = ultra smooth row positioning but glitchy row content
             ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
             (e/for [col-index (IndexRing limitH offsetH)]
-              (MatrixCell row-index col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
+              (MatrixCell col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
 
 (e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
   (e/client
