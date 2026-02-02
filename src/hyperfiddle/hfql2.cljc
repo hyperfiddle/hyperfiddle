@@ -1105,7 +1105,16 @@ identifier, though it might not be serializable."
   (let [dispatched (hyperfiddle.hfql2.protocols/-datafy obj)] ; protocol dispatch has priority
     (if (identical? obj dispatched)
       (cond
-        (and (seqable? obj) (not (supports-nth? obj))) (seq obj)
+        (and (seqable? obj) (not (supports-nth? obj)))
+        (try
+          ;; `seqable?`'s contract says: "return true if `seq` is supported".
+          ;; `seqable?` is true for all libpython-clj's objects. But seq may still fail on some of them.
+          ;; Libpython-clj breaks the contract by defining all objects as Iterable.
+          ;; Other types may break the contract. We decide the safest thing to
+          ;; do is to return the object as-is and let users decide.
+          (seq obj)
+          (catch #?(:clj Throwable, :cljs :default) _
+            obj))
         ;; TODO what about records?
         :else obj)
       dispatched)))
