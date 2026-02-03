@@ -298,7 +298,7 @@
   {:pre [(or (nil? symbolic-constructor-form) (symbolic-constructor-form? symbolic-constructor-form))]
    :post [(or (nil? %) (either? %))]}
   (or (and (some? symbolic-constructor-form)
-        (hfql/hfql-resolve symbolic-constructor-form))
+        (hfql/hfql-resolve* symbolic-constructor-form))
     nil))
 
 (tests

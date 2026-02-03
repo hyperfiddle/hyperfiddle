@@ -30,7 +30,7 @@
 (defn- augment-scope-with-%-from-route-args [args stepT]
   (if (seq args)
     (let [scope (hfql/scope stepT)
-          % (hfql/hfql-resolve (first args))] ; TODO move to ednish?
+          % (hfql/hfql-resolve* (first args))] ; TODO move to ednish?
       (hfql/seed (assoc scope '% %) stepT))
     stepT))
 
