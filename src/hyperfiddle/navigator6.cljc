@@ -25,6 +25,8 @@
             [contrib.assert :refer [is]])
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
+(e/declare ^:dynamic *navigation-depth*)
+
 (defn- augment-scope-with-%-from-route-args [args stepT]
   (if (seq args)
     (let [scope (hfql/scope stepT)
@@ -139,6 +141,8 @@
   #?(:clj (System/identityHashCode obj)
      :cljs (goog/getUid obj)))
 
+(e/declare NavigationCard)
+
 (e/defn Navigate* [sitemap stepT]
   (e/client
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
@@ -146,8 +150,10 @@
                            (fn [] (hash [((glitch-guard hfql/id) stepT) ; HACK
                                          (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
                                          ]))))]
-        (rebooting id ; glitch guard
-          (e/server
+        (NavigationCard *navigation-depth*
+          (e/fn []
+            (rebooting id ; glitch guard
+              (e/server
             (freezing [sitemap stepT]
               (e/Reconcile
                 (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
@@ -168,9 +174,71 @@
                               (e/Reconcile
                                 (when (e/server (some? next-childT))
                                   (e/server
-                                    (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic]
+                                    (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
+                                              selection/*parent-selection selection/*local-selection
+                                              *navigation-depth* (inc *navigation-depth*)]
                                       (Navigate* sitemap next-childT)))))
-                              (e/amb)))))))))))))))
+                              (e/amb)))))))))))))))))
+
+(e/defn NavigationCard [depth Body]
+  (e/client
+    (dom/div
+      (dom/props {:class "hyperfiddle-navigation-card"
+                  :style {:--navigation-depth depth
+                          :z-index (+ 10 depth)}
+                  :data-depth depth
+                  :role "dialog"
+                  :aria-modal (zero? depth) ; Only root is non-modal
+                  :aria-label (str "Navigation level " (inc depth))
+                  :tabindex "-1"}) ; Focusable for keyboard nav
+
+      ;; Chrome bar with close button and click-to-focus
+      (dom/div
+        (dom/props {:class "navigation-card__chrome"})
+        ;; Click chrome to focus this card (trashes deeper children)
+        (let [chrome-clicked (dom/On "click"
+                               (fn [^js e]
+                                 ;; Only if not clicking close button
+                                 (when-not (.. e -target (closest ".navigation-card__close-button"))
+                                   (.stopPropagation e)
+                                   true))
+                               nil)]
+          (e/Reconcile
+            (when chrome-clicked
+              ;; Clicking chrome clears this card's selection, trashing children
+              [`selection/SetSelection! nil])))
+
+        ;; Close button
+        (when (pos? depth) ; Only show close for non-root
+          (dom/button
+            (dom/props {:class "navigation-card__close-button"
+                        :aria-label "Close"
+                        :title "Close (ESC)"})
+            (dom/text "✕")
+            (dom/On "click"
+              (fn [e]
+                (.preventDefault e)
+                (.stopPropagation e)
+                [`selection/SetSelection! nil]) ; Clear selection = close this card
+              nil))))
+
+      ;; ESC key handler
+      (when (pos? depth) ; Only non-root cards can be closed
+        (let [esc-pressed (dom/On "keydown"
+                            (fn [^js e]
+                              (when (= "Escape" (.-key e))
+                                (.preventDefault e)
+                                (.stopPropagation e)
+                                true))
+                            {:node dom/node})] ; Listen on card element
+          (e/Reconcile
+            (when esc-pressed
+              [`selection/SetSelection! nil])))) ; Clear selection = close
+
+      ;; Content area
+      (dom/div
+        (dom/props {:class "navigation-card__content"})
+        (Body)))))
 
 ;; (e/defn RenderMeta [stepT]
 ;;   (e/server
@@ -222,8 +290,9 @@
             (do
               (set! (.-title js/document) (str (some-> f name (str " \u2013 ")) "Hyperfiddle"))
               (dom/props {:class (cssx/css-slugify f)})
-              (Navigate* sitemap (e/server (is (with-bindings* (or e/*bindings* {}) resolve-route sitemap query)
-                                               some? (str "Route not found in sitemap: " (pr-str (first query)))))))))))))
+              (binding [*navigation-depth* 0]
+                (Navigate* sitemap (e/server (is (with-bindings* (or e/*bindings* {}) resolve-route sitemap query)
+                                                 some? (str "Route not found in sitemap: " (pr-str (first query))))))))))))))
 
 (e/defn HfqlRoot
   "HFQL navigator entrypoint. Renders styles, tooltips, and dispatches routes.
@@ -250,6 +319,7 @@
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
+             (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_cards.css"))}))
              (forms/Checkbox* false {:class "data-loader__enabled" :style {:position :absolute, :inset-block-start "1dvw", :inset-inline-end "1dvw"}})
              #_(Index sitemap entrypoints) ;; replaced by in-band HFQL pages index
              (tooltip/TooltipArea

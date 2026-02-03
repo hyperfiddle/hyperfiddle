@@ -1,0 +1,135 @@
+/* Navigation Card Z-Axis Stacking */
+
+/* Browser container needs relative positioning for absolute cards */
+.Browser {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Card wrapper - stacks on z-axis with offset */
+.hyperfiddle-navigation-card {
+  position: absolute;
+  
+  /* Cascading offset based on depth */
+  --card-offset: calc(var(--navigation-depth, 0) * 20px);
+  top: var(--card-offset);
+  left: var(--card-offset);
+  right: 0;
+  bottom: 0;
+  
+  /* Card dimensions */
+  width: calc(100% - var(--card-offset));
+  height: calc(100% - var(--card-offset));
+  
+  /* Visual chrome */
+  background: white;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  box-shadow: 
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1);
+  
+  /* Layout */
+  display: flex;
+  flex-direction: column;
+  
+  /* Isolation for stacking */
+  isolation: isolate;
+  contain: layout style;
+  
+  /* Smooth transitions */
+  transition: box-shadow 0.2s ease-out;
+
+  /* Entrance animation */
+  animation: card-enter 0.2s ease-out;
+}
+
+/* Chrome bar at top of each card */
+.navigation-card__chrome {
+  flex: 0 0 auto;
+  height: 36px;
+  border-bottom: 1px solid #e5e5e5;
+  background: linear-gradient(to bottom, #fafafa, #f5f5f5);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+  
+  /* Chrome is always clickable */
+  cursor: pointer;
+}
+
+/* Close button */
+.navigation-card__close-button {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  font-size: 16px;
+  line-height: 1;
+  color: #666;
+  
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.navigation-card__close-button:hover {
+  background: #e5e5e5;
+  color: #000;
+}
+
+.navigation-card__close-button:active {
+  background: #d5d5d5;
+}
+
+/* Content area */
+.navigation-card__content {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+  contain: strict;
+}
+
+/* Responsive: reduce offset on narrow screens */
+@media (max-width: 768px) {
+  .hyperfiddle-navigation-card {
+    --card-offset: calc(var(--navigation-depth, 0) * 12px);
+  }
+}
+
+/* Deep nesting: cap offset at 10 levels */
+.hyperfiddle-navigation-card[data-depth="10"],
+.hyperfiddle-navigation-card[data-depth="11"],
+.hyperfiddle-navigation-card[data-depth="12"],
+.hyperfiddle-navigation-card[data-depth="13"],
+.hyperfiddle-navigation-card[data-depth="14"],
+.hyperfiddle-navigation-card[data-depth="15"] {
+  --card-offset: 200px; /* 10 * 20px */
+}
+
+/* Entrance animation */
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translate(
+      calc(var(--card-offset) + 20px),
+      calc(var(--card-offset) + 20px)
+    ) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(var(--card-offset), var(--card-offset)) scale(1);
+  }
+}

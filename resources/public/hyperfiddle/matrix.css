@@ -94,7 +94,7 @@ table.matrix{
     resize: vertical; /* both */
     thead{
         position: sticky; /* Table header stays on screen while scrolling */
-        z-index: 2;
+        z-index: 1;
     }
     tbody{
         th{
