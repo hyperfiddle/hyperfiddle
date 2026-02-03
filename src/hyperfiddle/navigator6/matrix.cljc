@@ -142,27 +142,29 @@
   parent collection (e.g., 1 if we drilled into the second row). The metadata index is
   the correct one for generating selection coordinates."
   [cellT]
-  (::hfql/positional-index (meta (hfql/parent cellT))))
+  (when cellT
+    (::hfql/positional-index (meta (hfql/parent cellT)))))
 
 (e/defn MatrixCell [cell-index cellT]
   (e/client
-    (dom/td (dom/props {:style {:--cell-index cell-index}
-                        ;; Buffer cell beyond column count at far-bottom scroll —
-                        ;; mirrors the data-empty pattern for nil rows (line 164).
-                        :data-empty (str (e/server (nil? cellT)))
-                        :role :radio
-                        :tabindex "0"
-                        :data-tooltip (e/server ({false (str "Can't select this cell. Column object is not Identifiable. " (type (hfql/symbolic-edge cellT)) " : " (hfql/symbolic-edge cellT))} (selection2/cell-selectable? cellT)))
-                        :aria-selected (e/server (selection2/cell-selected? selection/*local-selection cellT selection/*local-selection-symbolic))})
-            (let [GetCellT (e/server (utils/Delay cellT))
-                  event (dom/On* "click" cell-ignore-click-on-interactive-content nil) ; TODO hoist
-                  [token err] (e/Token event)]
-              (e/Reconcile
-                (when token
-                  (dom/props {:aria-busy true})
-                  (dispatch-event! :up dom/node (munge-str `Select!) [(e/server (row-positional-index-from-hfql-for-this-cell cellT)) GetCellT])
-                  (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
-            (e/server (rendering/Render* cellT))))) ; :detail is the name of the spec-defined data slot. I didn't choose the name.
+    (let [has-cell? (e/server (some? cellT))]
+      (dom/td (dom/props {:style {:--cell-index cell-index}
+                          ;; Buffer cell beyond column count at far-bottom scroll —
+                          ;; mirrors the data-empty pattern for nil rows (line 164).
+                          :data-empty (str (not has-cell?))
+                          :role (when has-cell? :radio)
+                          :tabindex (when has-cell? "0")
+                          :data-tooltip (e/server ({false (str "Can't select this cell. Column object is not Identifiable. " (type (hfql/symbolic-edge cellT)) " : " (hfql/symbolic-edge cellT))} (selection2/cell-selectable? cellT)))
+                          :aria-selected (e/server (selection2/cell-selected? selection/*local-selection cellT selection/*local-selection-symbolic))})
+              (let [GetCellT (e/server (utils/Delay cellT))
+                    event (dom/On* "click" cell-ignore-click-on-interactive-content nil) ; TODO hoist
+                    [token err] (e/Token event)]
+                (e/Reconcile
+                  (when token
+                    (dom/props {:aria-busy true})
+                    (dispatch-event! :up dom/node (munge-str `Select!) [(e/server (row-positional-index-from-hfql-for-this-cell cellT)) GetCellT])
+                    (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
+              (e/server (rendering/Render* cellT)))))) ; :detail is the name of the spec-defined data slot. I didn't choose the name.
 
 (e/defn RowHandle [group-id row-index rowT]
   (dom/th (dom/props {:scope :row})
@@ -284,11 +286,12 @@
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
                 offsetH col-limit
-                :associative? associative?)
-              (e/amb
-                (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
-                  (fn [event]
-                    (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil)))))))))))
+                :associative? associative?))
+            (e/amb
+              (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
+                (fn [event]
+                  (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil)))))))))))
+
 
 (e/defn ColumnPicker [stepT]
   (e/server
