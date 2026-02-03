@@ -6,6 +6,7 @@
    [clojure.datafy]
    [clojure.pprint :refer [cl-format]]
    [clojure.set :as set]
+   [dustingetz.str :as strx]
    [hyperfiddle.rcf :refer [tests]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.functor :refer [fmap]]
@@ -21,7 +22,8 @@
    [hyperfiddle.ct.either :refer [either either? left right unwrap!]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
-   [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch]]
+   [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch
+                                        Searchable -search-matches *search-max-collection-size* *search-max-str-len*]]
    [hyperfiddle.hfql2.utils :refer [has-meta? imap? original-object]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format])
@@ -1137,3 +1139,93 @@ identifier, though it might not be serializable."
    (extend-protocol Datafiable
      ES6Iterator
      (-datafy [o] (es6-iterator-seq o))))
+
+;;; Safe in-memory search
+
+(defn search-matches [object needle] (hyperfiddle.hfql2.protocols/search-matches object needle))
+
+(defn- safe-str-match
+  "Match a string against needle, truncating to MAX-STR-LEN."
+  [s needle]
+  (strx/includes-str? (subs s 0 (min (count s) *search-max-str-len*)) needle))
+
+(defn- search-matches-map? [m needle]
+  (and (counted? m)
+    (boolean
+      (or ; scan keyset first then scan values – reasoning is keys are quick to match. Values less so.
+        (some #(search-matches % needle) (take *search-max-collection-size* (keys m)))
+        (some #(search-matches % needle) (take *search-max-collection-size* (vals m))) ; same order as keys is guaranteed.
+        ))))
+
+(defn- search-matches-collection? [coll needle]
+  (and
+    (counted? coll)
+    (seqable? coll)
+    (boolean (some #(search-matches % needle) (take *search-max-collection-size* coll)))))
+
+(extend-protocol Searchable
+  nil
+  (-search-matches [_ _needle] #_(= "nil" needle) false) ; Enable if searching for nil is desirable.
+
+  #?(:clj String :cljs string)
+  (-search-matches [s needle] (safe-str-match s needle))
+
+  #?(:clj clojure.lang.Keyword :cljs cljs.core/Keyword)
+  (-search-matches [k needle] (-search-matches (str k) needle))
+
+  #?(:clj clojure.lang.Symbol :cljs cljs.core/Symbol)
+  (-search-matches [s needle] (-search-matches (str s) needle))
+
+  #?(:clj Number :cljs number)
+  (-search-matches [n needle] (-search-matches (str n) needle))
+
+  #?(:clj Boolean :cljs boolean)
+  (-search-matches [b needle] (-search-matches (str b) needle))
+
+  ;; Maps: recurse into keys and values
+  #?@(:clj [clojure.lang.IPersistentMap
+            (-search-matches [m needle] (search-matches-map? m needle))])
+
+  #?@(:cljs [cljs.core/PersistentHashMap
+             (-search-matches [m needle] (search-matches-map? m needle))])
+  #?@(:cljs [cljs.core/PersistentArrayMap
+             (-search-matches [m needle] (search-matches-map? m needle))])
+
+  #?@(:clj [java.util.UUID
+            (-search-matches [u needle] (-search-matches (str u) needle))
+
+            java.util.Date
+            (-search-matches [d needle] (-search-matches (str d) needle))
+
+            Class
+            (-search-matches [c needle] (-search-matches (.getCanonicalName c) needle))
+
+            ;; Other collections: recurse into elements
+            clojure.lang.IPersistentCollection
+            (-search-matches [coll needle] (search-matches-collection? coll needle))
+
+            ;; Default: match against type name only (never prints object)
+            Object
+            (-search-matches [o needle] (-search-matches (class o) needle))]
+
+      :cljs [cljs.core/UUID
+             (-search-matches [u needle] (-search-matches (str u) needle))
+
+             js/Date
+             (-search-matches [d needle] (-search-matches (str d) needle))
+
+             ;; Vectors
+             cljs.core/PersistentVector
+             (-search-matches [coll needle] (search-matches-collection? coll needle))
+
+             ;; Lists
+             cljs.core/List
+             (-search-matches [coll needle] (search-matches-collection? coll needle))
+
+             ;; Sets
+             cljs.core/PersistentHashSet
+             (-search-matches [coll needle] (search-matches-collection? coll needle))
+
+             ;; Default: match against type name only (never prints object)
+             default
+             (-search-matches [o needle] (-search-matches (pr-str (type o)) needle))]))

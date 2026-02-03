@@ -62,3 +62,24 @@
 
 (defprotocol ComparableRepresentation
   (-comparable [this] "Return a representation of Object suitable for `compare`."))
+
+;; Safe search protocol - prevents blowup on infinite lazy seqs and broken toString impls
+(defprotocol Searchable
+  :extend-via-metadata true
+  (-search-matches [this needle]
+    "Return true if this value matches needle.
+     Collection implementations should call `search-matches` for recursion."))
+
+(def ^:dynamic *search-depth* 0)
+(def ^:dynamic *search-max-depth* 3) ; Default to 3 because in [{:name "Alice"} …], "Alice" is at depth 3. 0: […], 1: {…}, 2: :name and "Alice"
+(def ^:dynamic *search-max-collection-size* 100) ; Collections will be scanned up to 100 items.
+(def ^:dynamic *search-max-str-len* 200) ; Only match on the first X chars of a string.
+
+(defn search-matches
+  "Entry point for safe search. Tracks depth via dynamic var.
+   Safe against infinite lazy seqs, broken toString, and deeply nested structures."
+  [obj needle]
+  (boolean
+    (when (< *search-depth* *search-max-depth*)
+      (binding [*search-depth* (inc *search-depth*)]
+        (-search-matches obj needle)))))

@@ -13,10 +13,8 @@
             [hyperfiddle.navigator6.generator :refer [generator yield]]
             [dustingetz.loader :refer [Offload]]
             [missionary.core :as m]
-            [contrib.missionary-contrib :as mx]
-            )
-  #?(:cljs (:require-macros [hyperfiddle.navigator6.search :refer [with-local-search]]))
-  )
+            [contrib.missionary-contrib :as mx])
+  #?(:cljs (:require-macros [hyperfiddle.navigator6.search :refer [with-local-search]])))
 
 (e/declare ^:dynamic *local-search)
 
@@ -52,8 +50,9 @@
 (defmulti search-matches (fn [object _needle & [_pretty-print-map]] (type object)))
 (defmethod search-matches :default [object needle & [pretty-print-map]]
   (if-let [pretty-print (get pretty-print-map (type object))]
-    (strx/includes-str? (pretty-print object) needle)
-    (strx/any-matches? [object] needle)))
+    (strx/includes-str? (pretty-print object) needle) ; TODO remove and got through future Renderable protocol
+    (hfql/search-matches object needle) ; TODO this should probably go first?
+    ))
 
 (defn- prefix-filterer ; experiment – TODO future work
   "Take a filtering predicate pred :: String -> Any -> Bool and return a function f :: String -> [Any] -> [Any].
