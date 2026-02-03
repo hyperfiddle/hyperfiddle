@@ -19,7 +19,7 @@
    [hyperfiddle.ct.rose-tree :refer [rose-tree]]
    [hyperfiddle.ct.store :refer [pos peeks]]
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
-   [hyperfiddle.ct.either :refer [either either? left right unwrap!]]
+   [hyperfiddle.ct.either :refer [either either? left right unwrap! from-right from-left]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch
@@ -837,15 +837,74 @@ identifier, though it might not be serializable."
     (first object)
     object))
 
-(extend-protocol ComparableRepresentation
-  #?(:clj Object, :cljs default) (-comparable [this] this)
-  nil (-comparable [_] nil)
-  #?@(:clj [java.lang.Class (-comparable [^Class this] (.getName this))])
-  #?(:clj clojure.lang.Symbol, :cljs cljs.core.Symbol) (-comparable [this] (str this))
-  #?(:clj clojure.lang.Keyword, :cljs cljs.core.Keyword) (-comparable [this] (str (namespace this) "/" (name this))) ; drop ":"
-  )
-
+;; Safe comparison protocol - prevents blowup on infinite lazy seqs and uncomparable objects.
+;; Collections return [type-name, count-or-max] for grouping by type + safe ordering by size.
+;; Unknown objects return type name only (never the raw object).
 (defn comparable [object] (hyperfiddle.hfql2.protocols/-comparable object))
+
+(extend-protocol ComparableRepresentation
+  nil (-comparable [_] nil)
+
+  ;; Safe primitives - direct comparison
+  #?(:clj String, :cljs string) (-comparable [this] this)
+  #?(:clj Number, :cljs number) (-comparable [this] this)
+  #?(:clj Boolean, :cljs boolean) (-comparable [this] this)
+  #?(:clj clojure.lang.Symbol, :cljs cljs.core/Symbol) (-comparable [this] (str this))
+  #?(:clj clojure.lang.Keyword, :cljs cljs.core/Keyword) (-comparable [this] (str (namespace this) "/" (name this)))
+
+  #?@(:clj [java.lang.Class (-comparable [^Class this] (.getName this))
+            java.util.UUID (-comparable [this] (str this))
+            java.util.Date (-comparable [this] (.getTime ^java.util.Date this))])
+
+  #?@(:cljs [cljs.core/UUID (-comparable [this] (str this))])
+
+  ;; Either - [group, value] to keep Rights and Lefts separate
+  ;; Rights sort first (prefixed with 0), Lefts sort last (prefixed with 1)
+  #?@(:clj [hyperfiddle.ct.either.Right
+            (-comparable [this] ["0:right" (comparable (from-right nil this))])
+            hyperfiddle.ct.either.Left
+            (-comparable [this] ["1:left" (comparable (from-left nil this))])]
+
+      :cljs [hyperfiddle.ct.either/Right
+             (-comparable [this] ["0:right" (comparable (from-right nil this))])
+             hyperfiddle.ct.either/Left
+             (-comparable [this] ["1:left" (comparable (from-left nil this))])])
+
+  ;; Collections - [type-name, count-or-max] for grouping + safe ordering
+  ;; Counted collections sort by count within type group, uncounted sort last
+  #?@(:clj [clojure.lang.Seqable
+            (-comparable [coll]
+              [(.getName (class coll))
+               (if (counted? coll) (count coll) Long/MAX_VALUE)])]
+
+      :cljs [cljs.core/PersistentVector
+             (-comparable [coll] [(pr-str (type coll)) (count coll)])
+             cljs.core/PersistentHashMap
+             (-comparable [coll] [(pr-str (type coll)) (count coll)])
+             cljs.core/PersistentArrayMap
+             (-comparable [coll] [(pr-str (type coll)) (count coll)])
+             cljs.core/PersistentHashSet
+             (-comparable [coll] [(pr-str (type coll)) (count coll)])
+             cljs.core/List
+             (-comparable [coll] [(pr-str (type coll)) (count coll)])
+             cljs.core/LazySeq
+             (-comparable [coll] [(pr-str (type coll)) js/Number.MAX_SAFE_INTEGER])])
+
+  ;; Default: type name only - safe, groups by type, never inspects object
+  ;; Counted objects and arrays get [type-name, count] like collections
+  #?(:clj Object, :cljs default)
+  (-comparable [this]
+    #?(:clj (let [clazz (class this)
+                  type-name (.getName clazz)]
+              (cond
+                (counted? this) [type-name (count this)]
+                (.isArray clazz) [type-name (alength this)]
+                :else type-name))
+       :cljs (let [type-name (pr-str (type this))]
+               (cond
+                 (counted? this) [type-name (count this)]
+                 (array? this) [type-name (alength this)]
+                 :else type-name)))))
 
 (defn- describe-dispatch-fn [object]
   (cond (satisfies? hyperfiddle.ct.cofree/ComonadCofree object)

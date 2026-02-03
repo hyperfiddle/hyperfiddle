@@ -27,14 +27,6 @@
      (nil? b) true
      :else (comparator a b))))
 
-(defn- compare-eithers
-  "Wrap a comparator such that compared values are considered instances of Either and sorted accordingly:
-  - instances of `Right a` are sorted according to `a`.
-  - instances of `Left b` are NOT sorted according to `b`. All lefts get sorted last, like nil."
-  ([comparator] (partial compare-eithers comparator))
-  ([comparator a b]
-   (comparator (from-right nil a) (from-right nil b))))
-
 (defn- force-cell-value! "Equivalent to hfql/nav, but log a TRACE-level message if the cell wasn't realized already. Because we want to know if sorting causes unexpected IO."
   [cellT]
   (when cellT
@@ -122,9 +114,8 @@
             (interruptible-comparator
               (compare-cells
                 (compare-fallback-to-identity
-                  (compare-eithers
-                    (compare-nils-last
-                      (directional-comparator order))))))
+                  (compare-nils-last
+                    (directional-comparator order)))))
             (map hfql/augment-with-suggestions! rowsT)))) ; TODO only augment with sorted column(s), if not already present
       #?(:clj (catch missionary.Cancelled ex (throw ex)))
       (catch #?(:clj Throwable, :cljs :default) ex
