@@ -1149,19 +1149,28 @@ identifier, though it might not be serializable."
   [s needle]
   (strx/includes-str? (subs s 0 (min (count s) *search-max-str-len*)) needle))
 
+(defn- some-interruptible
+  "Like `some`, but checks for thread interruption between items on JVM."
+  [pred coll]
+  #?(:clj (loop [s (seq coll)]
+            (when (and s (not (Thread/interrupted)))
+              (or (pred (first s))
+                  (recur (next s)))))
+     :cljs (some pred coll)))
+
 (defn- search-matches-map? [m needle]
   (and (counted? m)
     (boolean
       (or ; scan keyset first then scan values – reasoning is keys are quick to match. Values less so.
-        (some #(search-matches % needle) (take *search-max-collection-size* (keys m)))
-        (some #(search-matches % needle) (take *search-max-collection-size* (vals m))) ; same order as keys is guaranteed.
+        (some-interruptible #(search-matches % needle) (take *search-max-collection-size* (keys m)))
+        (some-interruptible #(search-matches % needle) (take *search-max-collection-size* (vals m))) ; same order as keys is guaranteed.
         ))))
 
 (defn- search-matches-collection? [coll needle]
   (and
     (counted? coll)
     (seqable? coll)
-    (boolean (some #(search-matches % needle) (take *search-max-collection-size* coll)))))
+    (boolean (some-interruptible #(search-matches % needle) (take *search-max-collection-size* coll)))))
 
 (extend-protocol Searchable
   nil

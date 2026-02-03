@@ -77,9 +77,13 @@
 
 (defn search-matches
   "Entry point for safe search. Tracks depth via dynamic var.
-   Safe against infinite lazy seqs, broken toString, and deeply nested structures."
+   Safe against infinite lazy seqs, broken toString, and deeply nested structures.
+   Respects thread interruption on JVM."
   [obj needle]
   (boolean
     (when (< *search-depth* *search-max-depth*)
-      (binding [*search-depth* (inc *search-depth*)]
-        (-search-matches obj needle)))))
+      #?(:clj (when-not (Thread/interrupted)
+                (binding [*search-depth* (inc *search-depth*)]
+                  (-search-matches obj needle)))
+         :cljs (binding [*search-depth* (inc *search-depth*)]
+                 (-search-matches obj needle))))))
