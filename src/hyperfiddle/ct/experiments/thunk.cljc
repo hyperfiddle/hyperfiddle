@@ -21,15 +21,15 @@
   A thunk t can be forced in three equivalent ways:
   - (deref t)
   - (force-thunk t) - like clojure.core/force, will force thunks and non-thunk values will pass through.
-
   - (extract t) - alias for deref, Thunk is a comonad. Note comonad extract is
   supposed to be pure. It is up to the user to write pure code in thunks. When
   working with thunks as comonads, one should always assume the caching strategy
   is set to ::none.
 
-  As of today, Thunk instances are not composable with `comp` but are composable with `fmap`:
-  - (comp inc (thunk 1)) ; sound but not implemented - TODO
-  - (fmap inc (thunk 1)) ; equivalent as comp and works today.
+  Thunk implements IFn (0-arity calls extract), so comp and fmap both
+  compute (f (extract t)) lazily — they differ only in return type:
+  - (comp inc (thunk 1))  ; returns a plain fn, thunk's own caching preserved
+  - (fmap inc (thunk 1))  ; returns a new Thunk, caching the whole pipeline
   "
   (:require [hyperfiddle.ct.functor :refer [Functor fmap ->Identity]]
             [hyperfiddle.ct.semigroup :refer [Semigroup -<>]]
@@ -37,6 +37,7 @@
             [hyperfiddle.ct.applicative :refer [Applicative]]
             [hyperfiddle.ct.monad :refer [Monad]]
             [hyperfiddle.ct.comonad :refer [Comonad extract duplicate]]
+            [hyperfiddle.rcf :refer [tests]]
             )
   #?(:clj (:import [java.lang.ref SoftReference WeakReference]))
   #?(:cljs (:require-macros [hyperfiddle.ct.experiments.thunk :refer [thunk]])))
@@ -125,6 +126,33 @@
 (defmacro thunk [& body] `(thunk* *cache-strategy* (fn [] ~@body)))
 
 (defn force-thunk [object] (if (thunk? object) (extract object) object))
+
+(tests
+  "Thunk as IFn - 0-arity invocation extracts value"
+  (binding [*cache-strategy* ::none]
+    (let [t (thunk 42)]
+      (t) := 42
+      @t := 42
+      (extract t) := 42))
+
+  "comp vs fmap - same value, different return type (fn vs Thunk)"
+  (binding [*cache-strategy* ::none]
+    (let [t (thunk 1)
+          composed (comp inc t)
+          fmapped (fmap inc t)]
+      (fn? composed) := true
+      (composed) := 2
+      (thunk? fmapped) := true
+      @fmapped := 2))
+
+  "both comp and fmap are lazy — neither forces until demanded"
+  (binding [*cache-strategy* ::none]
+    (let [counter (atom 0)
+          t (thunk (swap! counter inc) 1)
+          _composed (comp inc t)
+          _fmapped (fmap inc t)]
+      @counter := 0))
+  )
 
 (comment
   "No caching, equivalent to plain 0-arg fn"
