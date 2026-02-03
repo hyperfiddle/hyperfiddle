@@ -198,8 +198,7 @@
                      (some-> (get env '%) force-thunk)
                      (cond
                        point-free? form
-                       :else (list form (force-thunk (resolve '% env '%))) ; introduce a point
-                       ))
+                       :else (list form (from-either (force-thunk (resolve '% env '%)))))) ; introduce a point
       form)))
 
 (defn symbolic-edge-static [point]
