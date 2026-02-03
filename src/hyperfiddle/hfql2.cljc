@@ -1167,6 +1167,13 @@ identifier, though it might not be serializable."
   nil
   (-search-matches [_ _needle] #_(= "nil" needle) false) ; Enable if searching for nil is desirable.
 
+  #?(:clj Throwable :cljs js/Error)
+  (-search-matches [ex needle]
+    (boolean
+      (or (-search-matches (ex-message ex) needle)
+          (search-matches (ex-data ex) needle)
+          (search-matches (ex-cause ex) needle))))
+
   #?(:clj String :cljs string)
   (-search-matches [s needle] (safe-str-match s needle))
 

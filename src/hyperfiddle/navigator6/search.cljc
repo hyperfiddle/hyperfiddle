@@ -6,7 +6,9 @@
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.ct.pair :refer [snd]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
+            [hyperfiddle.ct.either :refer [either]]
             [hyperfiddle.hfql2 :as hfql]
+            [hyperfiddle.hfql2.utils :refer [original-object]]
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.navigator6.rendering :refer [*server-pretty]]
             [hyperfiddle.navigator6.utils :as utils]
@@ -144,9 +146,13 @@
                (if (seq columnTs)
                  (if-let [cellT (hfql/find-cell-by-column* (first columnTs) cellTs)]
                    (when-not (.isInterrupted (Thread/currentThread))
-                     (if (search-matches (hfql/nav cellT) needle pretty-print-map)
-                       true
-                       (recur (rest columnTs))))
+                     (let [either-value (hfql/nav* cellT)]
+                       (if (either
+                             (fn [err] (search-matches err needle pretty-print-map))
+                             (fn [val] (search-matches (original-object val) needle pretty-print-map))
+                             either-value)
+                         true
+                         (recur (rest columnTs)))))
                    (recur (rest columnTs)))
                  false)))))
        (m/seed rowTs))))
