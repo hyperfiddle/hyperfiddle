@@ -138,7 +138,8 @@
     (condp = obj
       ::not-found (m/sp (right ""))
       ::empty-cell (m/sp (right ""))
-      (if (or (set? obj) (sequential? obj) (array? obj) (map? obj))
+      (if (or (set? obj) (sequential? obj) (array? obj) (map? obj)
+               #?(:clj (instance? java.util.Collection obj)))
         (m/sp (str-inline-coll obj user-handlers))
         (-pretty-printer obj)))))
 

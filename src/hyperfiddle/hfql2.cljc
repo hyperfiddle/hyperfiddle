@@ -755,7 +755,8 @@ identifier, though it might not be serializable."
       (set? object)
       (co/enumeration? object) ; TODO move implementation
       (co/iterator? object) ; TODO move implementation
-      #?(:clj (contrib.data/array? object)))))
+      #?(:clj (contrib.data/array? object))
+      #?(:clj (instance? java.util.Collection object)))))
 
 (defn suggest-collection [coll] (hfql {* [*]} (co/to-seq coll)))
 
