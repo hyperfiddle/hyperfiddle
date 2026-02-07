@@ -120,7 +120,11 @@
                             (str/replace (str \newline) (str \space))
                             (str/trim)
                             (str/replace #"^$" "()") ; empty coll can appear as nil and produce and empty string. Replace empty string by empty collection.
-                            )))]
+                            )))
+                 max-preview 60
+                 base (if (> (count base) max-preview)
+                        (str (subs base 0 (dec max-preview)) (last base)) ; truncate but keep closing bracket
+                        base)]
              (cond-> base
                (> coll-count 1) (str-insert-before-last " …")
                (<= 2 coll-count coll-count-upper-bound) (str " " coll-count " " items-qualifier)
