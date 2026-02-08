@@ -554,14 +554,19 @@ Pulling on non-maps (non associative) is perfectly fine.
                     (pair (extract (seed env' edgeT))
                       (let [direct-child (first children)
                             direct-child (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) direct-child)] ; TODO factor out under some common AST api.
-                        (if (recursion-point? hfql)
-                          (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
-                                limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract recursion-root)) 0)] ; TODO deduplicate with pull
-                            (if (pos? limit)
-                              [(fmap #(assoc % ::ana/recursion-limit (dec limit)) recursion-root)]
-                              []))
-                          (if (star-traversal? (extract direct-child))
-                            [(first (unwrap direct-child))]
+                        (if (star-traversal? (extract direct-child))
+                          ;; Always unwrap star-traversal children. Recursion (if any) is handled
+                          ;; by the unwrapped child (recur node → pull coalgebra).
+                          (let [unwrapped (first (unwrap direct-child))
+                                unwrapped (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) unwrapped)]
+                            [unwrapped])
+                          ;; Non-star child: handle recursion at traversal level if needed.
+                          (if (recursion-point? hfql)
+                            (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
+                                  limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract recursion-root)) 0)] ; TODO deduplicate with pull
+                              (if (pos? limit)
+                                [(fmap #(assoc % ::ana/recursion-limit (dec limit)) recursion-root)]
+                                []))
                             [direct-child]))))))))))]
     (inject-dynamic-bindings (transform point))))
 
