@@ -281,17 +281,68 @@
     (-> (datafy !france) :label/_country count) := 59))
 
 (defn set-db-name-in-datomic-uri [datomic-uri db-name]
-  (let [source-uri (-> datomic-uri (java.net.URI.) (.getSchemeSpecificPart) (java.net.URI.))]
+  (let [source-uri (-> datomic-uri (java.net.URI.) (.getSchemeSpecificPart) (java.net.URI.))
+        old-path (.getPath source-uri)
+        segments (vec (remove empty? (clojure.string/split old-path #"/")))
+        new-segments (if (seq segments)
+                       (conj (pop segments) db-name)
+                       [db-name])
+        new-path (str "/" (clojure.string/join "/" new-segments))]
     (.toString
       (java.net.URI. (str "datomic:" (.getScheme source-uri))
         (.getUserInfo source-uri)
         (.getHost source-uri)
         (.getPort source-uri)
-        (str "/" db-name)
+        new-path
         (.getQuery source-uri)
         (.getFragment source-uri)))))
 
-(defn datomic-uri-db-name [datomic-uri] (-> datomic-uri (java.net.URI.) (.getSchemeSpecificPart) (java.net.URI.) (.getPath) (clojure.string/replace #"^/+" "")))
+(defn datomic-uri-db-name [datomic-uri]
+  (let [path (-> datomic-uri
+                 (java.net.URI.)
+                 (.getSchemeSpecificPart)
+                 (java.net.URI.)
+                 (.getPath))
+        segments (remove empty? (clojure.string/split path #"/"))]
+    (last segments)))
+
+(tests "datomic-uri-db-name extracts database name correctly"
+  ; dev protocol URIs
+  (datomic-uri-db-name "datomic:dev://localhost:4334/*") := "*"
+  (datomic-uri-db-name "datomic:dev://localhost:4334/mydb") := "mydb"
+
+  ; mem protocol URIs
+  (datomic-uri-db-name "datomic:mem://test/*") := "*"
+  (datomic-uri-db-name "datomic:mem://test/mydb") := "mydb"
+
+  ; ddb protocol URIs
+  (datomic-uri-db-name "datomic:ddb://us-east-1/datomic/*") := "*"
+  (datomic-uri-db-name "datomic:ddb://us-east-1/datomic/mydb") := "mydb"
+  (datomic-uri-db-name "datomic:ddb://eu-west-1/my-table/production") := "production")
+
+(tests "set-db-name-in-datomic-uri replaces database name correctly"
+  ; dev protocol URIs
+  (set-db-name-in-datomic-uri "datomic:dev://localhost:4334/*" "mydb")
+  := "datomic:dev://localhost:4334/mydb"
+  (set-db-name-in-datomic-uri "datomic:dev://localhost:4334/olddb" "newdb")
+  := "datomic:dev://localhost:4334/newdb"
+
+  ; mem protocol URIs
+  (set-db-name-in-datomic-uri "datomic:mem://test/*" "mydb")
+  := "datomic:mem://test/mydb"
+  (set-db-name-in-datomic-uri "datomic:mem://test/olddb" "newdb")
+  := "datomic:mem://test/newdb"
+
+  ; ddb protocol URIs
+  (set-db-name-in-datomic-uri "datomic:ddb://us-east-1/datomic/*" "mydb")
+  := "datomic:ddb://us-east-1/datomic/mydb"
+  (set-db-name-in-datomic-uri "datomic:ddb://us-east-1/datomic/olddb" "newdb")
+  := "datomic:ddb://us-east-1/datomic/newdb"
+
+  ; Round-trip test
+  (let [uri "datomic:ddb://us-east-1/datomic/mydb"]
+    (set-db-name-in-datomic-uri uri (datomic-uri-db-name uri)))
+  := "datomic:ddb://us-east-1/datomic/mydb")
 
 (defn serializable-datom-v? [v]
   (or (boolean? v)
