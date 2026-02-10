@@ -303,8 +303,8 @@
                       ::value form} ; already resolved
          ::lambda    (let [base {::symbolic-edge (let [[_fn ?name ?parameters] form]
                                                    (if (symbol? ?name)
-                                                     `(~'fn ~?name ~'…)
-                                                     '(fn anonymous …)))
+                                                     `(~'fn ~?name ~'...)
+                                                     '(fn anonymous ...)))
                                  ::parameters '(%)
                                  ::partial true
                                  ::value form}]
