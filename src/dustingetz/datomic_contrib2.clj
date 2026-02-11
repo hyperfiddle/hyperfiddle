@@ -280,31 +280,38 @@
     (-> (datafy !france) :artist/_country count) := 140
     (-> (datafy !france) :label/_country count) := 59))
 
+(defn- sql-uri? [^java.net.URI inner-uri]
+  (= "sql" (.getScheme inner-uri)))
+
 (defn set-db-name-in-datomic-uri [datomic-uri db-name]
-  (let [source-uri (-> datomic-uri (java.net.URI.) (.getSchemeSpecificPart) (java.net.URI.))
-        old-path (.getPath source-uri)
-        segments (vec (remove empty? (clojure.string/split old-path #"/")))
-        new-segments (if (seq segments)
-                       (conj (pop segments) db-name)
-                       [db-name])
-        new-path (str "/" (clojure.string/join "/" new-segments))]
-    (.toString
-      (java.net.URI. (str "datomic:" (.getScheme source-uri))
-        (.getUserInfo source-uri)
-        (.getHost source-uri)
-        (.getPort source-uri)
-        new-path
-        (.getQuery source-uri)
-        (.getFragment source-uri)))))
+  (let [source-uri (-> datomic-uri (java.net.URI.) (.getSchemeSpecificPart) (java.net.URI.))]
+    (if (sql-uri? source-uri)
+      ;; sql: db-name is the authority, e.g. datomic:sql://DB_NAME?jdbc:...
+      (str "datomic:sql://" db-name "?" (.getQuery source-uri))
+      ;; all others: db-name is last path segment
+      (let [old-path (.getPath source-uri)
+            segments (vec (remove empty? (clojure.string/split old-path #"/")))
+            new-segments (if (seq segments)
+                           (conj (pop segments) db-name)
+                           [db-name])
+            new-path (str "/" (clojure.string/join "/" new-segments))]
+        (.toString
+          (java.net.URI. (str "datomic:" (.getScheme source-uri))
+            (.getUserInfo source-uri)
+            (.getHost source-uri)
+            (.getPort source-uri)
+            new-path
+            (.getQuery source-uri)
+            (.getFragment source-uri)))))))
 
 (defn datomic-uri-db-name [datomic-uri]
-  (let [path (-> datomic-uri
-                 (java.net.URI.)
-                 (.getSchemeSpecificPart)
-                 (java.net.URI.)
-                 (.getPath))
-        segments (remove empty? (clojure.string/split path #"/"))]
-    (last segments)))
+  (let [inner-uri (-> datomic-uri (java.net.URI.) (.getSchemeSpecificPart) (java.net.URI.))]
+    (if (sql-uri? inner-uri)
+      ;; sql: db-name is the authority, e.g. datomic:sql://DB_NAME?jdbc:...
+      (.getAuthority inner-uri)
+      ;; all others: db-name is last path segment
+      (let [segments (remove empty? (clojure.string/split (.getPath inner-uri) #"/"))]
+        (last segments)))))
 
 (tests "datomic-uri-db-name extracts database name correctly"
   ; dev protocol URIs
@@ -318,7 +325,15 @@
   ; ddb protocol URIs
   (datomic-uri-db-name "datomic:ddb://us-east-1/datomic/*") := "*"
   (datomic-uri-db-name "datomic:ddb://us-east-1/datomic/mydb") := "mydb"
-  (datomic-uri-db-name "datomic:ddb://eu-west-1/my-table/production") := "production")
+  (datomic-uri-db-name "datomic:ddb://eu-west-1/my-table/production") := "production"
+
+  ; sql protocol URIs (db-name is authority, jdbc url is query)
+  (datomic-uri-db-name "datomic:sql://*?jdbc:postgresql://localhost:5433/datomic?user=datomic&password=datomic") := "*"
+  (datomic-uri-db-name "datomic:sql://mydb?jdbc:postgresql://localhost:5433/datomic?user=datomic&password=datomic") := "mydb"
+
+  ; cass3 protocol URIs
+  (datomic-uri-db-name "datomic:cass3://localhost:9042/datomic.datomic/*") := "*"
+  (datomic-uri-db-name "datomic:cass3://localhost:9042/datomic.datomic/mydb") := "mydb")
 
 (tests "set-db-name-in-datomic-uri replaces database name correctly"
   ; dev protocol URIs
@@ -339,10 +354,26 @@
   (set-db-name-in-datomic-uri "datomic:ddb://us-east-1/datomic/olddb" "newdb")
   := "datomic:ddb://us-east-1/datomic/newdb"
 
-  ; Round-trip test
+  ; sql protocol URIs
+  (set-db-name-in-datomic-uri "datomic:sql://*?jdbc:postgresql://localhost:5433/datomic?user=datomic&password=datomic" "mydb")
+  := "datomic:sql://mydb?jdbc:postgresql://localhost:5433/datomic?user=datomic&password=datomic"
+
+  ; cass3 protocol URIs
+  (set-db-name-in-datomic-uri "datomic:cass3://localhost:9042/datomic.datomic/*" "mydb")
+  := "datomic:cass3://localhost:9042/datomic.datomic/mydb"
+
+  ; Round-trip tests
   (let [uri "datomic:ddb://us-east-1/datomic/mydb"]
     (set-db-name-in-datomic-uri uri (datomic-uri-db-name uri)))
-  := "datomic:ddb://us-east-1/datomic/mydb")
+  := "datomic:ddb://us-east-1/datomic/mydb"
+
+  (let [uri "datomic:sql://mydb?jdbc:postgresql://localhost:5433/datomic?user=datomic&password=datomic"]
+    (set-db-name-in-datomic-uri uri (datomic-uri-db-name uri)))
+  := "datomic:sql://mydb?jdbc:postgresql://localhost:5433/datomic?user=datomic&password=datomic"
+
+  (let [uri "datomic:cass3://localhost:9042/datomic.datomic/mydb"]
+    (set-db-name-in-datomic-uri uri (datomic-uri-db-name uri)))
+  := "datomic:cass3://localhost:9042/datomic.datomic/mydb")
 
 (defn serializable-datom-v? [v]
   (or (boolean? v)
