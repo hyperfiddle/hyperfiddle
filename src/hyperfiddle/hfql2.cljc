@@ -759,6 +759,70 @@ identifier, though it might not be serializable."
 
 (defn suggest-collection [coll] (hfql {* [*]} (co/to-seq coll)))
 
+#?(:clj
+   (def ^:private discover-methods-for-class
+     "Memoized by class so that the same fn objects are returned for the same class.
+      This ensures stable HFQL IDs (compute-id hashes ::form which contains the fn)
+      across ColumnPicker (samples first item) and MatrixRow (per-row augmentation)."
+     (memoize
+       (fn [^Class clazz]
+         (let [obj-methods (set (map #(.getName %) (.getMethods Object)))
+               ;; Prefer Method objects from public interfaces over the concrete class.
+               ;; .getMethods on the impl class returns Methods bound to the declaring class;
+               ;; on modular JDK classes (Java 9+), internal classes like
+               ;; sun.management.BaseOperatingSystemImpl are not exported, so .invoke throws
+               ;; IllegalAccessException even after .setAccessible. Methods resolved from
+               ;; public interfaces are always accessible.
+               interface-methods (->> (.getInterfaces clazz)
+                                   (mapcat #(.getMethods ^Class %))
+                                   (into {} (map (fn [^java.lang.reflect.Method m] [(.getName m) m]))))
+               all-methods (->> (.getMethods clazz)
+                             (into {} (map (fn [^java.lang.reflect.Method m] [(.getName m) m]))))]
+           (->> (merge all-methods interface-methods) ; interface methods win
+             (vals)
+             (filter (fn [^java.lang.reflect.Method m]
+                       (and (zero? (.getParameterCount m))
+                            (not= Void/TYPE (.getReturnType m))
+                            (not (obj-methods (.getName m))))))
+             (mapv (fn [^java.lang.reflect.Method m]
+                     (try (.setAccessible m true) (catch Exception _))
+                     (let [sym (symbol (str "." (.getName m)))]
+                       (with-meta
+                         (fn [obj]
+                           ;; Invoke on a separate thread to avoid deadlocks with framework
+                           ;; internals (e.g. Jetty holds request-handling locks; a reflected
+                           ;; method that acquires the same locks will deadlock on this thread
+                           ;; but succeed on a fresh thread that doesn't hold those locks).
+                           ;; Uses Clojure's cached daemon thread pool; timeout prevents
+                           ;; permanent hangs if a true cross-thread deadlock occurs.
+                           ;; Timeout returns nil; real exceptions propagate for UI display.
+                           (let [result (deref (future (.invoke m obj (object-array 0))) 50 ::timeout)]
+                             (when-not (= ::timeout result) result)))
+                         {::label sym}))))))))))
+
+#?(:clj
+   (defn- discover-methods
+     "Discover zero-arg public methods on a Java object, returning callable accessor
+      functions with ::label metadata for column display. Uses reflection to invoke
+      methods at runtime, bypassing the need for compile-time method resolution."
+     [object]
+     (discover-methods-for-class (class object))))
+
+#?(:clj
+   (defn- suggest-java-object
+     "Build a dynamic HFQL suggestion from discovered zero-arg methods."
+     [object]
+     (let [methods (discover-methods object)]
+       (if (seq methods)
+         (build-hfql (into [(with-meta type {::label 'type})] methods))
+         DEFAULT-SUGGESTION))))
+
+#?(:clj
+   (defn- java-object?
+     "True if obj is a Java object (not a Clojure type) that may have discoverable methods."
+     [object]
+     (not (instance? clojure.lang.IObj object))))
+
 (defmethod -suggest :default [object]
   (let [user-suggestion (hyperfiddle.hfql2.protocols/-suggest object)]
     (if (or (nil? user-suggestion) (::default (metas user-suggestion)))
@@ -766,6 +830,7 @@ identifier, though it might not be serializable."
         (record? object) (suggest-record object)
         (multiplicity-many-value? object) (suggest-collection object)
         (imap? object) (suggest-map object)
+        #?@(:clj [(java-object? object) (suggest-java-object object)])
         :else user-suggestion)
       user-suggestion)))
 
@@ -817,7 +882,23 @@ identifier, though it might not be serializable."
                                           (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
                     (combine hfqlT suggestedT)) ; FIXME loses static metadata :(
                   (and (= ::ana/pull hfqlT-type)
-                    (= '[*] (::ana/form (metas hfqlT)))) (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))
+                    (= '[*] (::ana/form (metas hfqlT))))
+                  ;; [*] pull but suggestion isn't a pull (e.g. collection → traversal).
+                  ;; Sample first item to discover per-item columns (e.g. Java methods).
+                  ;; Wrapped in try-catch: sampling can fail on objects with side-effectful
+                  ;; methods (e.g. Jetty connectors deadlock when reflected during request handling).
+                  (let [item-suggestion
+                        (try
+                          (let [coll (from-right nil (value-at-point hfqlT))]
+                            (when (multiplicity-many-value? coll)
+                              (when-let [sample (first coll)]
+                                (from-right nil (suggest* sample)))))
+                          (catch #?(:clj Throwable, :cljs :default) _ nil))]
+                    (if (and item-suggestion (= ::ana/pull (::ana/type (metas item-suggestion))))
+                      (let [suggested? (set/difference (children-ids item-suggestion) (children-ids hfqlT))]
+                        (hoistHfqlT (bf/first (fn [m] (assoc m ::suggested (boolean (suggested? (::ana/id m))))))
+                          (combine hfqlT item-suggestion)))
+                      (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))))
                   (= ::ana/pull hfqlT-type) hfqlT
                   (= ::ana/pull suggestedT-type) (update-scope suggestedT (constantly (scope hfqlT)))
                   :else hfqlT
@@ -830,7 +911,7 @@ identifier, though it might not be serializable."
   (import [java.io File])
   (augment-with-suggestions!
     (seed {'% (clojure.java.io/file ".")}
-      (hfql [File/.getName {File/.listFiles ...}]))) 
+      (hfql [File/.getName {File/.listFiles ...}])))
   (unwrap *1)
   )
 
