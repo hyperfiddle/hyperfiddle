@@ -24,7 +24,8 @@
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2.analyzer :as ana]
-            [dustingetz.loader :refer [Offload]])
+            [dustingetz.loader :refer [Offload]]
+            [contrib.assert :refer [is]])
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
 (defn- augment-scope-with-%-from-route-args [args stepT]
@@ -164,7 +165,8 @@
                     (let [[f & _args] query]
                       (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
                       (dom/props {:class (cssx/css-slugify f)}))
-                    (Navigate* sitemap (e/server (with-bindings* e/*bindings* resolve-route sitemap query)))))))))))))
+                    (Navigate* sitemap (e/server (is (with-bindings* e/*bindings* resolve-route sitemap query)
+                                                    some? (str "Route not found in sitemap: " (pr-str (first query))))))))))))))))
 
 
 (def table-block-css
