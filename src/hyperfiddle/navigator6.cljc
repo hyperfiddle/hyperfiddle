@@ -152,7 +152,7 @@
         (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))
         (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
         (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
-        (Index sitemap entrypoints)
+        #_(Index sitemap entrypoints) ;; replaced by in-band HFQL pages index
         (tooltip/TooltipArea
           (e/fn []
             (tooltip/Tooltip)
