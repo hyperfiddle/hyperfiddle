@@ -763,7 +763,8 @@ identifier, though it might not be serializable."
    (def ^:private discover-methods-for-class
      "Memoized by class so that the same fn objects are returned for the same class.
       This ensures stable HFQL IDs (compute-id hashes ::form which contains the fn)
-      across ColumnPicker (samples first item) and MatrixRow (per-row augmentation)."
+      across ColumnPicker (samples first item) and MatrixRow (per-row augmentation).
+      See also `type-column` which must be a singleton for the same reason."
      (memoize
        (fn [^Class clazz]
          (let [obj-methods (set (map #(.getName %) (.getMethods Object)))
@@ -809,12 +810,25 @@ identifier, though it might not be serializable."
      (discover-methods-for-class (class object))))
 
 #?(:clj
+   (def ^:private type-column
+     "Singleton fn for the `type` column in Java object suggestions.
+      Why a fn and not a symbol? `build-hfql` calls `ana/analyze` at runtime (not the
+      `hfql` macro), so we can't pass the symbol 'type — the analyzer would classify it
+      as ::symbol and the coalgebra would (get obj 'type) instead of (type obj).
+      We need ::fn / get-or-call semantics, which requires passing a function value.
+      Why a def? compute-id hashes ::form (the fn object) to produce HFQL IDs.
+      ColumnPicker and each MatrixRow both call suggest-java-object independently —
+      if each call created a fresh (with-meta type ...), the IDs wouldn't match and
+      find-cell-by-column* would return nil (cell not found → blank column, broken nav)."
+     (with-meta type {::label 'type})))
+
+#?(:clj
    (defn- suggest-java-object
      "Build a dynamic HFQL suggestion from discovered zero-arg methods."
      [object]
      (let [methods (discover-methods object)]
        (if (seq methods)
-         (build-hfql (into [(with-meta type {::label 'type})] methods))
+         (build-hfql (into [type-column] methods))
          DEFAULT-SUGGESTION))))
 
 #?(:clj
