@@ -555,11 +555,17 @@ Pulling on non-maps (non associative) is perfectly fine.
                       (let [direct-child (first children)
                             direct-child (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) direct-child)] ; TODO factor out under some common AST api.
                         (if (star-traversal? (extract direct-child))
-                          ;; Always unwrap star-traversal children. Recursion (if any) is handled
-                          ;; by the unwrapped child (recur node → pull coalgebra).
+                          ;; Unwrap star children first, then handle recursion here
+                          ;; (not downstream) so ::recur nodes stay invisible to pull_algebra.
                           (let [unwrapped (first (unwrap direct-child))
                                 unwrapped (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) unwrapped)]
-                            [unwrapped])
+                            (if (= ::ana/recur (projection-type (extract unwrapped)))
+                              (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
+                                    limit (or (::ana/recursion-limit (extract unwrapped)) (::ana/recursion-limit (extract recursion-root)) 0)]
+                                (if (pos? limit)
+                                  [(fmap #(assoc % ::ana/recursion-limit (dec limit)) recursion-root)]
+                                  []))
+                              [unwrapped]))
                           ;; Non-star child: handle recursion at traversal level if needed.
                           (if (recursion-point? hfql)
                             (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
