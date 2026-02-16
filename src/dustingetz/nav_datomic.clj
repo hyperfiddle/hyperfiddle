@@ -216,15 +216,81 @@
               #(:tx %)
               :added]}})})
 
+;; ── Rich sitemap (with generic tooltip callbacks) ───────────────
+;; Same routes as `sitemap` but with ::hfql/Tooltip metadata pointing to
+;; FnTooltip in hyperfiddle.navigator6.rendering. Agents bind *tooltip-fn*
+;; in e/*bindings* to provide the tooltip implementation.
+;; TODO: ColumnHeaderTooltip and Render need factory syntax in HFQL analyzer
+;; to avoid brittle global bindings — backlogged.
+
+(def rich-sitemap
+  {'databases
+   (hfql {(databases) {* [db-name d/db-stats]}})
+
+   'attributes
+   (hfql {(attributes)
+          {* ^{::hfql/select '(attribute-entity-detail %)}
+           [^{::hfql/link '(attribute-detail %)
+              ::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+            #(:db/ident %)
+            attribute-count
+            summarize-attr*]}})
+
+   'attribute-entity-detail
+   (hfql {attribute-entity-detail ^{::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+          [#(:db/id %)
+           attribute-count
+           summarize-attr*
+           *]})
+
+   'attribute-detail
+   (hfql {attribute-detail
+          {* ^{::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+           [^{::hfql/link '(entity-detail %)}
+            #(:db/id %)]}})
+
+   'tx-detail
+   (hfql {tx-detail
+          {* [^{::hfql/link '(entity-detail :e)
+                ::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+              #(:e %)
+              ^{::hfql/link '(attribute-detail :a)
+                ::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+              ^{::hfql/label :db/ident}
+              {:a :db/ident}
+              :v]}})
+
+   'entity-detail
+   (hfql {entity-detail ^{::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+          [#(:db/id %)
+           *]})
+
+   'entity-history
+   (hfql {entity-history
+          {* [^{::hfql/link '(entity-detail :e)
+                ::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+              #(:e %)
+              ^{::hfql/link '(attribute-detail :a)
+                ::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+              {:a :db/ident}
+              :v
+              ^{::hfql/link '(tx-detail %v)
+                ::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
+              #(:tx %)
+              :added]}})})
+
 (comment
   ;; ── Demo: connect an agent with datomic browsing ──────────────
   (require '[clojure.repl.deps :refer [add-libs]])
   (add-libs '{com.datomic/peer {:mvn/version "1.0.7491"}})
   (require
     '[hyperfiddle.navigator-agent :as agent]
-    '[hyperfiddle.navigator6.rendering :as rendering])
+    '[hyperfiddle.navigator6.rendering :as rendering]
+    '[dustingetz.str :refer [pprint-str]])
   (d/get-database-names "datomic:dev://localhost:4334/*")
   (def conn (d/connect "datomic:dev://localhost:4334/mbrainz-full"))
+
+  ;; Basic — stripped sitemap, no tooltips
   (def my-agent
     (agent/connect! "ws://a.localhost:9090/agent"
       {#'dustingetz.nav-datomic/*db*       (d/db conn)
@@ -233,6 +299,18 @@
        #'rendering/*server-pretty {datomic.query.EntityMap
                                    (fn [entity] (str "EntityMap[" (dx/best-human-friendly-identity entity) "]"))}}
       dustingetz.nav-datomic/sitemap))
+
+  ;; Rich — with tooltips via callback fn
+  (def my-agent
+    (agent/connect! "ws://a.localhost:9090/agent"
+      {#'dustingetz.nav-datomic/*db*       (d/db conn)
+       #'dustingetz.nav-datomic/*conn*     conn
+       #'dustingetz.nav-datomic/*db-stats* (d/db-stats (d/db conn))
+       #'rendering/*server-pretty     {datomic.query.EntityMap
+                                       (fn [entity] (str "EntityMap[" (dx/best-human-friendly-identity entity) "]"))}
+       #'rendering/*tooltip-fn*       (fn [entity edge value]
+                                        (pprint-str (into {} (d/touch value)) :print-length 10 :print-level 2))}
+      dustingetz.nav-datomic/rich-sitemap))
 
   ;; Browse at http://a.localhost:9090
   ;; Navigate to attributes → click attribute → entities → click entity → traverse refs

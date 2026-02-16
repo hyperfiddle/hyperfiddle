@@ -150,7 +150,9 @@
     (binding [e/*bindings* (#(or e/*bindings* {}))
               rendering/*server-pretty (or (get e/*bindings* #'rendering/*server-pretty)
                                            rendering/*server-pretty
-                                           {})]
+                                           {})
+              rendering/*tooltip-fn* (or (get e/*bindings* #'rendering/*tooltip-fn*)
+                                         rendering/*tooltip-fn*)]
       (e/client
         (dom/style (dom/text css tooltip/css))
         (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))

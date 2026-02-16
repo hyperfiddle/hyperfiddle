@@ -23,6 +23,7 @@
   #?(:cljs (:import [goog.math Long])))
 
 (e/declare ^:dynamic *server-pretty)
+(e/declare ^:dynamic *tooltip-fn*)
 
 (defn- fixed-size-number? [obj]
   #?(:clj
@@ -154,6 +155,15 @@
 
 (e/defn DefaultColumnHeaderTooltip [object edgeT value]
   (e/server (str (hfql/describe-formatted edgeT))))
+
+;; ── Generic callback components for agent DI ────────────────────
+;; Agents can't define new e/defn components at runtime (Electric program
+;; must be synchronized across all agents + cloud proxy). Instead, agents
+;; pass Clojure callback fns in e/*bindings* and reference these generic
+;; components in their sitemap metadata.
+
+(e/defn ^::e/export FnTooltip [entity edge value]
+  (e/server (when *tooltip-fn* (*tooltip-fn* entity edge value))))
 
 (e/defn RenderTooltip* [tooltip-ident object edgeT value]
   (let [tooltip-qualified-ident (hyperfiddle.hfql2.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
