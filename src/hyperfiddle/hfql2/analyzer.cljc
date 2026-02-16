@@ -69,8 +69,7 @@
       (and (generated-symbol? arg-sym)
         (seq? last-form)
         (keyword? (first last-form))
-        (= arg-sym (second last-form))
-        #_(= 2 (count last-form))))))
+        (= arg-sym (second last-form))))))
 
 (defn- get-kw-fn-form-kw [kw-fn-form]
   (when (is-kw-fn? kw-fn-form)
@@ -100,8 +99,7 @@
     ;; TODO ifn? – maybe
     ;; TODO? method sym
     :else
-    ::literal
-    #_(throw (ex-info "unknown form" {:form form}))))
+    ::literal))
 
 (defn- reshape-traversals-down [hfql]
   (case (projection-type hfql)
@@ -231,14 +229,6 @@
                 ident)
               (symbol alias (name ident)))))))))
 
-;; #?(:clj
-;;    (defn- shorten-form "return aliased form for an ident or nil if form is not an ident or cannot be shortened"
-;;      [form]
-;;      (when (qualified-ident? form)
-;;        (let [short-form (aliased-form (ns-name *ns*) form)]
-;;          (when-not (= form short-form)
-;;            short-form)))))
-
 (tests
   (aliased-form (ns-name *ns*) ::test) := "::test"
   (aliased-form (ns-name *ns*) :hyperfiddle.hfql2.analyzer/test) := "::test"
@@ -246,12 +236,6 @@
   (aliased-form (ns-name *ns*) ::cc/test) := "::cc/test"
   (aliased-form (ns-name *ns*) `asdf) := 'asdf
   (aliased-form (ns-name *ns*) 'hyperfiddle.hfql2.analyzer/asdf) := 'asdf
-
-  ;; (shorten-form 'clojure.core/str) := 'cc/str
-  ;; (shorten-form `cc/str) := 'cc/str
-  ;; (shorten-form :clojure.core/test) := "::cc/test"
-  ;; (shorten-form ::cc/test) := "::cc/test"
-  ;; (shorten-form ::test)  := "::test"
   )
 
 (defn- compute-id [node] (hash (select-keys node #{::type ::form ::symbolic-edge ::symbolic-edges ::form-short ::form-resolved})))
@@ -331,9 +315,7 @@
                        (merge base
                          {::partial (and (::partial edge) (::partial continuation))}
                          (when (= ::star (::kind continuation)) {::multiplicity ::many})
-                         (when (or (= ::recur (::type continuation))
-                                 #_(and (::recursion-point continuation) (not= ::pull (::type continuation))) ; TODO cleanup, understand why this used to be necessary.
-                                 )
+                         (when (= ::recur (::type continuation))
                            {::recursion-point true
                             ::recursion-limit (::recursion-limit continuation)})
                          ))))
@@ -362,20 +344,8 @@
 (defmethod -escape ::traversal [point] (update-existing point ::edge -escape))
 
 (defn escape [point]
-  ;; #dbg ; ^{:break/when (nil? (::type point))}
   (-escape (update point ::form #'quote)))
 
-
-(comment
-  (analyze {} '[:a ...])
-  (analyze {} '{inc [str ...]})
-  (analyze {} '{inc [str 3]})
-  (analyze {} (with-meta [ns-name] {:hfql/select `foo}))
-  )
-
-;; #_(let [% 1]
-;;   (hfql (inc %)))
-;; (hfql (inc %))
 
 (defn- ψ ; psi
   "A coalgebra describe how to unfold an HFQL expression into a tree. For any HFQL form, return its children."
@@ -394,20 +364,6 @@
   "Unfold an HFQL symbolic expression into an AST, gathering a maximum of static knowledge about expressions."
   ([env] (partial analyze env))
   ([env hfql] (unfold (φ env) ψ (postwalk reshape-traversals-up (prewalk reshape-traversals-down hfql)))))
-
-(comment
-  (analyze {} [])
-  (hyperfiddle.ct.rose-tree/unfold ψ [])
-  (hyperfiddle.ct.rose-tree/unfold ψ 'foo)
-  (hyperfiddle.ct.rose-tree/coiter ψ 'foo)
-  (analyze {} 'foo)
-  (analyze {} "foo")
-  (hyperfiddle.ct.rose-tree/coiter ψ inc)
-  (analyze {} 'inc)
-  (hyperfiddle.ct.rose-tree/coiter ψ ['foo "foo"])
-  (analyze {} ['foo "foo"])
-  (analyze {} {:a inc})
-  )
 
 (tests
   (::has-star? (extract (analyze {} [:a])))
@@ -429,36 +385,10 @@
 (defn hydrate [[point children]] ; hydrate :: (a, [(a, [...]) ...]) -> RoseTree a
   (rose-tree point (mapv hydrate children)))
 
-#_(tests
-  "hydrate ∘ emit = id"
-  (let [a (analyze {} {:a inc :b dec})]
-    a := ((comp hydrate emit) a))
-  )
-
 (defn marshal [w] (fmap (comp escape #(update % ::form emit*)) w))
 (defn unmarshal [rose-tree] (fmap #(update % ::form unquote*) rose-tree))
 
 (defmacro hfql [form] `(unmarshal (hydrate ~(emit (marshal (analyze &env form))))))
-;; (defmacro hfql [form] (emit (analyze &env form)))
-
-
-(comment
-  (set! *print-namespace-maps* false)
-  (hfql inc) 
-  (hfql #'inc) 
-  (hfql [:a *]) 
-  (hfql {:a inc})
-  (let [fork (fn [x] (list x x))]
-    (hfql {identity {fork {fork fork}}}))
-
-  (hfql (ns-publics *ns*) )
-  (hfql (ns-publics %) ) 
-
-
-  (hfql (fn _inc [%] (inc %)))
-
-  (hfql {:a ...})
-  )
 
 (defn- traverse-two [f W1 W2]
   (rose-tree (f W1 W2)
@@ -470,27 +400,4 @@
     (rose-tree (extract pullW)
       [(traverse-two (fn [_W1 W2] (extract W2))
          (first (unwrap pullW)) W)])))
-
-
-
-;; (defn filter-pull [pred rose-pull]
-;;   (let [[_form {::keys [type lexical-env _form _symbolic-edges]}] (extract rose-pull)
-;;         children (filter (comp pred snd extract) (unwrap rose-pull))
-;;         filtered-form (mapv unquote* (map (comp ::form snd extract) children))]
-;;     (rose-tree
-;;       (pair filtered-form         ; TODO drop pair at this level. It seems useless.
-;;         {::type type
-;;          ::lexical-env lexical-env
-;;          ::form filtered-form
-;;          ::symbolic-edges filtered-form})
-;;       (vec children))))
-
-
-;; (tests
-;;   (filter-pull (fn [child] (#{:a :c} (::form child)))
-;;     (hfql [:a :b :c]))
-;;   := (hfql [:a :c])
-
-;;   )
-
 

@@ -68,7 +68,7 @@
 (defn filtered [object] (safe-vary-meta object assoc ::filtered true))
 (defn filtered? [object] (::filtered (meta object)))
 
-(defn hfql* [analyzed-hfql] #_(seed {}) (unfoldT hfqlT analyzed-hfql))
+(defn hfql* [analyzed-hfql] (unfoldT hfqlT analyzed-hfql))
 
 (defn build-hfql
   ([hfql-expression] (build-hfql {} hfql-expression))
@@ -441,12 +441,6 @@
   ([hfqlT-a hfqlT-b & hfqlTs]
    (reduce combine (combine hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
 
-;; TODO
-(defn- union [a b]) ; unwrap children from both `a` and `b`, and glue them together. Do not call into `analyze`.
-(defn- zoom ; do we want/need full Van Laarhoven-style lenses?
-  "Zoom into a CofreeT through a lens-like projection."
-  [edge t] #_(extend t (fn [ctx] (derive getter ctx))))
-
 (tests
   (->
     (combine
@@ -466,31 +460,6 @@
       :hyperfiddle.hfql2.analyzer/has-star? false
       :hyperfiddle.hfql2.analyzer/partial _
       })
-
-;; (defn filter-pull [pred pullT]
-;;   (assert (= ::ana/pull (::ana/type (metas pullT))))
-;;   (let [children-forms (into #{} (map ::ana/form (map metas (filter pred (unwrap pullT)))))]
-;;     (seed (scope pullT)
-;;       (hfql* (ana/filter-pull #(children-forms (::ana/form %)) (fmap swap (::co/AST (metas pullT))))))))
-
-;; (tests
-;;   (filter-pull #(#{:a :c} (::ana/form (metas %)))
-;;     (seed {'% 1} (hfql [:a :b :c])))
-;;   := (seed {'% 1} (hfql [:a :c]))
-;;   )
-
-
-;; (defn select-children "Like select-keys but select children of a pull expression."
-;;   [pullT childrenT-seq]
-;;   (let [child-matches? (into #{} (map (comp ::ana/form metas)) childrenT-seq)]
-;;     (filter-pull (fn [%](child-matches? (::ana/form (metas %)))) pullT)))
-
-
-;; (tests
-;;   (select-children (seed {} (hfql [:a :b :c]))
-;;     (unwrap (hfql [:a :c])))
-;;   := (seed {} (hfql [:a :c]))
-;;   )
 
 (defn- normalize-edge [edge]
   (cond (ident? edge) `(~edge ~'%)
@@ -526,21 +495,6 @@
     (first)))
 
 (defn find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
-
-;; (defn focus-subtree [hfqlT] (seed (scope hfqlT) (hfql* (fmap swap (::co/AST (metas hfqlT))))))
-
-;; (defn find-sitemap-entry [symbolic-edge hfqlT]
-;;   (case (::ana/type (metas hfqlT))
-;;     ::ana/pull (some-> (find-child symbolic-edge hfqlT)
-;;                  ;; we want to refocus subtree because recursion in a UI is
-;;                  ;; different than recursion in a textual pull In a pull we want
-;;                  ;; to recur on top-level pulls In a UI we don't want to recur
-;;                  ;; on the sitemap root but rather on the selected sitemap
-;;                  ;; entry, according to the current top-level URL route.
-;;                  focus-subtree)
-;;     (if (child-matches? symbolic-edge hfqlT)
-;;       hfqlT
-;;       nil)))
 
 (def id (comp ::ana/id metas))
 
@@ -855,21 +809,6 @@ identifier, though it might not be serializable."
         :else user-suggestion)
       user-suggestion)))
 
-(comment
-  _suggested
-  (runCofreeT _suggested)
-  ;; (pull (fmap #(assoc % ::suggested true) _suggested))
-  ;; ((fn rec [T]
-  ;;    (hyperfiddle.ct.cofree/->CofreeT
-  ;;      (hyperfiddle.ct.bifunctor/bimap #(assoc % ::suggested true)
-  ;;        (hyperfiddle.ct.comonad/extend (comp extract rec))
-  ;;        (runCofreeT T)))) _suggested)
-  (hyperfiddle.ct.cofree/hoistCofreeT (bf/first #(assoc % ::suggested true))
-    _suggested)
-  (map (comp ::suggested metas) (unwrap *1))
-  )
-
-
 (defn- suggest-at-point! [hfqlT]
   (->> (value-at-point hfqlT)
     (=<< suggest*)
@@ -1123,7 +1062,6 @@ identifier, though it might not be serializable."
   ([keyfn hfqlT symbolic-edge]
    (lookup keyfn hfqlT hfqlT symbolic-edge))
   ([keyfn previously-visitedT currentT symbolic-edge]
-   #_(prn "visiting" (::ana/form (metas currentT)))
    (cond
      ;; check if current step has a matching `:as` label.
      ;; `:as` has priority.

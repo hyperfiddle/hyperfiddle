@@ -98,10 +98,7 @@
 
 (defn safe-ccp-nav [object key value]
   (when (some? object) ; nil check – nav is not defined on nil, on purpose
-    (hfqlp/nav object key value))
-  #_(if (satisfies? ccp/Navigable object)
-      (datafy/nav object key value)
-      value))
+    (hfqlp/nav object key value)))
 
 (def ^:dynamic *navigate* safe-ccp-nav) ; default is to navigate objects, except in UIs where, at leaves, where we want to see the symbolic values
 
@@ -194,11 +191,9 @@
                             parameter
                             argument))
                      parameters (from-either (resolve-arguments edge env))))
-      ::ana/symbol (if false #_(and (root? point) (= ::ana/symbol (projection-type edge))) ; FIXME check and cleanup – we want to favor symbolic/path-based structure, not values.
-                     (some-> (get env '%) force-thunk)
-                     (cond
+      ::ana/symbol (cond
                        point-free? form
-                       :else (list form (from-either (force-thunk (resolve '% env '%)))))) ; introduce a point
+                       :else (list form (from-either (force-thunk (resolve '% env '%))))) ; introduce a point
       form)))
 
 (defn symbolic-edge-static [point]
@@ -273,7 +268,6 @@
                                         (let [ifn (::ana/value point)]
                                           (if (try (contains? % ifn) ; FIXME find a better check
                                                    (catch #?(:clj Throwable, :cljs :default) _
-                                                     #_(#?(:clj log/debug, :cljs js/console.debug) "object doesn't support `contains?`" (type object))
                                                      false))
                                             (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form point)))
                                                 (*navigate* % ifn (get % ifn)))
@@ -329,7 +323,7 @@
   ([point Ra]
    (->> (if (= false (::leaf point)) ; FIXME wart – should always navigate unless the renderer disables it.
           Ra
-          (reader (fn [env] ((bound-fn* {#_#_#'*navigate* right} (runReader Ra)) env))))
+          (reader (fn [env] ((bound-fn* {} (runReader Ra)) env))))
      (fmap (fn [v] (pair v ()))))))
 
 (declare seed)
@@ -694,16 +688,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn vary-static-meta [t f & args] (->hfqlT (bf/first #(apply f % args) (runCofreeT t))))
 
 (defn- lexical-env [point]
-  (::ana/lexical-env point)
-  ;; TODO cleanup
-  #_(let [env (::ana/lexical-env point)]
-    (if false #_(and (= ::ana/traversal (::ana/type point)) (= ::ana/symbol (projection-type (::ana/edge point))))
-      (if (contains? env '%)
-        env
-        (if-let [sym-value (::ana/value (::ana/edge point))]
-          (assoc env '% sym-value)
-          env))
-      env)))
+  (::ana/lexical-env point))
 
 ;; TODO move to contrib.data
 (defn iterator? [it] #?(:clj (instance? java.util.Iterator it) :cljs (instance? ES6Iterator it)))
@@ -897,11 +882,9 @@ Pulling on non-maps (non associative) is perfectly fine.
   )
 
 (defn- extract-right-value-or-keep-left-error [x]
-  (if true #_(either/either? x)
-    (either/either
-      either/left
-      identity
-      x)
+  (either/either
+    either/left
+    identity
     x))
 
 (defn- pull-algebra [W children]
@@ -948,17 +931,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   ;; interpreter "zipping" values up the tree. The sole purpose of `pull-algebra` is to re-attach
   ;; keys onto projected values, producing a result of the same shape as the original symbolic
   ;; query.
-  ((synthesize pull-algebra) #_W (duplicate W)))
-
-#_(tests
-  (let [t (seed {'% 1} (-hfql {inc {inc inc}}))
-        t1 (first (unwrap t))
-        p (pull t1)]
-    (clojure.data/diff
-      (fst (runCofreeT t1))
-      #_(fst (runCofreeT p))
-      (fst (extract t1))
-      #_(fst (extract p)))))
+  ((synthesize pull-algebra) (duplicate W)))
 
 
 (tests
