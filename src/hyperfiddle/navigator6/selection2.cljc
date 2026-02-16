@@ -24,7 +24,7 @@
    [hyperfiddle.hfql2 :as hfql :refer [hfql?]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve]]
    [hyperfiddle.hfql2.analyzer :as ana]
-   [hyperfiddle.hfql2.coalgebra :as coalgebra :refer [star-traversal?]]
+   [hyperfiddle.hfql2.interpreter :as coalgebra :refer [star-traversal?]]
    [hyperfiddle.ct.either :refer [either either? right left right? left? from-right from-left]]
    [hyperfiddle.navigator6 :as-alias navigator]
    [hyperfiddle.rcf :refer [tests]]
@@ -618,7 +618,7 @@
                    (first (hfql/next-steps current-point))
                    ;; FIXME Technical – call to next-steps will run the edge function, eventually causing IO!
                    ;; Caching and laziness won't apply because we are altering the scope. Userland function WILL rerun.
-                   ;; There may be a way to bypass it. It may require modifying `hyperfiddle.hfql2.coalgebra/unfoldT`
+                   ;; There may be a way to bypass it. It may require modifying `hyperfiddle.hfql2.interpreter/unfoldT`
                    ;; E.g. using a sentinel value. Such that we get a dummy child.
                    (first (hfql/next-steps (hfql/update-scope current-point assoc ::coalgebra/BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE true))))))))
          ;; Value case

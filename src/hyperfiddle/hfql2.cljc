@@ -21,7 +21,7 @@
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
    [hyperfiddle.ct.either :refer [either either? left right unwrap! from-right from-left]]
    [hyperfiddle.hfql2.analyzer :as ana]
-   [hyperfiddle.hfql2.coalgebra :as co :refer [unfoldT hfqlT hoistHfqlT]]
+   [hyperfiddle.hfql2.interpreter :as co :refer [unfoldT hfqlT hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch
                                         Searchable -search-matches *search-max-collection-size* *search-max-str-len*]]
    [hyperfiddle.hfql2.utils :refer [has-meta? imap? original-object]]
@@ -455,8 +455,8 @@
       :hyperfiddle.hfql2.analyzer/form [:a :b :c],
       :hyperfiddle.hfql2.analyzer/lexical-env {},
       :hyperfiddle.hfql2.analyzer/symbolic-edges [:a :b :c],
-      :hyperfiddle.hfql2.coalgebra/static-children _
-      :hyperfiddle.hfql2.coalgebra/scope '{a 1, b 2}
+      :hyperfiddle.hfql2.interpreter/static-children _
+      :hyperfiddle.hfql2.interpreter/scope '{a 1, b 2}
       :hyperfiddle.hfql2.analyzer/has-star? false
       :hyperfiddle.hfql2.analyzer/partial _
       })

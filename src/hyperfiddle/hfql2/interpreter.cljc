@@ -1,4 +1,4 @@
-(ns hyperfiddle.hfql2.coalgebra
+(ns hyperfiddle.hfql2.interpreter
   "
   Defines the HFQLT type, a Cofree Transformer (aka. CofreeT) over the HFQL AST.
   Defines how to interpret AST nodes with corresponding effects. Implement all of these effects.
@@ -95,7 +95,7 @@
    [hyperfiddle.hfql2.utils :refer [has-meta? original-object]]
    [hyperfiddle.ct.experiments.thunk :as thunks :refer [thunk thunk? force-thunk]])
   #?(:clj (:import [hyperfiddle.ct.store Store]))
-  #?(:cljs (:require-macros [hyperfiddle.hfql2.coalgebra :refer [-hfql]])))
+  #?(:cljs (:require-macros [hyperfiddle.hfql2.interpreter :refer [-hfql]])))
 
 (defn safe-ccp-nav [object key value]
   (when (some? object) ; nil check – nav is not defined on nil, on purpose
@@ -498,7 +498,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                        (group-by-pred (comp star? extract) children))
                       star-position (if (empty? children)
                                       0
-                                      (or (ffirst (filter (comp hyperfiddle.hfql2.coalgebra/star? extract second) (map-indexed vector children)))
+                                      (or (ffirst (filter (comp hyperfiddle.hfql2.interpreter/star? extract second) (map-indexed vector children)))
                                         ##Inf))
                       dynamic-keys (when star? (star-keys (ensure-either (get env '%))))
                       star-kids (let [static-keys (set (map (comp symbolic-edge extract) kids))
