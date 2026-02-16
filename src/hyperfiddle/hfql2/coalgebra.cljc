@@ -73,7 +73,7 @@
 "
   (:refer-clojure :exclude [extend resolve meta bound-fn*])
   (:require
-   [contrib.data :refer [group-by-pred]]
+   [contrib.data :as cd :refer [group-by-pred]]
    #?(:clj [clojure.tools.logging :as log])
    [hyperfiddle.ct.function :refer [flip]]
    [hyperfiddle.ct.functor :refer [Functor fmap]]
@@ -685,26 +685,9 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- lexical-env [point]
   (::ana/lexical-env point))
 
-;; TODO move to contrib.data
-(defn iterator? [it] #?(:clj (instance? java.util.Iterator it) :cljs (instance? ES6Iterator it)))
-;; TODO move to contrib.data
-(defn- iterator-to-seq [it] #?(:clj (iterator-seq it) :cljs (es6-iterator-seq it)))
-
-;; TODO move to contrib.data
-(defn enumeration? [enum] #?(:clj (instance? java.util.Enumeration enum) :cljs false))
-;; TODO move to contrib.data
-(defn- enumeration-to-seq [enum] #?(:clj (enumeration-seq enum) :cljs enum))
-
-;; TODO move to contrib.data
-(defn to-seq [seq-like]
-  (cond
-    (seq? seq-like) seq-like
-    ;; enumeration check must come before iterator check or java.util.zip.ZipFile$ZipEntryIterator (implementing both) will exhibit inconsistent behavior.
-    ;; In other words `enumeration-seq` works consistently on java.util.zip.ZipFile$ZipEntryIterator, but `iterator-seq` doesn't. Not sure why.
-    (enumeration? seq-like) (enumeration-to-seq seq-like)
-    (iterator? seq-like) (iterator-to-seq seq-like)
-    (seqable? seq-like) (seq seq-like)
-    :else seq-like))
+(def iterator? cd/iterator?)
+(def enumeration? cd/enumeration?)
+(def to-seq cd/to-seq)
 
 (defn unfoldT ; TODO docstring
   ([coalgebra] (partial unfoldT coalgebra))

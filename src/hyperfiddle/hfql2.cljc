@@ -709,8 +709,8 @@ identifier, though it might not be serializable."
   (and (not (record? object))
     (or (sequential? object)
       (set? object)
-      (co/enumeration? object) ; TODO move implementation
-      (co/iterator? object) ; TODO move implementation
+      (co/enumeration? object)
+      (co/iterator? object)
       #?(:clj (contrib.data/array? object))
       #?(:clj (instance? java.util.Collection object)))))
 
