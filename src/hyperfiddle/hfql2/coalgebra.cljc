@@ -90,6 +90,7 @@
    [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.hfql2.protocols :as hfqlp]
    [hyperfiddle.rcf :refer [tests tap %]]
+   [hyperfiddle.hfql2.ast :as ast]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.utils :refer [has-meta? original-object]]
    [hyperfiddle.ct.experiments.thunk :as thunks :refer [thunk thunk? force-thunk]])
@@ -106,16 +107,10 @@
   (when (has-meta? object)
     (clojure.core/meta object)))
 
-(def star? (comp #(= ::ana/star %) ::ana/type))
-(def star-traversal? (comp #(= ::ana/star %) ::ana/kind))
-(def multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity))
-
-(defn projection-type [point]
-  (case (::ana/type point)
-    ::ana/symbol (if (fn? (::ana/value point))
-                   ::ana/fn
-                   ::ana/symbol)
-    (::ana/type point)))
+(def star? ast/star?)
+(def star-traversal? ast/star-traversal?)
+(def multiplicity-many? ast/multiplicity-many?)
+(def projection-type ast/projection-type)
 
 (defn- resolve
   "Lookup `symbol` into `env` and return associated value. Throw if symbol cannot be found in `env`."
@@ -242,7 +237,7 @@
      ))
 
 (defn- getter [point]
-  (let [key (ana/unquote* (get point ::ana/form))]
+  (let [key (ast/unquote* (get point ::ana/form))]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
       (binding [thunks/*cache-strategy* ::thunks/weak]
@@ -328,9 +323,9 @@
 
 (declare seed)
 
-(defn- disambiguate-nums-from-recursion [form] (ana/quote-nat-ints form))
-(defn- undisambiguate-nums-from-recursion [form] (if (and (ana/quoted? form) (nat-int? (second form)))
-                                                   (ana/unquote* form)
+(defn- disambiguate-nums-from-recursion [form] (ast/quote-nat-ints form))
+(defn- undisambiguate-nums-from-recursion [form] (if (and (ast/quoted? form) (nat-int? (second form)))
+                                                   (ast/unquote* form)
                                                    form))
 
 (defn- pull-peek-at-immediate-kids! [env kidsT]

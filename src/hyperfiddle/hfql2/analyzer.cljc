@@ -3,6 +3,7 @@
             [contrib.data :refer [update-existing]]
             [contrib.walk :refer [prewalk postwalk]]
             [hyperfiddle.hfql2.analyzer.lambda :refer [lambda?]]
+            [hyperfiddle.hfql2.ast :as ast]
             [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.pair :refer [pair pair? fst snd]]
@@ -22,13 +23,8 @@
     (let [[f & _args] form]
       (and (symbol? f) (not (#{'fn `fn 'fn* 'quote 'var 'hfql `hfql} f))))))
 
-(defn quoted? [form]
-  (and (seq? form) (= 'quote (first form))))
-
-(defn unquote* [form]
-  (if (and (seq? form) (= 'quote (first form)))
-    (second form)
-    form))
+(def quoted? ast/quoted?)
+(def unquote* ast/unquote*)
 
 (defn- quoted-var-form? [form] (and (quoted? form) (var-form? (unquote* form))))
 
@@ -174,31 +170,10 @@
     (symbol? form)               `(symbol (var ~form))
     :else                        nil))
 
-(defn literal? [obj]
-  (or (nil? obj)
-    (number? obj)
-    (string? obj)
-    (keyword? obj)))
-
-(defn realize ; keeping around for reference
-  "Realize a lazy-seq to a plain list. Values that are not lazy-seqs passes
-  through. Differs from `doall` in that `(str (doall seq))` will print an opaque
-  object address, whereas `(str (realize seq))` will print as a plain list. Will
-  hang forever on infinite seqs. Also see `unchunk-seq`."
-  [supposedly-lazy-seq]
-  (if (seq? supposedly-lazy-seq)
-    (with-meta
-      (or (list* supposedly-lazy-seq) ())
-      (meta supposedly-lazy-seq))
-    supposedly-lazy-seq))
-
-(defn quote "Quote a form. Invoke it as `(#'quote x)` to avoid conflict with the 'quote special form."
-  [form]
-  (if (or (literal? form) (quoted? form))
-    form
-    (list 'quote (realize form))))
-
-(defn quote-nat-ints [form] (if (nat-int? form) (list 'quote form) form))
+(def literal? ast/literal?)
+(def realize ast/realize)
+(def quote ast/quote)
+(def quote-nat-ints ast/quote-nat-ints)
 
 (defn- lexical-bindings-map [lexical-env]
   (zipmap (map #(#'quote %) (keys lexical-env))
