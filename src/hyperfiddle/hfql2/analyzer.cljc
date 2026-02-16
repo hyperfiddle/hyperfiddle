@@ -287,7 +287,8 @@
          ::traversal (let [edge (φ env (fst form))
                            base (case (::type edge)
                                   ::star {::kind ::star, ::multiplicity ::many}
-                                  {::edge edge, ::lexical-env (::lexical-env edge)})
+                                  {::edge (cond-> edge (not= ::symbol (::type edge)) (assoc ::leaf false))
+                                   ::lexical-env (::lexical-env edge)})
                            continuation (φ env (snd form))]
                        (merge base
                          {::partial (and (::partial edge) (::partial continuation))}

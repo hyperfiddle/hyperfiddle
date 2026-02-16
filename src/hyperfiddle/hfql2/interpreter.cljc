@@ -476,7 +476,7 @@ Pulling on non-maps (non associative) is perfectly fine.
           ::ana/call    (comp (leaf point) (focus-arguments point) call)
           ::ana/lambda  (comp (leaf point) (focus-arguments point) call)
           ::ana/star    (comp (leaf point) focus-% (constantly star))
-          ::ana/recur   (constantly (mem-reader (fn [env] (pair env [(find-recursion-point (mapHead #(assoc % ::env env) hfql)) ; TODO factor out under some common AST api.
+          ::ana/recur   (constantly (mem-reader (fn [env] (pair env [(find-recursion-point (mapHead #(assoc % ::env env) hfql)) ; TODO extract helper for parent-aware tree walk
                                                                      ]))))
           ::ana/pull
           (constantly
@@ -515,7 +515,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                       (mappend
                         (insert-at star-position kids star-kids)
                         (if recur-point
-                          (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql)) ; TODO factor out under some common AST api.
+                          (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql)) ; TODO extract helper for parent-aware tree walk
                                 limit (or (::ana/recursion-limit (extract recur-point)) (::ana/recursion-limit (extract recursion-root)) 0)] ; TODO deduplicate with traversal
                             (if (pos? limit)
                               [(->> recursion-root
@@ -524,14 +524,14 @@ Pulling on non-maps (non associative) is perfectly fine.
                                ]
                               []))
                           []))
-                      (mapv (fn [child] (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) child))) ; TODO factor out under some common AST api.
+                      (mapv (fn [child] (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) child))) ; TODO extract helper for parent-aware tree walk
                       ))))))
           ::ana/traversal
           (let [lexical-symbol? (= ::ana/symbol (projection-type (::ana/edge point)))  ; not a function
                 lexical-value (::ana/value (::ana/edge point))
                 edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
                                            lexical-symbol? (ana/hfql identity)
-                                           :else (ana/hydrate [(assoc (::ana/edge point) ::leaf false) ()]) ; FIXME wart, should be handled by the analyzer
+                                           :else (ana/hydrate [(::ana/edge point) ()]) ; ::leaf false is set by the analyzer
                                            ))]
             (constantly
               (mem-reader
@@ -542,7 +542,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                               env)]
                     (pair (extract (seed env' edgeT))
                       (let [direct-child (first children)
-                            direct-child (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) direct-child)] ; TODO factor out under some common AST api.
+                            direct-child (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) direct-child)] ; TODO extract helper for parent-aware tree walk
                         (if (star-traversal? (extract direct-child))
                           ;; Unwrap star children first, then handle recursion here
                           ;; (not downstream) so ::recur nodes stay invisible to pull_algebra.
