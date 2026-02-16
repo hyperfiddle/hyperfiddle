@@ -449,6 +449,18 @@ Pulling on non-maps (non associative) is perfectly fine.
     (mapHead #(assoc % ::ana/recursion-root true))
     ))
 
+(defn- recurse-or-stop
+  "Given an hfql node, its current env, and a child node that may carry a
+  recursion limit, find the recursion root and return it with a decremented
+  limit. Returns nil if the limit is exhausted."
+  [hfql env limit-source]
+  (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
+        limit (or (::ana/recursion-limit (extract limit-source))
+                  (::ana/recursion-limit (extract recursion-root))
+                  0)]
+    (when (pos? limit)
+      (fmap #(assoc % ::ana/recursion-limit (dec limit)) recursion-root))))
+
 (defn hfqlT
   "A coalgebra transforming one HFQL AST node (a Cofree point) into an effect point.
   This effect point is of type (Reader Env (Pair value children)), where:
@@ -515,14 +527,9 @@ Pulling on non-maps (non associative) is perfectly fine.
                       (mappend
                         (insert-at star-position kids star-kids)
                         (if recur-point
-                          (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql)) ; TODO extract helper for parent-aware tree walk
-                                limit (or (::ana/recursion-limit (extract recur-point)) (::ana/recursion-limit (extract recursion-root)) 0)] ; TODO deduplicate with traversal
-                            (if (pos? limit)
-                              [(->> recursion-root
-                                 (fmap #(assoc % ::ana/recursion-limit (dec limit)))
-                                 (bf/first #(assoc % ::ana/recursive-child true))) ; only used in matrix.cljc. Use case isn't clear. G doesn't remember why we need to tag as ::recursive-child. TODO confirm use case.
-                               ]
-                              []))
+                          (if-let [root (recurse-or-stop hfql env recur-point)]
+                            [(bf/first #(assoc % ::ana/recursive-child true) root)] ; only used in matrix.cljc. TODO confirm use case.
+                            [])
                           []))
                       (mapv (fn [child] (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) child))) ; TODO extract helper for parent-aware tree walk
                       ))))))
@@ -549,19 +556,15 @@ Pulling on non-maps (non associative) is perfectly fine.
                           (let [unwrapped (first (unwrap direct-child))
                                 unwrapped (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) unwrapped)]
                             (if (= ::ana/recur (projection-type (extract unwrapped)))
-                              (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
-                                    limit (or (::ana/recursion-limit (extract unwrapped)) (::ana/recursion-limit (extract recursion-root)) 0)]
-                                (if (pos? limit)
-                                  [(fmap #(assoc % ::ana/recursion-limit (dec limit)) recursion-root)]
-                                  []))
+                              (if-let [root (recurse-or-stop hfql env unwrapped)]
+                                [root]
+                                [])
                               [unwrapped]))
                           ;; Non-star child: handle recursion at traversal level if needed.
                           (if (recursion-point? hfql)
-                            (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
-                                  limit (or (::ana/recursion-limit (extract direct-child)) (::ana/recursion-limit (extract recursion-root)) 0)] ; TODO deduplicate with pull
-                              (if (pos? limit)
-                                [(fmap #(assoc % ::ana/recursion-limit (dec limit)) recursion-root)]
-                                []))
+                            (if-let [root (recurse-or-stop hfql env direct-child)]
+                              [root]
+                              [])
                             [direct-child]))))))))))]
     (inject-dynamic-bindings (transform point))))
 
