@@ -240,15 +240,17 @@
                       ::var (var-resolver env form) ; nil if symbol is lexicaly bound
                       ::form-resolved (resolver env form) ; resolve via eventual ns alias
                       ::form-short #?(:clj (aliased-form form), :cljs form)}
-         ::var       {::symbolic-edge form ; the var object itself
-                      ::value form ; also the var object itself
-                      ::parameters '(%)
-                      ;; TODO add aliased form
-                      }
-         ::quoted-var {::form (unquote* form)
-                       ::symbolic-edge form
-                       ;; TODO add aliased form
-                       }
+         ::var       (let [sym (second form)]
+                      {::symbolic-edge form ; the var object itself
+                       ::value form ; also the var object itself
+                       ::parameters '(%)
+                       ::form-resolved (resolver env sym)
+                       ::form-short #?(:clj (aliased-form sym), :cljs sym)})
+         ::quoted-var (let [sym (second (unquote* form))]
+                       {::form (unquote* form)
+                        ::symbolic-edge form
+                        ::form-resolved (resolver env sym)
+                        ::form-short #?(:clj (aliased-form sym), :cljs sym)})
          ::pull      (let [recursion-point (some-fn #{'...} nat-int?)
                            form' (vec (remove recursion-point form))]
                        (merge
@@ -304,8 +306,10 @@
 (defmethod -escape ::string [point] point)
 (defmethod -escape ::symbol [point] (-> (update point ::symbolic-edge #'quote)
                                       (update ::form-short #'quote)))
-(defmethod -escape ::var [point] (update point ::parameters #'quote))
-(defmethod -escape ::quoted-var [point] (update point ::form unquote*)) ; special case
+(defmethod -escape ::var [point] (-> (update point ::parameters #'quote)
+                                    (update ::form-short #'quote)))
+(defmethod -escape ::quoted-var [point] (-> (update point ::form unquote*) ; special case
+                                           (update ::form-short #'quote)))
 (defmethod -escape ::pull [point] (-> (update point ::form #'quote)
                                     (update ::symbolic-edges #'quote)))
 (defmethod -escape ::fn [point] (update point ::symbolic-edge #'quote))
