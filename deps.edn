@@ -26,5 +26,18 @@
  :aliases {:build {:extra-paths ["src-build"]
                    :ns-default  build
                    :extra-deps  {com.hyperfiddle/build {:local/root "../build"}}}
+           :test {:extra-paths ["test"]
+                  :exec-fn     hyperfiddle.test-runner/test
+                  :exec-args   {:dir "src"
+                                :patterns ["hyperfiddle.*"]
+                                :exclude ["dustingetz\\.datomic-contrib2"
+                                          "dustingetz\\.mbrainz"
+                                          "dustingetz\\.nav-datomic"
+                                          "dustingetz\\.pg-sakila"
+                                          "hyperfiddle\\.navigator6(\\..+)?"]}
+                  :jvm-opts    ["-Dhyperfiddle.rcf.generate-tests=true"
+                                "-XX:-OmitStackTraceInFastThrow"]
+                  :extra-deps  {cider/cider-nrepl          {:mvn/version "0.58.0"} ; tested values match REPL's pretty-printed representation.
+                                org.clojure/tools.namespace {:mvn/version "1.5.0"}}}
            :release {:override-deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-b5ceeefc9"}
                                      com.hyperfiddle/hyperfiddle-contrib {:mvn/version "v0-alpha-bcc21af7"}}}}}
