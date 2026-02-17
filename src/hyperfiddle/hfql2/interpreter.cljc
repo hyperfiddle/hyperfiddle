@@ -742,12 +742,11 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (defn- -values [T] (map (either/either identity identity) (map force-thunk (map extract (tree-seqT T)))))
 
+(defn- _inc [x] (prn 'IO! '_inc x) (inc x))
+
 (tests
-
-  (def _inc (fn [x] (prn 'IO! '_inc x) (inc x)))
-
   (let [% 1]
-    (-values (-hfql (_inc %)))) 
+    (-values (-hfql (_inc %))))
   := '(2)
 
   (-values (seed {'% 1} (-hfql _inc))) 
