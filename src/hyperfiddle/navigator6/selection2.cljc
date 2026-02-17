@@ -963,6 +963,21 @@
      false)))
 
 ;;;; Naming points
+
+(defn- positional-index-name
+  "Given symbolic selection coordinates [symbolic-column symbolic-constructor-form],
+  produce a title string for positional (nth) addressing, or nil."
+  [[symbolic-column symbolic-constructor-form]]
+  (or
+    ;; Case where we select a row by positional index.
+    (and (= `hfql/nth (first symbolic-constructor-form))
+      (nil? symbolic-column)
+      (pr-str (list 'nth '% (second symbolic-constructor-form))))
+    ;; Case where we select a cell by positional index.
+    (and (= `hfql/nth (first symbolic-constructor-form))
+      (some? symbolic-column)
+      (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form)))))))
+
 ;;;;; Infering a title from navigation point
 
 (defn point-symbolic-name
@@ -1015,38 +1030,20 @@
                        (and (some? parent-edge)
                          (nil? parent-symbolic-value)
                          (some? parent-selection-coordinates)
-                         (let [[symbolic-column symbolic-constructor-form] parent-selection-coordinates]
+                         (let [[symbolic-column symbolic-constructor-form :as coords] parent-selection-coordinates]
                            (or
                              ;; Case where we select "hfql/current-point", a non-identifiable object only addressable by the current scope.
                              (and (= `hfql/current-point (first symbolic-constructor-form))
                                (some? symbolic-column)
                                (pr-str symbolic-column))
-                             ;; Below is duplicated – Ⓐ – TODO cleanup
-                             ;; Case where we select a row by positional index.
-                             (and (= `hfql/nth (first symbolic-constructor-form)) ; This is a positional addressing situation.
-                                 (nil? symbolic-column)
-                                 (pr-str (list 'nth '% (second symbolic-constructor-form))))
-                             ;; Case where we select a cell by positional index.
-                             (and (= `hfql/nth (first symbolic-constructor-form))
-                               (some? symbolic-column)
-                               (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form)))))))))))
+                             (positional-index-name coords)))))))
                  ;; Case where the current point is anonymous (e.g. a non-identifiable row).
                  ;; So there's no selected column, and the row coordinate is unknown.
                  ;; UNLESS it can be identified by positional index.
                  (and (nil? symbolic-column)
                    (nil? symbolic-constructor-form)
                    (some? parent-selection-coordinates) ; Anonymous point but we may have more info by interpreting symbolic coordinates.
-                   ;; Below is duplicated – Ⓐ – TODO cleanup
-                   (let [[symbolic-column symbolic-constructor-form] parent-selection-coordinates]
-                     (or
-                       ;; Case where we select a row by positional index.
-                       (and (= `hfql/nth (first symbolic-constructor-form)) ; This is a positional addressing situation.
-                           (nil? symbolic-column)
-                           (pr-str (list 'nth '% (second symbolic-constructor-form))))
-                       ;; Case where we select a cell by positional index.
-                       (and (= `hfql/nth (first symbolic-constructor-form))
-                         (some? symbolic-column)
-                         (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form))))))))
+                   (positional-index-name parent-selection-coordinates))
                  ;; Case where we render a navigation (selection) error. E.g. when resolving fails.
                  ;; The title is the one of the expected navigation, not the one of the error object.
                  (and (::hfql/error (hfql/metas current-point)) ; error flag
