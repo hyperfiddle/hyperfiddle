@@ -22,11 +22,9 @@
   - `focus :: Env -> (Pair value childrenTs)` reads `Env`, may run IO, and produce the value at point + next CofreeT steps.
   - `childrenTs :: [HFQLT]` is a lazy sequence where elements are of the same CofreeT type as the root, recursively up to leaves.
   - `(Pair Metadata Store)` is a static layer containing metadata describing the current CofreeT computation step, held in Store
-    (thunked). Metadata contains the current point's original AST and various annotation describing what value running the Store instance
+    (thunked). Metadata contains the current point's original AST and various annotations describing what value running the Store instance
     will produce. A use case is to draw a UI skeleton ASAP, of the correct shape, while the value is being computed in the
-    background. Nota: this type-sandwich layer is outdated, spurious, and should be replaced by an IMeta implementation on the
-    HFQLT type. It is accidental complexity and doesn't play well with the CofreeT type. While the use case is legit, the implementation
-    details should be ignored. FIXME.
+    background. HFQLT implements IMeta/IObj — use `(meta stepT)` to access static metadata and `(vary-meta stepT f args)` to update it.
 
   Seeding an HFQLT is optional and depends on the HFQL query:
   - An HFQL query expecting arguments (e.g. {(user-by-id %) [:user/email]}) must be seeded. This query is said to be \"partial\".
@@ -713,7 +711,11 @@ Pulling on non-maps (non associative) is perfectly fine.
 (def enumeration? cd/enumeration?)
 (def to-seq cd/to-seq)
 
-(defn unfoldT ; TODO docstring
+(defn unfoldT
+  "Build an HFQLT navigator from an AST (rose tree) using a coalgebra.
+  The coalgebra transforms each AST node into a Reader Env (Pair value children).
+  The result is an HFQLT instance wrapping a Store comonad — seed it with an
+  environment to traverse."
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra AST]
    (let [point (extract AST)
