@@ -5,6 +5,7 @@
   - Form-level helpers for quoting/unquoting and classification,
   - AST node predicates operating on annotated AST nodes (maps with ::ana/ keys)."
   (:require [clojure.spec.alpha :as s]
+            [contrib.data :as data]
             [hyperfiddle.hfql2.analyzer :as-alias ana]))
 
 ;; ─── Spec ────────────────────────────────────────────────────────────────────
@@ -34,17 +35,9 @@
     (string? obj)
     (keyword? obj)))
 
-(defn realize
-  "Realize a lazy-seq to a plain list. Values that are not lazy-seqs pass
-  through. Differs from `doall` in that `(str (doall seq))` will print an opaque
-  object address, whereas `(str (realize seq))` will print as a plain list. Will
-  hang forever on infinite seqs. Also see `unchunk-seq`."
-  [supposedly-lazy-seq]
-  (if (seq? supposedly-lazy-seq)
-    (with-meta
-      (or (list* supposedly-lazy-seq) ())
-      (meta supposedly-lazy-seq))
-    supposedly-lazy-seq))
+(def realize
+  "Deprecated: use contrib.data/realize instead."
+  data/realize)
 
 (defn quote
   "Quote a form. Invoke it as `(#'quote x)` to avoid conflict with the 'quote special form."

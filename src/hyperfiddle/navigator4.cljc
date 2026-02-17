@@ -398,13 +398,7 @@
 (e/defn Nav [coll k v] (e/server (Timing 'Nav #(nav* e/*bindings* coll k v))))
 
 #?(:clj (defn find-key-spec [spec k] (find-if #(= k (some-> % hfql/unwrap)) spec))) ; TODO remove some->, guards glitched if
-#?(:clj (defn realize ; TODO useful enough and hard-to-get-right enough to promote to HFQL
-          "Realize a lazy-seq to a plain list. Values that are not a lazy-seq just passes
-  through. Differs from `doall` in that `(str (doall seq))` will print an opaque
-  object address, whereas `(str (realize seq))` will print as a plain list. Will
-  hang forever on infinite seqs."
-          [supposedly-lazy-seq]
-          (if (seq? supposedly-lazy-seq) (list* supposedly-lazy-seq) supposedly-lazy-seq)))
+(def realize datax/realize)
 
 (defn -fsym [sexpr]
   (when (seq? sexpr)

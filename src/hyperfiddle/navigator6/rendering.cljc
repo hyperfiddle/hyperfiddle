@@ -2,7 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.pprint :refer [cl-format]]
             #?(:clj [clojure.tools.logging :as log])
-            [contrib.data :refer [#?(:clj array?)]]
+            [contrib.data :refer [realize #?(:clj array?)]]
             [dustingetz.str :as strx]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.electric-dom3 :as dom]
@@ -84,8 +84,8 @@
                               xform coll)]
       (cond
         (vector? coll) coll-of-same-type
-        (reversible? coll) (ana/realize (rseq coll-of-same-type)) ; Linear but max coll size is 1  ; TODO move realize definition
-        (seq? coll) (ana/realize (reverse coll-of-same-type)) ; Linear but max coll size is 1 ; TODO move realize definition
+        (reversible? coll) (realize (rseq coll-of-same-type)) ; Linear but max coll size is 1
+        (seq? coll) (realize (reverse coll-of-same-type)) ; Linear but max coll size is 1
         :else coll-of-same-type
         ))))
 
