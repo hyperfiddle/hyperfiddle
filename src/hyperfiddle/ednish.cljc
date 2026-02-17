@@ -250,15 +250,16 @@
 
 (defmulti decode-dispatch type)
 (defmethod decode-dispatch :default [object]
-  (cond (seq? object)
-        (let [[item & items] object]
-          (cond (and (symbol? item) (resolve-tag-reader item)) `tagged-literal
-                :else ::seq))
+  (cond (and (seq? object) (empty? object)) ::unit
+        (seq? object) (let [[item & items] object]
+                        (cond (and (symbol? item) (resolve-tag-reader item)) `tagged-literal
+                              :else ::seq))
         :else (type object)))
 
 (defmulti decode #'decode-dispatch)
 (defmethod decode :default [object] (-decode object))
 (defmethod decode `tagged-literal [[tag value :as obj]] ((resolve-tag-reader tag) value))
+(defmethod decode ::unit [_] ())
 (defmethod decode ::seq [[f & args]] (apply (constructor f) args))
 
 (defprotocol Decodable
