@@ -349,7 +349,8 @@
 (defn encode-uri-path [route & [home-route]]
   (if (= route home-route)
     "/"
-    (str "/" (str/join "/" (map serialize route)))))
+    (let [segments (if (sequential? route) route (list route))]
+      (str "/" (str/join "/" (map serialize segments))))))
 
 (defn- uri-ensure-no-implicit-authority [uri-path-string]
   (if (str/starts-with? uri-path-string "//")
