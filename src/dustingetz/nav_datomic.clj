@@ -219,7 +219,7 @@
 (comment
   ;; ── Demo: connect an agent with datomic browsing ──────────────
   (require '[clojure.repl.deps :refer [add-libs]])
-  (add-libs '{com.datomic/peer {:mvn/version "1.0.7187"}})
+  (add-libs '{com.datomic/peer {:mvn/version "1.0.7491"}})
   (require
     '[hyperfiddle.navigator-agent :as agent]
     '[hyperfiddle.navigator6.rendering :as rendering])
