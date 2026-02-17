@@ -270,24 +270,23 @@
      (do (println "Selected point cannot be selected because it is not a selectable HFQL point." (type point) point)
          (pair nil nil)))))
 
-(tests
-  (defrecord TestType [a b]
-    Identifiable
-    (-identify [_] `(->TestType ~a ~b)))
+(defrecord ^:no-doc _TestType [a b] ; test-only fixture
+  Identifiable
+  (-identify [_] `(->_TestType ~a ~b)))
 
-  (defmethod -hfql-resolve `->TestType [[_ a b]] (->TestType a b)))
+(defmethod -hfql-resolve `->_TestType [[_ a b]] (->_TestType a b))
 
 (tests
-  (symbolic-selection-coordinates (hfql/hfql [.-a] (->TestType 1 2)))
-  := '[nil (hyperfiddle.navigator6.selection2/->TestType 1 2)]
+  (symbolic-selection-coordinates (hfql/hfql [.-a] (->_TestType 1 2)))
+  := '[nil (hyperfiddle.navigator6.selection2/->_TestType 1 2)]
 
   )
 
 (tests
-  (->> (hfql/hfql [.-a] (->TestType 1 2))
+  (->> (hfql/hfql [.-a] (->_TestType 1 2))
     (hfql/find-cell-by-symbolic-column '.-a)
     (symbolic-selection-coordinates))
-  := '[.-a (hyperfiddle.navigator6.selection2/->TestType 1 2)]
+  := '[.-a (hyperfiddle.navigator6.selection2/->_TestType 1 2)]
 
   )
 
@@ -306,8 +305,8 @@
 (tests
   (resolve-identifiable-object nil)
   := nil
-  (resolve-identifiable-object (hfql/identify (->TestType 1 2)))
-  := (right (->TestType 1 2))
+  (resolve-identifiable-object (hfql/identify (->_TestType 1 2)))
+  := (right (->_TestType 1 2))
 
   )
 
@@ -465,7 +464,7 @@
 
 (tests
   "Resolve a selected row"
-  (def _selection-point (hfql/hfql [.-a] (->TestType 1 2)))
+  (def _selection-point (hfql/hfql [.-a] (->_TestType 1 2)))
   (row? _selection-point)
   := true
 
@@ -473,7 +472,7 @@
   := '({.-a 1} 1)
 
   (symbolic-selection-coordinates _selection-point)
-  := '[nil (hyperfiddle.navigator6.selection2/->TestType 1 2)]
+  := '[nil (hyperfiddle.navigator6.selection2/->_TestType 1 2)]
 
   (def _resolved-selection-point
     (resolve-selection-coordinates
@@ -492,7 +491,7 @@
 
 (tests
   "Resolve a selected cell"
-  (def _selection-point (hfql/find-cell-by-symbolic-column '.-a (hfql/hfql [.-a] (->TestType 1 2))))
+  (def _selection-point (hfql/find-cell-by-symbolic-column '.-a (hfql/hfql [.-a] (->_TestType 1 2))))
   (cell? _selection-point)
   := true
 
@@ -500,7 +499,7 @@
   := '(1)
 
   (symbolic-selection-coordinates _selection-point)
-  := '[.-a (hyperfiddle.navigator6.selection2/->TestType 1 2)]
+  := '[.-a (hyperfiddle.navigator6.selection2/->_TestType 1 2)]
 
   (def _resolved-selection-point
     (resolve-selection-coordinates
@@ -675,18 +674,18 @@
   (find-selectable-point _traversal-case-nested-pull-many)
   := (->> _traversal-case-nested-pull-many hfql/next-steps first hfql/next-steps first)
 
-  (def _traversal-case-recursive-syntactically-finite (hfql/hfql {identity [.-a ...]} (->TestType 1 2)))
+  (def _traversal-case-recursive-syntactically-finite (hfql/hfql {identity [.-a ...]} (->_TestType 1 2)))
   (take 6 (hfql/values _traversal-case-recursive-syntactically-finite))
-  := (list (->TestType 1 2) {'.-a 1} 1  (->TestType 1 2) {'.-a 1} 1   )
+  := (list (->_TestType 1 2) {'.-a 1} 1  (->_TestType 1 2) {'.-a 1} 1   )
   ;;                                   ⬑ recur point                ⬑ recur point … ad infinitum
 
   (take 8 (hfql/values (find-selectable-point _traversal-case-recursive-syntactically-finite)))
-  := (list {'.-a 1} 1  (->TestType 1 2) {'.-a 1} 1  (->TestType 1 2) {'.-a 1} 1 )
+  := (list {'.-a 1} 1  (->_TestType 1 2) {'.-a 1} 1  (->_TestType 1 2) {'.-a 1} 1 )
   ;;                  ⬑ recur point               ⬑ recur point               ⬑ recur point … ad infinitum
   ;; Note values are shifted compared to previous test case.
 
   (symbolic-selection-coordinates (find-selectable-point _traversal-case-recursive-syntactically-finite))
-  := `[nil (->TestType 1 2)]
+  := `[nil (->_TestType 1 2)]
 
   (def _traversal-case-recursive-syntactically-infinite (hfql/hfql {identity ...} 1))
   (take 10 (hfql/values _traversal-case-recursive-syntactically-infinite))

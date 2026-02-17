@@ -33,11 +33,11 @@
                                 :exclude ["dustingetz\\.datomic-contrib2"
                                           "dustingetz\\.mbrainz"
                                           "dustingetz\\.nav-datomic"
-                                          "dustingetz\\.pg-sakila"
-                                          "hyperfiddle\\.navigator6(\\..+)?"]}
+                                          "dustingetz\\.pg-sakila"]}
                   :jvm-opts    ["-Dhyperfiddle.rcf.generate-tests=true"
                                 "-XX:-OmitStackTraceInFastThrow"]
                   :extra-deps  {cider/cider-nrepl          {:mvn/version "0.58.0"} ; tested values match REPL's pretty-printed representation.
-                                org.clojure/tools.namespace {:mvn/version "1.5.0"}}}
+                                org.clojure/tools.namespace {:mvn/version "1.5.0"}
+                                com.datomic/peer            {:mvn/version "1.0.7469"}}} ; nav-datomic, datomic-contrib2
            :release {:override-deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-b5ceeefc9"}
                                      com.hyperfiddle/hyperfiddle-contrib {:mvn/version "v0-alpha-bcc21af7"}}}}}

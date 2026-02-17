@@ -66,8 +66,7 @@
   (map hfql/pull (sort-by (hfql/find-cell-by-column _ageT) (compare-cells (compare-nils-last (directional-comparator '>))) _rowsT))
   )
 
-(tests
-  (println)
+(comment ; scratch test from navigator4, ->sort-comparator was replaced by sort-rows-by-columns
   (def _unwrap unwrap)
   (def _treeT (hfql/seed {'% [{:name "Alice", :age 30}
                               {:name "Bob", :age 32}
@@ -76,21 +75,9 @@
                               {:name "John", :age nil}]}
                 (hfql/hfql {* [:name :age]})))
   (hfql/pull _treeT)
-  ;; (map hfql/nav (unwrap _treeT))
-  (println)
   (def _rowsT (-> _treeT _unwrap))
   (def _ageT (-> _rowsT first _unwrap second))
   (extract (extract _ageT))
-  (println)
-  (def _sorted-rowsT-asc (sort (->sort-comparator [[_ageT true]]) _rowsT))
-  (extract (extract (second (_unwrap (first _sorted-rowsT-asc)))))
-  (map hfql/values _sorted-rowsT-asc)
-  := '({:name "Alice", :age 30} {:name "Charlie", :age 31} {:name "Bob", :age 32})
-
-  #_(def _sorted-rowsT-desc (sort (->sort-comparator [[_ageT false]]) _rowsT))
-  #_(map hfql/nav _sorted-rowsT-desc)
-  #_#_:= '({:name "Bob", :age 32} {:name "Charlie", :age 31} {:name "Alice", :age 30})
-
   )
 
 (defn interruptible-comparator [cmp]
