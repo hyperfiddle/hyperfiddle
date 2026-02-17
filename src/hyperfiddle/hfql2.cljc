@@ -11,8 +11,6 @@
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.functor :refer [fmap]]
    [hyperfiddle.ct.function :refer [flip]]
-   [hyperfiddle.ct.bifunctor :as bf]
-   [hyperfiddle.ct.pair :refer [pair fst snd swap]]
    [hyperfiddle.ct.comonad :refer [extract]]
    [hyperfiddle.ct.monad :refer [bind =<<]]
    [hyperfiddle.ct.cofree :refer [tree-seqT unwrap runCofreeT]]
@@ -46,7 +44,7 @@
 (def ^:private from-either (either left identity))
 (defpointfree values (comp (fmap (comp #_from-either force-thunk nav)) tree-seqT))
 
-(defpointfree scope (comp pos snd runCofreeT))
+(defpointfree scope (comp pos runCofreeT))
 (defpointfree value-at-point (comp force-thunk '% scope))
 (defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
@@ -816,8 +814,8 @@ identifier, though it might not be serializable."
       (fn [err] (println "Failed to suggest columns:" (ex-message err)) nil)
       (fn [suggestedT]
         (if (some? suggestedT)
-          (hoistHfqlT (bf/first #(assoc % ::suggested true))
-            suggestedT) ; recursively map over CofreeT structure - lazily
+          (hoistHfqlT #(assoc % ::suggested true)
+            suggestedT) ; recursively map over HFQLT metadata - lazily
           hfqlT)))))
 
 (declare parent set-parent)
@@ -838,8 +836,8 @@ identifier, though it might not be serializable."
                   (empty? suggested?) hfqlT
 
                   (= ::ana/pull hfqlT-type suggestedT-type)
-                  (hoistHfqlT (bf/first (fn [metas] ; FIXME must rewalk and tag because `combine` loses static metadata.
-                                          (assoc metas ::suggested (boolean (suggested? (::ana/id metas))))))
+                  (hoistHfqlT (fn [metadata] ; FIXME must rewalk and tag because `combine` loses static metadata.
+                                (assoc metadata ::suggested (boolean (suggested? (::ana/id metadata)))))
                     (combine hfqlT suggestedT)) ; FIXME loses static metadata :(
                   (and (= ::ana/pull hfqlT-type)
                     (= '[*] (::ana/form (metas hfqlT))))
@@ -864,7 +862,7 @@ identifier, though it might not be serializable."
                           (catch #?(:clj Throwable, :cljs :default) _ nil))]
                     (if (and item-suggestion (= ::ana/pull (::ana/type (metas item-suggestion))))
                       (let [suggested? (set/difference (children-ids item-suggestion) (children-ids hfqlT))]
-                        (hoistHfqlT (bf/first (fn [m] (assoc m ::suggested (boolean (suggested? (::ana/id m))))))
+                        (hoistHfqlT (fn [m] (assoc m ::suggested (boolean (suggested? (::ana/id m)))))
                           (combine hfqlT item-suggestion)))
                       (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))))
                   (= ::ana/pull hfqlT-type) hfqlT

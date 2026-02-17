@@ -75,11 +75,11 @@
    #?(:clj [clojure.tools.logging :as log])
    [hyperfiddle.ct.function :refer [flip]]
    [hyperfiddle.ct.functor :refer [Functor fmap]]
-   [hyperfiddle.ct.bifunctor :as bf :refer [Bifunctor]]
-   [hyperfiddle.ct.pair :refer [IPair fst snd pair]]
+   [hyperfiddle.ct.bifunctor :as bf]
+   [hyperfiddle.ct.pair :refer [pair]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend -extract]]
-   [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tree-seqT hoistCofreeT]]
+   [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tailF tree-seqT]]
    [hyperfiddle.ct.rose-tree :refer [mapHead mapTail]]
    [hyperfiddle.ct.store :refer [store seek pos #?(:cljs Store)]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader memoize-1]]
@@ -189,6 +189,8 @@
                        :else (list form (from-either (force-thunk (resolve '% env '%))))) ; introduce a point
       form)))
 
+(declare hfql?)
+
 (defn symbolic-edge-static [point]
   (::ana/symbolic-edge
    (case (::ana/type point)
@@ -197,9 +199,8 @@
 
 (defn symbolic-edge ; FIXME uniformize
   [point & {::keys [point-free] :or {point-free true}}]
-  (let [[point scope] (if (instance? hyperfiddle.ct.cofree.ICofreeT point) ; FIXME wart – uniformize
-                        (let [envw (runCofreeT point)]
-                          [(fst envw) (pos (snd envw))])
+  (let [[point scope] (if (hfql? point)
+                        [(meta point) (pos (runCofreeT point))]
                         [point (::scope point)])]
     (case (projection-type point)
       ::ana/traversal (template-symbolic-edge scope point point-free)
@@ -337,7 +338,7 @@
   ;; which may be no different from of test utility?
   (try
     (either/right
-      (into {} (map pair (fmap (comp undisambiguate-nums-from-recursion symbolic-edge fst runCofreeT) kidsT)
+      (into {} (map pair (fmap (comp undisambiguate-nums-from-recursion symbolic-edge meta) kidsT)
                  (->> kidsT
                    (fmap (seed env))
                    (fmap runCofreeT)
@@ -566,92 +567,45 @@ Pulling on non-maps (non associative) is perfectly fine.
                             [direct-child]))))))))))]
     (inject-dynamic-bindings (transform point))))
 
-(defprotocol SetScope
-  (set-scope-value [w scope]))
-
-(declare env-w)
-
-(declare env-w-equals)
-(deftype EnvW [meta w] ; not a defrecord because we want custom equality
-  Functor
-  (-fmap [_fa f] (env-w meta (fmap f w)))
-  Bifunctor
-  (-bimap [_bf f g] (env-w (f meta) (g w)))
-  IPair
-  (fst [_] meta)
-  (snd [_] w)
-  Comonad
-  (-extract [_] (-extract w))
-  (-duplicate [_wa] (env-w meta (fmap #(env-w meta %) (duplicate w))))
-  (-extend [wa f] (fmap f (duplicate wa)))
-  SetScope
-  (set-scope-value [_ scope] (env-w (assoc meta ::scope scope) (set-scope-value w scope)))
-
-  ;; Custom equality because we want two CofreeT instances to be comparable by =.
-  ;; CofreeT, Store, MapEntry, etc... compare by record fields equality.
-  ;; But Store contains [function, env] and equality on functions is not defined besides reference equality.
-  ;; Therefore we consider two (CofreeT (EnvW metas (Store f env))) equal if:
-  ;;  - both metas are equal
-  ;;  - both env are equal
-  ;; because metas contains the original AST, and so the Store's function got derived from the same AST.
-  ;; therefore both Store functions are equal.
-  #?(:clj Object)
-  #?(:clj (equals [this other] (env-w-equals this other)))
-  #?(:clj (hashCode [_] (hash [meta (if (instance? hyperfiddle.ct.store.Store w) (pos w) w)])))
-
-  #?(:cljs cljs.core/IEquiv)
-  #?(:cljs (-equiv [this other] (env-w-equals this other)))
-  #?(:cljs cljs.core/IHash)
-  #?(:cljs (-hash [_] (hash [meta (if (instance? Store w) (pos w) w)]))))
-
-(defn- env-w-equals [this other]
-  (assert (instance? EnvW this))
-  (and (instance? EnvW other)
-    (= (fst this) (fst other))
-    (if (instance? hyperfiddle.ct.store.Store (snd this))
-      (and (instance? hyperfiddle.ct.store.Store (snd other))
-        (= (pos (snd this)) (pos (snd other))))
-      true)))
-
-(defn env-w [meta w]
-  (assert (satisfies? Comonad w))
-  (->EnvW meta w))
-
-(extend-type Store
-  SetScope
-  (set-scope-value [w scope] (seek scope w)))
-
 (declare hfqlt-equals hfqlt-hash)
 
-(deftype HFQLT [CofreeT] ; A simple wrapper over CofreeT with custom equality
+(deftype HFQLT [metadata CofreeT]
   ICofreeT
   (-runCofreeT [_] (runCofreeT CofreeT))
   Functor
-  (-fmap [fa f] (HFQLT. (fmap f CofreeT)))
+  (-fmap [fa f] (HFQLT. metadata (fmap f CofreeT)))
   Comonad
   (-extract [t] (extract CofreeT))
-  (-duplicate [t] (HFQLT. (duplicate CofreeT)))
-  (-extend [wa f] (HFQLT. (extend f CofreeT)))
+  (-duplicate [this] (extend identity this))
+  (-extend [this f]
+    (let [inner-store (runCofreeT CofreeT)]
+      (HFQLT. metadata
+        (->CofreeT
+          (store
+            (fn [env']
+              (let [focused-store (seek env' inner-store)
+                    cofreeF (extract focused-store)
+                    focused-hfqlt (HFQLT. metadata (->CofreeT focused-store))
+                    result (f focused-hfqlt)
+                    children (tailF cofreeF)
+                    extended-children (fmap #(extend f %) children)]
+                (->CofreeF result extended-children)))
+            (pos inner-store))))))
   ComonadCofree
   (-unwrap [this]
-    (fmap #(-> (HFQLT. %) (vary-meta assoc ::hfql/parent this))
+    (fmap #(vary-meta % assoc ::hfql/parent this)
       (unwrap CofreeT)))
 
   #?(:clj clojure.lang.IMeta)
-  #?(:clj (meta [_] (let [inner (runCofreeT CofreeT)]
-                       (when (instance? EnvW inner) (fst inner)))))
+  #?(:clj (meta [_] metadata))
   #?(:clj clojure.lang.IObj)
-  #?(:clj (withMeta [_ m] (let [inner (runCofreeT CofreeT)]
-                             (HFQLT. (->CofreeT
-                                       (if (instance? EnvW inner)
-                                         (env-w m (snd inner))
-                                         (env-w m inner)))))))
+  #?(:clj (withMeta [_ m] (HFQLT. m CofreeT)))
 
   Object
   #?(:clj (equals [this other] (hfqlt-equals this other)))
   #?(:clj (hashCode [this] (hfqlt-hash this)))
   (toString [this]
-    (let [[metas scope] ((juxt fst snd) (runCofreeT this))
+    (let [scope (runCofreeT CofreeT)
           % (get (pos scope) '%)
           seeded? (some? %)
           realized? (or (and (thunk? %) (realized? %)) seeded?)
@@ -659,8 +613,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                    (and (thunk? %) (clojure.core/realized? %)) (left? (force-thunk %))
                    (either? %) (left? %)
                    :else :unknown)]
-      (str "#hfql/" (name (::ana/type metas :hfql/hfql)) " "
-        {:form (::ana/form (fst (runCofreeT this)))
+      (str "#hfql/" (name (::ana/type metadata :hfql/hfql)) " "
+        {:form (::ana/form metadata)
          :seeded? seeded?
          :realized? realized?
          :error? error?})))
@@ -670,36 +624,38 @@ Pulling on non-maps (non associative) is perfectly fine.
   #?(:cljs cljs.core/IHash)
   #?(:cljs (-hash [this] (hfqlt-hash this)))
   #?(:cljs cljs.core/IMeta)
-  #?(:cljs (-meta [_] (let [inner (runCofreeT CofreeT)]
-                         (when (instance? EnvW inner) (fst inner)))))
+  #?(:cljs (-meta [_] metadata))
   #?(:cljs cljs.core/IWithMeta)
-  #?(:cljs (-with-meta [_ m] (let [inner (runCofreeT CofreeT)]
-                                (HFQLT. (->CofreeT
-                                          (if (instance? EnvW inner)
-                                            (env-w m (snd inner))
-                                            (env-w m inner)))))))
+  #?(:cljs (-with-meta [_ m] (HFQLT. m CofreeT)))
   )
 
 #?(:clj
    (defmethod print-method HFQLT [v ^java.io.Writer w]
      (.write w (.toString v))))
 
-(defn ->hfqlT [fwa] (->HFQLT (->CofreeT fwa)))
+(defn ->hfqlT [metadata fwa] (->HFQLT metadata (->CofreeT fwa)))
 (defn hfql? [obj] (instance? HFQLT obj))
 
 (defn- hfqlt-equals [^HFQLT this ^HFQLT other]
   (or (identical? this other)
     (and (instance? HFQLT this) (instance? HFQLT other)
-      (= (::ana/id (fst (runCofreeT this)))
-        (::ana/id (fst (runCofreeT other))))
-      (= (pos (snd (runCofreeT this)))
-        (pos (snd (runCofreeT other)))))))
+      (= (::ana/id (.-metadata this))
+        (::ana/id (.-metadata other)))
+      (= (pos (runCofreeT this))
+        (pos (runCofreeT other))))))
 
-(defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (fst (runCofreeT hfqlt)))))
+(defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (.-metadata hfqlt))))
 
-(def hoistHfqlT (comp ->HFQLT hoistCofreeT))
+(defn hoistHfqlT
+  "Apply f to metadata at every node in the HFQLT tree. Lazy — children are only transformed when accessed."
+  [f t]
+  (let [inner-store (runCofreeT t)
+        store' (fmap (fn [cofreeF]
+                       (->CofreeF (headF cofreeF)
+                                  (fmap #(hoistHfqlT f %) (tailF cofreeF))))
+                     inner-store)]
+    (->HFQLT (f (meta t)) (->CofreeT store'))))
 
-(defn- wrap-with-static-metadata [metas t] (with-meta t metas))
 (defn vary-static-meta
   "Deprecated: use vary-meta instead."
   [t f & args] (apply vary-meta t f args))
@@ -720,9 +676,8 @@ Pulling on non-maps (non associative) is perfectly fine.
   ([coalgebra AST]
    (let [point (extract AST)
          step (coalgebra AST)]
-     (wrap-with-static-metadata (assoc point ::AST AST ::static-children (map (unfoldT coalgebra) (unwrap AST)))
-       (->hfqlT
-         (store
+     (->hfqlT (assoc point ::AST AST ::static-children (map (unfoldT coalgebra) (unwrap AST)))
+       (store
            (fn peek [scope]
              ;; IO issue: scope can change due to dynamic bindings (e.g. search
              ;; needle). Even if `step` is memoized, a new ->CofreeF will be
@@ -774,13 +729,14 @@ Pulling on non-maps (non associative) is perfectly fine.
                                    )))
                              (to-seq forced))
                            (meta forced)))))))))
-           (lexical-env point)))))))
+           (lexical-env point))))))
 
 (defn seed
   "Sets the environment of an HFQLT instance. Any point of the tree can be re-seeded. Re-seeding busts cached IO."
   ([env] (partial seed env))
   ([env t]
-   (->hfqlT (set-scope-value (runCofreeT t) env))))
+   (->hfqlT (assoc (meta t) ::scope env)
+            (seek env (runCofreeT t)))))
 
 (defmacro -hfql [hfql] `(unfoldT hfqlT (ana/hfql ~hfql)))
 
@@ -892,13 +848,13 @@ Pulling on non-maps (non associative) is perfectly fine.
     x))
 
 (defn- pull-algebra [W children]
-  (let [point (fst (runCofreeT W))]
+  (let [point (meta W)]
     (case (projection-type point)
       ::ana/pull
       (thunk
         (into {}
           (map (fn [W value]
-                 (let [point (fst (runCofreeT W))]
+                 (let [point (meta W)]
                    (case (projection-type point)
                      ::ana/traversal (force-thunk value)
                      (pair (symbolic-edge W ::point-free true) (original-object (force-thunk value))))))
@@ -906,8 +862,7 @@ Pulling on non-maps (non associative) is perfectly fine.
             children)))
       ::ana/traversal
       (thunk
-        (let [point (fst (runCofreeT W))
-              key (symbolic-edge W ::point-free true)
+        (let [key (symbolic-edge W ::point-free true)
               val (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
                     (if (multiplicity-many? point)
                       (map (comp original-object force-thunk) children)
