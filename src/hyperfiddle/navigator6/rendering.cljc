@@ -7,7 +7,7 @@
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric3 :as e]
-            [hyperfiddle.hfql2.analyzer :as ana :refer [unquote*]]
+            [hyperfiddle.hfql2.analyzer :as ana]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
 
@@ -175,7 +175,7 @@
         (dom/text v)))))
 
 (e/defn RenderTooltip* [tooltip-ident object edgeT value]
-  (let [tooltip-qualified-ident (hyperfiddle.hfql2.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
+  (let [tooltip-qualified-ident (ana/unquote* tooltip-ident) ; FIXME syntax wart
         Tooltip (Resolve tooltip-qualified-ident (get {::hfql/ColumnHeaderTooltip DefaultColumnHeaderTooltip} tooltip-ident (e/fn [_object _edge _value])))
         show? (dom/Mouse-over?)] ; TODO perf – factor out. Today it mounts two event handlers per cell (mouseenter + mouseleave).
     (dom/props
@@ -203,7 +203,7 @@
         (get denv symbolic-link symbolic-link)))))
 
 (defn- link-href [object edgeT value]
-  (when-let [symbolic-link-href (unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
+  (when-let [symbolic-link-href (ana/unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
     (let [denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) (hfql/identify value), '%v (or (hfql/identify value) value)}]
       (template-link denv symbolic-link-href))))
 
@@ -229,7 +229,7 @@
 (e/defn RenderCell [either-object edgeT either-value]
   (binding [Render DefaultCellRenderer
             *error* (from-left nil either-value)]
-    (e/Reconcile (e/call (Resolve (unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
+    (e/Reconcile (e/call (Resolve (ana/unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
                            Render)
                    ((glitch-guard some? either identity identity) either-object)
                    edgeT

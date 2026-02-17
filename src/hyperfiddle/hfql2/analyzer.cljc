@@ -1,9 +1,8 @@
 (ns hyperfiddle.hfql2.analyzer
   (:require [clojure.core :as cc]
-            [contrib.data :refer [update-existing]]
+            [contrib.data :refer [realize update-existing]]
             [contrib.walk :refer [prewalk postwalk]]
             [hyperfiddle.hfql2.analyzer.lambda :refer [lambda?]]
-            [hyperfiddle.hfql2.ast :as ast]
             [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.pair :refer [pair pair? fst snd]]
@@ -23,8 +22,30 @@
     (let [[f & _args] form]
       (and (symbol? f) (not (#{'fn `fn 'fn* 'quote 'var 'hfql `hfql} f))))))
 
-(def quoted? ast/quoted?)
-(def unquote* ast/unquote*)
+;; ─── Form-level helpers ──────────────────────────────────────────────────────
+
+(defn quoted? [form]
+  (and (seq? form) (= 'quote (first form))))
+
+(defn unquote* [form]
+  (if (and (seq? form) (= 'quote (first form)))
+    (second form)
+    form))
+
+(defn literal? [obj]
+  (or (nil? obj)
+    (number? obj)
+    (string? obj)
+    (keyword? obj)))
+
+(defn quote-form
+  "Quote a form. Named quote-form to avoid conflict with the 'quote special form."
+  [form]
+  (if (or (literal? form) (quoted? form))
+    form
+    (list 'quote (realize form))))
+
+(defn quote-nat-ints [form] (if (nat-int? form) (list 'quote form) form))
 
 (defn- quoted-var-form? [form] (and (quoted? form) (var-form? (unquote* form))))
 
@@ -90,7 +111,7 @@
     (map? form)           ::traversals
     (vector? form)        ::pull
     (quoted-var-form? form) ::quoted-var
-    (quoted? form)        ::literal
+    (quoted? form)    ::literal
     (lambda? form)        ::lambda
     ;; TODO ifn? – maybe
     ;; TODO? method sym
@@ -170,13 +191,8 @@
     (symbol? form)               `(symbol (var ~form))
     :else                        nil))
 
-(def literal? ast/literal?)
-(def realize ast/realize)
-(def quote ast/quote)
-(def quote-nat-ints ast/quote-nat-ints)
-
 (defn- lexical-bindings-map [lexical-env]
-  (zipmap (map #(#'quote %) (keys lexical-env))
+  (zipmap (map #(quote-form %) (keys lexical-env))
     (keys lexical-env)))
 
 #?(:clj
@@ -223,7 +239,7 @@
      (merge
        %
        {::type        (projection-type form)
-        ::form        (#'quote form)
+        ::form        (quote-form form)
         ::lexical-env (lexical-bindings-map env)
         ::partial true ; a partial point depends on %. % is late-bound.
         }
@@ -282,7 +298,7 @@
                         ::form-resolved (resolver env f)
                         ::lexical-env (let [params (remove #{'%} params)]
                                         (merge (lexical-bindings-map env)
-                                          (zipmap (map #'quote (filter symbol? params))
+                                          (zipmap (map quote-form (filter symbol? params))
                                             (filter symbol? params))))})
          ::traversal (let [edge (φ env (fst form))
                            base (case (::type edge)
@@ -303,28 +319,28 @@
 (defmethod -escape ::star [point] point)
 (defmethod -escape ::recur [point] point)
 (defmethod -escape ::literal [point] point)
-(defmethod -escape ::keyword [point] (update point ::form-short #'quote))
+(defmethod -escape ::keyword [point] (update point ::form-short quote-form))
 (defmethod -escape ::string [point] point)
-(defmethod -escape ::symbol [point] (-> (update point ::symbolic-edge #'quote)
-                                      (update ::form-short #'quote)))
-(defmethod -escape ::var [point] (-> (update point ::parameters #'quote)
-                                    (update ::form-short #'quote)))
+(defmethod -escape ::symbol [point] (-> (update point ::symbolic-edge quote-form)
+                                      (update ::form-short quote-form)))
+(defmethod -escape ::var [point] (-> (update point ::parameters quote-form)
+                                    (update ::form-short quote-form)))
 (defmethod -escape ::quoted-var [point] (-> (update point ::form unquote*) ; special case
-                                           (update ::form-short #'quote)))
-(defmethod -escape ::pull [point] (-> (update point ::form #'quote)
-                                    (update ::symbolic-edges #'quote)))
-(defmethod -escape ::fn [point] (update point ::symbolic-edge #'quote))
-(defmethod -escape ::lambda [point] (-> (update point ::symbolic-edge #'quote)
-                                      (update ::parameters #'quote)))
+                                           (update ::form-short quote-form)))
+(defmethod -escape ::pull [point] (-> (update point ::form quote-form)
+                                    (update ::symbolic-edges quote-form)))
+(defmethod -escape ::fn [point] (update point ::symbolic-edge quote-form))
+(defmethod -escape ::lambda [point] (-> (update point ::symbolic-edge quote-form)
+                                      (update ::parameters quote-form)))
 
-(defmethod -escape ::call [point] (-> (update point ::symbolic-edge #'quote)
-                                    (update ::parameters #'quote)
+(defmethod -escape ::call [point] (-> (update point ::symbolic-edge quote-form)
+                                    (update ::parameters quote-form)
                                     (update ::arguments conj 'list)))
 
 (defmethod -escape ::traversal [point] (update-existing point ::edge -escape))
 
 (defn escape [point]
-  (-escape (update point ::form #'quote)))
+  (-escape (update point ::form quote-form)))
 
 
 (defn- ψ ; psi
@@ -353,9 +369,9 @@
   )
 
 (defmulti emit* type)
-(defmethod emit* :default [x] (#'quote x))
+(defmethod emit* :default [x] (quote-form x))
 (defmethod emit*  #?(:clj clojure.lang.AMapEntry :cljs MapEntry) [[k v]]
-  `(pair ~(#'quote k) ~(#'quote v)))
+  `(pair ~(quote-form k) ~(quote-form v)))
 
 (defn emit [w] ; emit :: Comonad w => w a -> (a, [(a, [...]) ...])
   (pair

@@ -236,7 +236,7 @@
      ))
 
 (defn- getter [point]
-  (let [key (ast/unquote* (get point ::ana/form))]
+  (let [key (ana/unquote* (get point ::ana/form))]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
       (binding [thunks/*cache-strategy* ::thunks/weak]
@@ -322,9 +322,9 @@
 
 (declare seed)
 
-(defn- disambiguate-nums-from-recursion [form] (ast/quote-nat-ints form))
-(defn- undisambiguate-nums-from-recursion [form] (if (and (ast/quoted? form) (nat-int? (second form)))
-                                                   (ast/unquote* form)
+(defn- disambiguate-nums-from-recursion [form] (ana/quote-nat-ints form))
+(defn- undisambiguate-nums-from-recursion [form] (if (and (ana/quoted? form) (nat-int? (second form)))
+                                                   (ana/unquote* form)
                                                    form))
 
 (defn- pull-peek-at-immediate-kids! [env kidsT]
