@@ -106,9 +106,10 @@
 (e/defn Navigate* [sitemap stepT]
   (e/client
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
-      (let [id (e/server (hash [(::ana/id ((glitch-guard hfql/metas) stepT)) ; HACK
-                                (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
-                                ]))]
+      (let [id (e/server (with-bindings* (or e/*bindings* {}) ; Inject bindings must be active before thunk forcing
+                           (fn [] (hash [(::ana/id ((glitch-guard hfql/metas) stepT)) ; HACK
+                                         (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
+                                         ]))))]
         (rebooting id ; glitch guard
           (e/server
             (freezing [sitemap stepT]
@@ -145,34 +146,75 @@
 ;;;;;;;;;;;;;;;;
 
 (declare css)
-(e/defn HfqlRoot [sitemap entrypoints]
+
+(e/defn Inject ; ^::e/export
+  "Route handler: calls setup-fn with route args, merges returned bindings
+   into e/*bindings*, then calls Continuation to render the sub-route."
+  [setup-fn args Continuation]
   (e/server
-    (binding [e/*bindings* (#(or e/*bindings* {}))
-              rendering/*server-pretty (or (get e/*bindings* #'rendering/*server-pretty)
-                                           rendering/*server-pretty
-                                           {})
-              rendering/*tooltip-fn* (or (get e/*bindings* #'rendering/*tooltip-fn*)
-                                         rendering/*tooltip-fn*)]
-      (e/client
-        (dom/style (dom/text css tooltip/css))
-        (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))
-        (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
-        (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
-        #_(Index sitemap entrypoints) ;; replaced by in-band HFQL pages index
-        (tooltip/TooltipArea
-          (e/fn []
-            (tooltip/Tooltip)
-            (dom/div
-              (dom/props {:class "Browser"})
-              (let [query (normalize-router-query (first router/route))]
-                (if-not query
-                  (router/ReplaceState! ['. [(first entrypoints)]])
-                  (do
-                    (let [[f & _args] query]
-                      (set! (.-title js/document)  (str (some-> f name (str " – ")) "Hyperfiddle"))
-                      (dom/props {:class (cssx/css-slugify f)}))
-                    (Navigate* sitemap (e/server (is (with-bindings* e/*bindings* resolve-route sitemap query)
-                                                    some? (str "Route not found in sitemap: " (pr-str (first query))))))))))))))))
+    (let [extra-bindings (e/Offload #(apply setup-fn args))]
+      (binding [e/*bindings* (merge e/*bindings* extra-bindings)]
+        (e/client (Continuation))))))
+
+(e/defn Route-handlers []
+  "Route symbols that dispatch to e/defn handlers instead of sitemap HFQL entries.
+   Handlers receive [setup-fn args Continuation] where Continuation renders the
+   sub-route (already popped). Handlers control the continuation."
+  {'Inject Inject})
+
+(e/defn RouteDispatch
+  "Dispatches the current route segment. If the segment symbol is a route handler
+   (e.g. Inject), calls it with setup-fn, args, and a continuation that pops the
+   route and re-dispatches. Otherwise resolves the segment in the sitemap as an
+   HFQL entry and navigates.
+   setup-fn is never nil — HfqlRoot normalizes absent setup-fn to (constantly {})."
+  [sitemap entrypoints setup-fn]
+  (e/client
+    (let [query (normalize-router-query (first router/route))]
+      (if-not query
+        (router/ReplaceState! ['. [(first entrypoints)]])
+        (let [[f & args] query]
+          (if-some [Handler (get (Route-handlers) f)]
+            ;; Route handler — call with args and continuation (popped route)
+            (Handler setup-fn args
+              (e/fn [] (router/pop (RouteDispatch sitemap entrypoints setup-fn))))
+            ;; HFQL sitemap entry — normal dispatch
+            (do
+              (set! (.-title js/document) (str (some-> f name (str " \u2013 ")) "Hyperfiddle"))
+              (dom/props {:class (cssx/css-slugify f)})
+              (Navigate* sitemap (e/server (is (with-bindings* (or e/*bindings* {}) resolve-route sitemap query)
+                                               some? (str "Route not found in sitemap: " (pr-str (first query)))))))))))))
+
+(e/defn HfqlRoot
+  "HFQL navigator entrypoint. Renders styles, tooltips, and dispatches routes.
+
+   setup-fn — (fn [args] -> bindings-map) called when route contains an Inject
+              segment, e.g. /(Inject,'mbrainz-full')/attributes/. The returned
+              map is merged into e/*bindings* for the subtree. nil is fine."
+  ([sitemap entrypoints] (HfqlRoot sitemap entrypoints nil))
+  ([sitemap entrypoints setup-fn]
+   (let [setup-fn (or setup-fn (constantly {}))]
+     (e/server
+       (binding [#_#_e/*exports* (e/exports)
+                 e/*bindings* (#(or e/*bindings* {}))
+                 rendering/*server-pretty (or (get e/*bindings* #'rendering/*server-pretty)
+                                            rendering/*server-pretty
+                                            {})
+                 rendering/*tooltip-fn* (or (get e/*bindings* #'rendering/*tooltip-fn*)
+                                          rendering/*tooltip-fn*)]
+         (e/client
+           (dom/style (dom/text css tooltip/css))
+           (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))
+           (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
+           (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
+           #_(Index sitemap entrypoints) ;; replaced by in-band HFQL pages index
+           (tooltip/TooltipArea
+             (e/fn []
+               (tooltip/Tooltip)
+               (dom/div
+                 (dom/props {:class "Browser"})
+                 (RouteDispatch sitemap entrypoints setup-fn))))))))))
+
 
 
 (def table-block-css

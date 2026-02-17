@@ -8,6 +8,7 @@
      datomic_browser2.cljc — Electric UI: tooltips, renderers, entrypoints"
   (:require
    [clojure.string :as str]
+   [contrib.assert :refer [check]]
    [contrib.data :refer [get-with-residual-meta]]
    [datomic.api :as d]
    [datomic.lucene]
@@ -48,7 +49,7 @@
 
 (defn attributes
   "Datomic schema, with Datomic query diagnostics"
-  ([] (attributes *db*))
+  ([] (attributes (check *db*)))
   ([db]
    (let [x (d/query {:query '[:find [?e ...] :in $ :where [?e :db/valueType]] :args [db]
                       :io-context ::attributes, :query-stats ::attributes})
@@ -288,29 +289,43 @@
     '[hyperfiddle.navigator6.rendering :as rendering]
     '[dustingetz.str :refer [pprint-str]])
   (d/get-database-names "datomic:dev://localhost:4334/*")
+
   (def conn (d/connect "datomic:dev://localhost:4334/mbrainz-full"))
-
-  ;; Basic — stripped sitemap, no tooltips
   (def my-agent
     (agent/connect! "ws://a.localhost:9090/agent"
-      {#'dustingetz.nav-datomic/*db*       (d/db conn)
-       #'dustingetz.nav-datomic/*conn*     conn
-       #'dustingetz.nav-datomic/*db-stats* (d/db-stats (d/db conn))
-       #'rendering/*server-pretty {datomic.query.EntityMap
-                                   (fn [entity] (str "EntityMap[" (dx/best-human-friendly-identity entity) "]"))}}
-      dustingetz.nav-datomic/sitemap))
+      dustingetz.nav-datomic/rich-sitemap
+      (fn []
+        {#'dustingetz.nav-datomic/*db*       (d/db conn)
+         #'dustingetz.nav-datomic/*conn*     conn
+         #'dustingetz.nav-datomic/*db-stats* (d/db-stats (d/db conn))
+         #'rendering/*server-pretty {datomic.query.EntityMap (fn [entity] (str "EntityMap[" (dx/best-human-friendly-identity entity) "]"))}
+         #'rendering/*tooltip-fn* (fn [entity edge value] (pprint-str (into {} (d/touch value)) :print-length 10 :print-level 2))})))
 
-  ;; Rich — with tooltips via callback fn
+  ;; Dynamic — multi-database with Inject route segment
+  (def base-uri "datomic:dev://localhost:4334/*")
   (def my-agent
     (agent/connect! "ws://a.localhost:9090/agent"
-      {#'dustingetz.nav-datomic/*db*       (d/db conn)
-       #'dustingetz.nav-datomic/*conn*     conn
-       #'dustingetz.nav-datomic/*db-stats* (d/db-stats (d/db conn))
-       #'rendering/*server-pretty     {datomic.query.EntityMap
-                                       (fn [entity] (str "EntityMap[" (dx/best-human-friendly-identity entity) "]"))}
-       #'rendering/*tooltip-fn*       (fn [entity edge value]
-                                        (pprint-str (into {} (d/touch value)) :print-length 10 :print-level 2))}
-      dustingetz.nav-datomic/rich-sitemap))
+      ;; Sitemap — databases page links through Inject to attributes
+      (merge (dissoc dustingetz.nav-datomic/rich-sitemap 'databases)
+        {'databases (hfql {(databases)
+                           {* [^{::hfql/link ['.. [`(~'Inject ~'%v) 'attributes]]}
+                               db-name
+                               d/db-stats]}})})
+      (fn
+        ([] ;; Static bindings — always active on every page
+         {#'dustingetz.nav-datomic/*uri* base-uri
+          #'dustingetz.nav-datomic/*allow-listing-and-browsing-all-dbs* true
+          #'rendering/*server-pretty {datomic.query.EntityMap (fn [entity] (str "EntityMap[" (dx/best-human-friendly-identity entity) "]"))}
+          #'rendering/*tooltip-fn* (fn [entity edge value] (pprint-str (into {} (d/touch value)) :print-length 10 :print-level 2))})
+        ([db-name] ;; Called when route has (Inject "mbrainz-full")
+         (let [uri (dx/set-db-name-in-datomic-uri base-uri db-name)
+               conn (d/connect uri)
+               db (d/db conn)]
+           {#'dustingetz.nav-datomic/*uri*      uri
+            #'dustingetz.nav-datomic/*db-name*  db-name
+            #'dustingetz.nav-datomic/*conn*     conn
+            #'dustingetz.nav-datomic/*db*       db
+            #'dustingetz.nav-datomic/*db-stats* (d/db-stats db)})))))
 
   ;; Browse at http://a.localhost:9090
   ;; Navigate to attributes → click attribute → entities → click entity → traverse refs
