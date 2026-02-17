@@ -50,9 +50,9 @@
 (defpointfree value-at-point (comp force-thunk '% scope))
 (defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
-(defpointfree metas (comp fst runCofreeT))
-(defpointfree pull-has-star? (comp ::ana/has-star? metas))
-(defpointfree partial? (comp ::ana/partial metas))
+(def metas meta) ; HFQLT implements IMeta — meta returns the static metadata map
+(defpointfree pull-has-star? (comp ::ana/has-star? meta))
+(defpointfree partial? (comp ::ana/partial meta))
 (defpointfree fullfilled? (some-fn seeded? (complement partial?)))
 (defpointfree hfql? co/hfql?)
 
@@ -872,7 +872,7 @@ identifier, though it might not be serializable."
                   :else hfqlT
                   )))
             hfqlT)
-        (co/vary-static-meta #(merge (metas hfqlT) %)) ; FIXME don't lose static metadata
+        (vary-meta #(merge (meta hfqlT) %)) ; FIXME don't lose static metadata
         (set-parent (parent hfqlT))))))
 
 (comment
@@ -1004,9 +1004,9 @@ identifier, though it might not be serializable."
   (describe-formatted (get dustingetz.namespace-explorer/sitemap `all-ns))
   )
 
-(defpointfree parent (comp ::parent metas))
-(defn set-parent [childT parentT] (co/vary-static-meta childT assoc ::parent parentT))
-(defpointfree multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity metas))
+(defpointfree parent (comp ::parent meta))
+(defn set-parent [childT parentT] (vary-meta childT assoc ::parent parentT))
+(defpointfree multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity meta))
 
 (defn lookup
   "Given an HFQL step object, lookup for a symbolic point in the reachable HFQL scope.

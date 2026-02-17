@@ -411,7 +411,7 @@
         (or
           (and (right? either-identifiable-object)
             (let [seeded-selection-point (-> (hydrate-point selection-point either-identifiable-object)
-                                           (coalgebra/vary-static-meta assoc ::hfql/positional-index (selection-positional-index symbolic-selection-coordinates)))]
+                                           (vary-meta assoc ::hfql/positional-index (selection-positional-index symbolic-selection-coordinates)))]
               (or (and cell-selection?
                     (or (and ; there's a symbolic column – this is a cell selection – we should be able to hydrate the HFQL row and focus it on the corresponding cell.
                           (row? seeded-selection-point)
@@ -440,7 +440,7 @@
                                  selection-point)]
               (-> (hfql/hfql [*] (from-left nil either-identifiable-object)) ; reinject error as a value – intentionally severs the HFQL tree to render a generic error.
                 (hfql/set-parent target-point) ; graft this generic HFQL tree onto the failed parent. Use case: render title in the context of parent selection.
-                (coalgebra/vary-static-meta assoc
+                (vary-meta assoc
                   ::hfql/positional-index (selection-positional-index symbolic-selection-coordinates)
                   ::hfql/error (from-left nil either-identifiable-object)))))
           ;; Unexpected resolution outcome.

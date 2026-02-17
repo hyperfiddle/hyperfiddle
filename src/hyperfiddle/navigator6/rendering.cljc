@@ -10,7 +10,7 @@
             [hyperfiddle.hfql2.analyzer :as ana :refer [unquote*]]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
-            [hyperfiddle.hfql2.interpreter :refer [vary-static-meta]]
+
             [hyperfiddle.ct.either :refer [either either? left? from-left from-right right left]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.hfql2.utils :refer [imap? original-object]]

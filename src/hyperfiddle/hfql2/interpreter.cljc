@@ -623,7 +623,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   SetScope
   (set-scope-value [w scope] (seek scope w)))
 
-(declare hfqlt-equals hfqlt-hash vary-static-meta)
+(declare hfqlt-equals hfqlt-hash)
 
 (deftype HFQLT [CofreeT] ; A simple wrapper over CofreeT with custom equality
   ICofreeT
@@ -636,8 +636,18 @@ Pulling on non-maps (non associative) is perfectly fine.
   (-extend [wa f] (HFQLT. (extend f CofreeT)))
   ComonadCofree
   (-unwrap [this]
-    (fmap #(-> (HFQLT. %) (vary-static-meta assoc ::hfql/parent this))
+    (fmap #(-> (HFQLT. %) (vary-meta assoc ::hfql/parent this))
       (unwrap CofreeT)))
+
+  #?(:clj clojure.lang.IMeta)
+  #?(:clj (meta [_] (let [inner (runCofreeT CofreeT)]
+                       (when (instance? EnvW inner) (fst inner)))))
+  #?(:clj clojure.lang.IObj)
+  #?(:clj (withMeta [_ m] (let [inner (runCofreeT CofreeT)]
+                             (HFQLT. (->CofreeT
+                                       (if (instance? EnvW inner)
+                                         (env-w m (snd inner))
+                                         (env-w m inner)))))))
 
   Object
   #?(:clj (equals [this other] (hfqlt-equals this other)))
@@ -661,6 +671,15 @@ Pulling on non-maps (non associative) is perfectly fine.
   #?(:cljs (-equiv [this other] (hfqlt-equals this other)))
   #?(:cljs cljs.core/IHash)
   #?(:cljs (-hash [this] (hfqlt-hash this)))
+  #?(:cljs cljs.core/IMeta)
+  #?(:cljs (-meta [_] (let [inner (runCofreeT CofreeT)]
+                         (when (instance? EnvW inner) (fst inner)))))
+  #?(:cljs cljs.core/IWithMeta)
+  #?(:cljs (-with-meta [_ m] (let [inner (runCofreeT CofreeT)]
+                                (HFQLT. (->CofreeT
+                                          (if (instance? EnvW inner)
+                                            (env-w m (snd inner))
+                                            (env-w m inner)))))))
   )
 
 #?(:clj
@@ -682,8 +701,10 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (def hoistHfqlT (comp ->HFQLT hoistCofreeT))
 
-(defn- wrap-with-static-metadata [metas t] (->hfqlT (->EnvW metas (runCofreeT t))))
-(defn vary-static-meta [t f & args] (->hfqlT (bf/first #(apply f % args) (runCofreeT t))))
+(defn- wrap-with-static-metadata [metas t] (with-meta t metas))
+(defn vary-static-meta
+  "Deprecated: use vary-meta instead."
+  [t f & args] (apply vary-meta t f args))
 
 (defn- lexical-env [point]
   (::ana/lexical-env point))
@@ -747,7 +768,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                              (catch #?(:clj Throwable, :cljs :default) err
                                                (either/left err)))))]
                                  (-> (seed (assoc scope '% %) childT) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
-                                   (vary-static-meta assoc ::hfql/positional-index positional-index) ; note positional index isn't a stable identity in the general case.
+                                   (vary-meta assoc ::hfql/positional-index positional-index) ; note positional index isn't a stable identity in the general case.
                                    )))
                              (to-seq forced))
                            (meta forced)))))))))
