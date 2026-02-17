@@ -19,6 +19,7 @@
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
    [hyperfiddle.ct.either :refer [either either? left right unwrap! from-right from-left]]
    [hyperfiddle.hfql2.analyzer :as ana]
+   [hyperfiddle.hfql2.ast :as-alias ast]
    [hyperfiddle.hfql2.interpreter :as co :refer [unfoldT hfqlT hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch
                                         Searchable -search-matches *search-max-collection-size* *search-max-str-len*]]
@@ -49,8 +50,8 @@
 (defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
 (def metas meta) ; HFQLT implements IMeta — meta returns the static metadata map
-(defpointfree pull-has-star? (comp ::ana/has-star? meta))
-(defpointfree partial? (comp ::ana/partial meta))
+(defpointfree pull-has-star? (comp ::ast/has-star? meta))
+(defpointfree partial? (comp ::ast/partial meta))
 (defpointfree fullfilled? (some-fn seeded? (complement partial?)))
 (defpointfree hfql? co/hfql?)
 
@@ -313,13 +314,13 @@
 (tests
   "keyword aliases"
 
-  (::ana/form-short (metas (hfql :test)))
+  (::ast/form-short (metas (hfql :test)))
   := :test
 
-  (::ana/form (metas (hfql ::test)))
+  (::ast/form (metas (hfql ::test)))
   := :hyperfiddle.hfql2/test
 
-  (::ana/form-short (metas (hfql ::test)))
+  (::ast/form-short (metas (hfql ::test)))
   := "::test"
 
   )
@@ -330,7 +331,7 @@
     (next-steps)
     (first)
     (metas)
-    (::ana/form))
+    (::ast/form))
    := 'inc
   )
 
@@ -345,7 +346,7 @@
     (next-steps)
     (first)
     (metas)
-    (::ana/form))
+    (::ast/form))
   := 'inc
   )
 
@@ -377,12 +378,12 @@
   )
 
 (defn- merge-pull-metas [metas-a metas-b]
-  (let [form-a (ana/unquote* (::ana/form metas-a))
-        merged-form (vec (distinct (into (vec form-a) (ana/unquote* (::ana/form metas-b)))))]
+  (let [form-a (ana/unquote* (::ast/form metas-a))
+        merged-form (vec (distinct (into (vec form-a) (ana/unquote* (::ast/form metas-b)))))]
     (assoc metas-a
-      ::ana/lexical-env {}
-      ::ana/form merged-form
-      ::ana/symbolic-edges merged-form
+      ::ast/lexical-env {}
+      ::ast/form merged-form
+      ::ast/symbolic-edges merged-form
       )))
 
 (tests
@@ -391,20 +392,20 @@
       (ana/analyze {'% 1} [:a :b]))
     (extract
       (ana/analyze {'% 2} [:a :c])))
-  := {:hyperfiddle.hfql2.analyzer/id _
-      :hyperfiddle.hfql2.analyzer/type :hyperfiddle.hfql2.analyzer/pull,
-      :hyperfiddle.hfql2.analyzer/form [:a :b :c],
-      :hyperfiddle.hfql2.analyzer/lexical-env '{},
-      :hyperfiddle.hfql2.analyzer/symbolic-edges [:a :b :c]
-      :hyperfiddle.hfql2.analyzer/has-star? false
-      :hyperfiddle.hfql2.analyzer/partial _}
+  := {:hyperfiddle.hfql2.ast/id _
+      :hyperfiddle.hfql2.ast/type :hyperfiddle.hfql2.ast/pull,
+      :hyperfiddle.hfql2.ast/form [:a :b :c],
+      :hyperfiddle.hfql2.ast/lexical-env '{},
+      :hyperfiddle.hfql2.ast/symbolic-edges [:a :b :c]
+      :hyperfiddle.hfql2.ast/has-star? false
+      :hyperfiddle.hfql2.ast/partial _}
   )
 
 (defn symbolic-edge* [metas]
   (or (::label metas)
-      (::ana/symbolic-edge
-       (case (::ana/type metas)
-         ::ana/traversal (::ana/edge metas)
+      (::ast/symbolic-edge
+       (case (::ast/type metas)
+         ::ast/traversal (::ast/edge metas)
          metas))))
 
 (defn symbolic-edge [hfqlT]
@@ -418,7 +419,7 @@
 
 (defn- combine-pull [rose-a rose-b]
   (let [metas (merge-pull-metas (extract rose-a) (extract rose-b))]
-    (fmap (fn [kv] (assoc kv ::ana/lexical-env (::ana/lexical-env metas)))
+    (fmap (fn [kv] (assoc kv ::ast/lexical-env (::ast/lexical-env metas)))
       (rose-tree
         metas
         (merge-pull-children
@@ -430,12 +431,12 @@
    (if (nil? hfqlT-b)
      hfqlT-a
      (do
-       (assert (= (::ana/type (metas hfqlT-a)) (::ana/type (metas hfqlT-b))))
+       (assert (= (::ast/type (metas hfqlT-a)) (::ast/type (metas hfqlT-b))))
        (seed (merge (scope hfqlT-a) (scope hfqlT-b))
-         (unfoldT hfqlT (case (::ana/type (metas hfqlT-a))
-                          ::ana/pull (combine-pull (::co/AST (metas hfqlT-a)) (::co/AST (metas hfqlT-b)))
-                          ::ana/traversal (throw (ex-info "TODO" {}))
-                   (throw (ex-info "Can't combine." (::ana/type (metas hfqlT-a))))))))))
+         (unfoldT hfqlT (case (::ast/type (metas hfqlT-a))
+                          ::ast/pull (combine-pull (::co/AST (metas hfqlT-a)) (::co/AST (metas hfqlT-b)))
+                          ::ast/traversal (throw (ex-info "TODO" {}))
+                   (throw (ex-info "Can't combine." (::ast/type (metas hfqlT-a))))))))))
   ([hfqlT-a hfqlT-b & hfqlTs]
    (reduce combine (combine hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
 
@@ -448,15 +449,15 @@
         (hfql [:a :c])))
     (metas)
     (dissoc ::co/AST))
-  := {:hyperfiddle.hfql2.analyzer/id _
-      :hyperfiddle.hfql2.analyzer/type :hyperfiddle.hfql2.analyzer/pull,
-      :hyperfiddle.hfql2.analyzer/form [:a :b :c],
-      :hyperfiddle.hfql2.analyzer/lexical-env {},
-      :hyperfiddle.hfql2.analyzer/symbolic-edges [:a :b :c],
+  := {:hyperfiddle.hfql2.ast/id _
+      :hyperfiddle.hfql2.ast/type :hyperfiddle.hfql2.ast/pull,
+      :hyperfiddle.hfql2.ast/form [:a :b :c],
+      :hyperfiddle.hfql2.ast/lexical-env {},
+      :hyperfiddle.hfql2.ast/symbolic-edges [:a :b :c],
       :hyperfiddle.hfql2.interpreter/static-children _
       :hyperfiddle.hfql2.interpreter/scope '{a 1, b 2}
-      :hyperfiddle.hfql2.analyzer/has-star? false
-      :hyperfiddle.hfql2.analyzer/partial _
+      :hyperfiddle.hfql2.ast/has-star? false
+      :hyperfiddle.hfql2.ast/partial _
       })
 
 (defn- normalize-edge [edge]
@@ -494,7 +495,7 @@
 
 (defn find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
 
-(def id (comp ::ana/id metas))
+(def id (comp ::ast/id metas))
 
 (defn find-cell-by-column* "Lookup a cell in a set of cells."
   ([columnT] (partial find-cell-by-column* columnT))
@@ -820,27 +821,27 @@ identifier, though it might not be serializable."
 
 (declare parent set-parent)
 
-(let [id (comp ::ana/id metas)
+(let [id (comp ::ast/id metas)
       children-ids (comp set (fmap id) ::co/static-children metas)]
   (defn augment-with-suggestions! [hfqlT]
     (when hfqlT
       (-> (if-let [suggestedT (suggest-at-point! hfqlT)]
             (if (-> (::default (metas suggestedT))    ; default was suggested
-                  (and (::ana/has-star? (metas hfqlT))) ; but static expression has a *
+                  (and (::ast/has-star? (metas hfqlT))) ; but static expression has a *
                   (and (> 1 (count (children-ids hfqlT))))) ; so if there's more static children than just *, skip rendering defaults
               hfqlT
               (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))
-                    hfqlT-type (::ana/type (metas hfqlT))
-                    suggestedT-type (::ana/type (metas suggestedT))]
+                    hfqlT-type (::ast/type (metas hfqlT))
+                    suggestedT-type (::ast/type (metas suggestedT))]
                 (cond
                   (empty? suggested?) hfqlT
 
-                  (= ::ana/pull hfqlT-type suggestedT-type)
+                  (= ::ast/pull hfqlT-type suggestedT-type)
                   (hoistHfqlT (fn [metadata] ; FIXME must rewalk and tag because `combine` loses static metadata.
-                                (assoc metadata ::suggested (boolean (suggested? (::ana/id metadata)))))
+                                (assoc metadata ::suggested (boolean (suggested? (::ast/id metadata)))))
                     (combine hfqlT suggestedT)) ; FIXME loses static metadata :(
-                  (and (= ::ana/pull hfqlT-type)
-                    (= '[*] (::ana/form (metas hfqlT))))
+                  (and (= ::ast/pull hfqlT-type)
+                    (= '[*] (::ast/form (metas hfqlT))))
                   ;; [*] pull but suggestion isn't a pull (e.g. collection → traversal).
                   ;; Sample first item to discover per-item columns (e.g. Java methods).
                   ;; Wrapped in try-catch: sampling can fail on objects with side-effectful
@@ -860,13 +861,13 @@ identifier, though it might not be serializable."
                               (imap? coll)
                               (build-hfql (vec (keys coll)))))
                           (catch #?(:clj Throwable, :cljs :default) _ nil))]
-                    (if (and item-suggestion (= ::ana/pull (::ana/type (metas item-suggestion))))
+                    (if (and item-suggestion (= ::ast/pull (::ast/type (metas item-suggestion))))
                       (let [suggested? (set/difference (children-ids item-suggestion) (children-ids hfqlT))]
-                        (hoistHfqlT (fn [m] (assoc m ::suggested (boolean (suggested? (::ana/id m)))))
+                        (hoistHfqlT (fn [m] (assoc m ::suggested (boolean (suggested? (::ast/id m)))))
                           (combine hfqlT item-suggestion)))
                       (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))))
-                  (= ::ana/pull hfqlT-type) hfqlT
-                  (= ::ana/pull suggestedT-type) (update-scope suggestedT (constantly (scope hfqlT)))
+                  (= ::ast/pull hfqlT-type) hfqlT
+                  (= ::ast/pull suggestedT-type) (update-scope suggestedT (constantly (scope hfqlT)))
                   :else hfqlT
                   )))
             hfqlT)
@@ -957,18 +958,18 @@ identifier, though it might not be serializable."
 
 (defn- describe-dispatch-fn [object]
   (cond (satisfies? hyperfiddle.ct.cofree/ComonadCofree object)
-        (::ana/type (metas object))
-        (map? object) (or (::ana/type object) (type object))
+        (::ast/type (metas object))
+        (map? object) (or (::ast/type object) (type object))
         :else (type object)))
 
 (defmulti describe describe-dispatch-fn)
 (defmethod describe :default [_] nil)
-(defmethod describe ::ana/symbol  [stepT] (metas stepT))
-(defmethod describe ::ana/keyword [stepT] (metas stepT))
-(defmethod describe ::ana/string  [stepT] (metas stepT))
+(defmethod describe ::ast/symbol  [stepT] (metas stepT))
+(defmethod describe ::ast/keyword [stepT] (metas stepT))
+(defmethod describe ::ast/string  [stepT] (metas stepT))
 (defn- describe-call [metas] (assoc metas ::symbolic-edge (symbolic-edge* metas)))
-(defmethod describe ::ana/call   [stepT] (describe-call (metas stepT)))
-(defmethod describe ::ana/traversal [stepT] (describe-call (::ana/edge (metas stepT))))
+(defmethod describe ::ast/call   [stepT] (describe-call (metas stepT)))
+(defmethod describe ::ast/traversal [stepT] (describe-call (::ast/edge (metas stepT))))
 
 (comment
   (describe nil)
@@ -983,16 +984,16 @@ identifier, though it might not be serializable."
 (defmulti describe-formatted describe-dispatch-fn)
 (defmethod describe-formatted :default [_] "")
 
-(defmethod describe-formatted ::ana/symbol [hfqlT]
-  (let [{::ana/keys [form form-resolved var]} (describe hfqlT)]
+(defmethod describe-formatted ::ast/symbol [hfqlT]
+  (let [{::ast/keys [form form-resolved var]} (describe hfqlT)]
     (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" (or form-resolved form) (some-> var meta :arglists) (some-> var meta :doc))))
 
-(defmethod describe-formatted ::ana/keyword [hfqlT] (::ana/form (describe hfqlT)))
-(defmethod describe-formatted ::ana/string  [hfqlT] (::ana/form (describe hfqlT)))
-(defmethod describe-formatted ::ana/lambda  [hfqlT] (symbolic-edge hfqlT))
+(defmethod describe-formatted ::ast/keyword [hfqlT] (::ast/form (describe hfqlT)))
+(defmethod describe-formatted ::ast/string  [hfqlT] (::ast/form (describe hfqlT)))
+(defmethod describe-formatted ::ast/lambda  [hfqlT] (symbolic-edge hfqlT))
 
-(defmethod describe-formatted ::ana/traversal [hfqlT]
-  (let [{::keys [symbolic-edge] ::ana/keys [var]} (describe hfqlT)]
+(defmethod describe-formatted ::ast/traversal [hfqlT]
+  (let [{::keys [symbolic-edge] ::ast/keys [var]} (describe hfqlT)]
     (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" symbolic-edge (some-> var meta :arglists) (some-> var meta :doc))))
 
 (comment
@@ -1004,7 +1005,7 @@ identifier, though it might not be serializable."
 
 (defpointfree parent (comp ::parent meta))
 (defn set-parent [childT parentT] (vary-meta childT assoc ::parent parentT))
-(defpointfree multiplicity-many? (comp #(= ::ana/many %) ::ana/multiplicity meta))
+(defpointfree multiplicity-many? (comp #(= ::ast/many %) ::ast/multiplicity meta))
 
 (defn lookup
   "Given an HFQL step object, lookup for a symbolic point in the reachable HFQL scope.
@@ -1181,9 +1182,9 @@ identifier, though it might not be serializable."
   But we haven't found a valid use case to recur on nil in a UI."
   [hfqlT]
   (let [metas (metas hfqlT)]
-    (or (and (::ana/recursion-root metas)
+    (or (and (::ast/recursion-root metas)
           (= (right nil) (value-at-point hfqlT)))
-      (and (::ana/recursion-point metas)
+      (and (::ast/recursion-point metas)
         (= (right nil) (nav* hfqlT))))))
 
 (comment

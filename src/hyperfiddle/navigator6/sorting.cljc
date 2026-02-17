@@ -12,6 +12,7 @@
             [hyperfiddle.ct.monoid :refer [mappend]]
             [hyperfiddle.ct.either :refer [from-right]]
             [hyperfiddle.hfql2.analyzer :as ana]
+            [hyperfiddle.hfql2.ast :as-alias ast]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.ct.experiments.thunk :as thunks]
             [hyperfiddle.rcf :refer [tests]]
@@ -167,7 +168,7 @@
   priority and are laid out in order, as in an ordered map. Extra keys comes later and are sorted by
   `comparator`. Return a seq of map entries."
      [stepT childrenT]
-     {:pre [(= ::ana/pull (::ana/type (hfql/metas stepT))) (every? hfql/symbolic-edge childrenT)]
+     {:pre [(= ::ast/pull (::ast/type (hfql/metas stepT))) (every? hfql/symbolic-edge childrenT)]
       :post [(every? hfql/symbolic-edge childrenT) #_(= (count %) (count childrenT))]}
      (let [static-keys (distinct (map hfql/symbolic-edge childrenT))
            static-keyset (set static-keys)

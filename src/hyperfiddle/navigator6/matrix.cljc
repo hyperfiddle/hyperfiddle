@@ -8,6 +8,7 @@
    [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing #?(:cljs resize-observer)]]
    [hyperfiddle.electric3 :as e]
    [hyperfiddle.hfql2.analyzer :as ana]
+   [hyperfiddle.hfql2.ast :as-alias ast]
    [hyperfiddle.ct.cofree :refer [unwrap]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.either :refer [either from-right]]
@@ -246,7 +247,7 @@
   (e/server
     (when-let [pull-step (e/Snapshot (e/Filter some? ((glitch-guard selection/select-pull-step) stepT)))]
       (let [stepT+ (hfql/augment-with-suggestions! pull-step)
-            childrenT (remove (comp (every-pred ::ana/recursion-point ::ana/recursive-child) hfql/metas) ((glitch-guard unwrap) stepT+)) ; TODO what is this line doing? Why?
+            childrenT (remove (comp (every-pred ::ast/recursion-point ::ast/recursive-child) hfql/metas) ((glitch-guard unwrap) stepT+)) ; TODO what is this line doing? Why?
             childrenT-order (zipmap childrenT (range))
             static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
             suggested-columns (e/Snapshot (filter (comp ::hfql/suggested hfql/metas) childrenT))
@@ -293,7 +294,7 @@
                                                   dom/node)])
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
-          rowsT (e/server (#(if (= ::ana/pull (::ana/type ((glitch-guard hfql/metas) stepT))) ; FIXME smell
+          rowsT (e/server (#(if (= ::ast/pull (::ast/type ((glitch-guard hfql/metas) stepT))) ; FIXME smell
                               [stepT]
                               ((glitch-guard unwrap) stepT))))
           rowsT-count (e/server (e/Offload #(bounded-count COLLECTION-LIMIT rowsT)

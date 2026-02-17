@@ -24,6 +24,7 @@
    [hyperfiddle.hfql2 :as hfql :refer [hfql?]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve]]
    [hyperfiddle.hfql2.analyzer :as ana]
+   [hyperfiddle.hfql2.ast :as-alias ast]
    [hyperfiddle.hfql2.interpreter :as coalgebra :refer [star-traversal?]]
    [hyperfiddle.ct.either :refer [either either? right left right? left? from-right from-left]]
    [hyperfiddle.navigator6 :as-alias navigator]
@@ -180,7 +181,7 @@
   ;; - TODO figure it out.
   hfql?)
 
-(defn- row? [point] (= ::ana/pull (::ana/type (hfql/metas point)))) ; A row is a pull. Children of a row are cells.
+(defn- row? [point] (= ::ast/pull (::ast/type (hfql/metas point)))) ; A row is a pull. Children of a row are cells.
 (defn- cell? [point] (let [parent (hfql/parent point)]
                        (and (some? parent)
                          (row? parent)))) ; A cell is a direct child of a row.
@@ -327,9 +328,9 @@
         (hfql/value-at-point (hfql/parent selection-point)))
     (hfql/value-at-point selection-point)))
 
-(letfn [(traversal? [selection-point] (= ::ana/traversal (::ana/type (hfql/metas selection-point))))
+(letfn [(traversal? [selection-point] (= ::ast/traversal (::ast/type (hfql/metas selection-point))))
         (pull? [selection-point] (and (some? selection-point)
-                                   (= ::ana/pull (::ana/type (hfql/metas selection-point)))))
+                                   (= ::ast/pull (::ast/type (hfql/metas selection-point)))))
         (parent-is-pull? [selection-point] (pull? (hfql/parent selection-point)))
         (child-is-pull? [selection-point] (pull? (first (hfql/next-steps selection-point))))]
   (defn- traversal-with-pull-continuation_in-pull? [selection-point]
@@ -376,7 +377,7 @@
   (let [selection-point resolved-selection-point]
     (or (and (some? selection-point)
           (traversal-with-pull-continuation_in-pull? selection-point)
-          (not= ::ana/many (::ana/multiplicity (hfql/metas selection-point))) ; TODO extract to a generic predicate
+          (not= ::ast/many (::ast/multiplicity (hfql/metas selection-point))) ; TODO extract to a generic predicate
           (step-over_traversal-with-pull-continuation_in-pull selection-point))
       (and (some? selection-point)
         #_(not (traversal-with-pull-continuation_in-pull? selection-point))
@@ -421,7 +422,7 @@
                               (hfql/find-cell-by-symbolic-column symbolic-column (hfql/augment-with-suggestions! seeded-selection-point)))))
                       (and ; we are resolving a cell selection but the given selection point is not a row. We can't focus on a cell.
                         (not (row? seeded-selection-point))
-                        (println "The given selection contains a column and so targets a cell. But the current selection point is not a row. Can't focus on a cell on an object that is not a row." (::ana/type (hfql/metas seeded-selection-point)))
+                        (println "The given selection contains a column and so targets a cell. But the current selection point is not a row. Can't focus on a cell on an object that is not a row." (::ast/type (hfql/metas seeded-selection-point)))
                         (def _selection-point seeded-selection-point) ; G – for me, for debugging.
                         nil)))
                 ;; there's no symbolic column to focus on. This is a row selection.
@@ -521,8 +522,8 @@
 (defn- points-syntactically-equal? [point-a point-b]
   (or (identical? point-a point-b)
     (and (hfql? point-a) (hfql? point-b)
-      (= (::ana/id (hfql/metas point-a))
-         (::ana/id (hfql/metas point-b))))))
+      (= (::ast/id (hfql/metas point-a))
+         (::ast/id (hfql/metas point-b))))))
 
 (defn find-selectable-point
   ;; - A Selectable point is not to be confused with a Navigable point.
@@ -606,7 +607,7 @@
              ;; Option `1.`
              (first (hfql/next-steps (hydrate-point current-point (right '(nil))))))) ; should not run IO – not supposed to.
          ;; Traversal case, eventually recursive.
-         (and (= ::ana/traversal (::ana/type (hfql/metas current-point)))
+         (and (= ::ast/traversal (::ast/type (hfql/metas current-point)))
            (or (and (not (hfql/multiplicity-many? current-point))
                  (find-selectable-point current-point (first (hfql/next-steps current-point))))
              ;; The fact that a traversal is itself tagged as multiplicity many conflates it with the pull-many case.
@@ -1086,8 +1087,8 @@
 ;;;;;; Rendering the multiplicity-many part of a traversal
 
 (defn find-collection-point [point]
-  (case (::ana/type (hfql/metas point))
-    ::ana/traversal (or (and (hfql/multiplicity-many? point)
+  (case (::ast/type (hfql/metas point))
+    ::ast/traversal (or (and (hfql/multiplicity-many? point)
                           point)
                       (find-collection-point (first (hfql/next-steps point))))
     point))

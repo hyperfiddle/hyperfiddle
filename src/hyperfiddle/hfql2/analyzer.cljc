@@ -3,6 +3,7 @@
             [contrib.data :refer [realize update-existing]]
             [contrib.walk :refer [prewalk postwalk]]
             [hyperfiddle.hfql2.analyzer.lambda :refer [lambda?]]
+            [hyperfiddle.hfql2.ast :as ast]
             [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.pair :refer [pair pair? fst snd]]
@@ -97,48 +98,48 @@
 
 (defn projection-type [form]
   (cond
-    (= '* form)           ::star
+    (= '* form)           ::ast/star
     (or (= '... form)
-      (nat-int? form))    ::recur
-    (symbol? form)        ::symbol
-    (keyword? form)       ::keyword
-    (string? form)        ::string
-    (fn? form)            ::fn
-    (var-form? form)      ::var
-    (symbolic-call? form) ::call
-    (pair? form)          ::traversal
-    (record? form)        ::literal
-    (map? form)           ::traversals
-    (vector? form)        ::pull
-    (quoted-var-form? form) ::quoted-var
-    (quoted? form)    ::literal
-    (lambda? form)        ::lambda
+      (nat-int? form))    ::ast/recur
+    (symbol? form)        ::ast/symbol
+    (keyword? form)       ::ast/keyword
+    (string? form)        ::ast/string
+    (fn? form)            ::ast/fn
+    (var-form? form)      ::ast/var
+    (symbolic-call? form) ::ast/call
+    (pair? form)          ::ast/traversal
+    (record? form)        ::ast/literal
+    (map? form)           ::ast/traversals
+    (vector? form)        ::ast/pull
+    (quoted-var-form? form) ::ast/quoted-var
+    (quoted? form)    ::ast/literal
+    (lambda? form)        ::ast/lambda
     ;; TODO ifn? – maybe
     ;; TODO? method sym
     :else
-    ::literal))
+    ::ast/literal))
 
 (defn- reshape-traversals-down [hfql]
   (case (projection-type hfql)
-    ::call (reduced (reduced hfql))
-    ::lambda (reduced (reduced hfql))
-    ::literal (reduced (reduced hfql))
-    ::quoted-var (reduced (reduced hfql))
-    (::pull ::traversals ::traversal ::star ::recur ::symbol ::keyword ::string ::fn ::var)
+    ::ast/call (reduced (reduced hfql))
+    ::ast/lambda (reduced (reduced hfql))
+    ::ast/literal (reduced (reduced hfql))
+    ::ast/quoted-var (reduced (reduced hfql))
+    (::ast/pull ::ast/traversals ::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/fn ::ast/var)
     hfql))
 
 (defn- reshape-traversals-up [hfql]
   (if (reduced? hfql)
     (unreduced hfql)
     (case (projection-type hfql)
-      ::pull (into [] (mapcat (fn [hfql] (if (and (vector? hfql) (not (pair? hfql))) hfql [hfql])) hfql))
-      ::traversals (if (= 1 (count hfql))
+      ::ast/pull (into [] (mapcat (fn [hfql] (if (and (vector? hfql) (not (pair? hfql))) hfql [hfql])) hfql))
+      ::ast/traversals (if (= 1 (count hfql))
                      (if-let [metas (meta hfql)]
                        (vary-meta (apply pair (first hfql)) merge metas)
                        (first hfql))
                      (with-meta (into [] hfql) (meta hfql)))
-      (::call ::lambda ::literal ::quoted-var) (throw (ex-info "Encountered invalid AST node." {:value hfql}))
-      (::traversal ::star ::recur ::symbol ::keyword ::string ::fn ::var)
+      (::ast/call ::ast/lambda ::ast/literal ::ast/quoted-var) (throw (ex-info "Encountered invalid AST node." {:value hfql}))
+      (::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/fn ::ast/var)
       hfql)))
 
 (defn- lexical? [env sym] (contains? env sym))
@@ -229,8 +230,6 @@
   (aliased-form (ns-name *ns*) 'hyperfiddle.hfql2.analyzer/asdf) := 'asdf
   )
 
-(defn- compute-id [node] (hash (select-keys node #{::type ::form ::symbolic-edge ::symbolic-edges ::form-short ::form-resolved})))
-
 (defn- φ ; phi
   "An algebra collecting static knowledge about an HFQL expression."
   ([env] (partial φ env))
@@ -238,120 +237,120 @@
    (as-> (meta form) %
      (merge
        %
-       {::type        (projection-type form)
-        ::form        (quote-form form)
-        ::lexical-env (lexical-bindings-map env)
-        ::partial true ; a partial point depends on %. % is late-bound.
+       {::ast/type        (projection-type form)
+        ::ast/form        (quote-form form)
+        ::ast/lexical-env (lexical-bindings-map env)
+        ::ast/partial true ; a partial point depends on %. % is late-bound.
         }
        (case (projection-type form)
-         ::star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
-         ::recur     {::recursion-limit (if (nat-int? form) form ##Inf)}
-         ::literal   {::symbolic-edge form}
-         ::keyword   {::symbolic-edge form
-                      ::form-resolved form ; keyword auto-resolve at read-time.
-                      ::form-short #?(:clj (aliased-form form), :cljs form)}
-         ::string    {::symbolic-edge form}
-         ::symbol    {::symbolic-edge form ; potentially aliased
-                      ::value (escape-method-call form), ; macroexpand will auto-resolve
-                      ::var (var-resolver env form) ; nil if symbol is lexicaly bound
-                      ::form-resolved (resolver env form) ; resolve via eventual ns alias
-                      ::form-short #?(:clj (aliased-form form), :cljs form)}
-         ::var       (let [sym (second form)]
-                      {::symbolic-edge form ; the var object itself
-                       ::value form ; also the var object itself
-                       ::parameters '(%)
-                       ::form-resolved (resolver env sym)
-                       ::form-short #?(:clj (aliased-form sym), :cljs sym)})
-         ::quoted-var (let [sym (second (unquote* form))]
-                       {::form (unquote* form)
-                        ::symbolic-edge form
-                        ::form-resolved (resolver env sym)
-                        ::form-short #?(:clj (aliased-form sym), :cljs sym)})
-         ::pull      (let [recursion-point (some-fn #{'...} nat-int?)
+         ::ast/star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
+         ::ast/recur     {::ast/recursion-limit (if (nat-int? form) form ##Inf)}
+         ::ast/literal   {::ast/symbolic-edge form}
+         ::ast/keyword   {::ast/symbolic-edge form
+                      ::ast/form-resolved form ; keyword auto-resolve at read-time.
+                      ::ast/form-short #?(:clj (aliased-form form), :cljs form)}
+         ::ast/string    {::ast/symbolic-edge form}
+         ::ast/symbol    {::ast/symbolic-edge form ; potentially aliased
+                      ::ast/value (escape-method-call form), ; macroexpand will auto-resolve
+                      ::ast/var (var-resolver env form) ; nil if symbol is lexicaly bound
+                      ::ast/form-resolved (resolver env form) ; resolve via eventual ns alias
+                      ::ast/form-short #?(:clj (aliased-form form), :cljs form)}
+         ::ast/var       (let [sym (second form)]
+                      {::ast/symbolic-edge form ; the var object itself
+                       ::ast/value form ; also the var object itself
+                       ::ast/parameters '(%)
+                       ::ast/form-resolved (resolver env sym)
+                       ::ast/form-short #?(:clj (aliased-form sym), :cljs sym)})
+         ::ast/quoted-var (let [sym (second (unquote* form))]
+                       {::ast/form (unquote* form)
+                        ::ast/symbolic-edge form
+                        ::ast/form-resolved (resolver env sym)
+                        ::ast/form-short #?(:clj (aliased-form sym), :cljs sym)})
+         ::ast/pull      (let [recursion-point (some-fn #{'...} nat-int?)
                            form' (vec (remove recursion-point form))]
                        (merge
-                         {::form form'
-                          ::symbolic-edges form'
-                          ::has-star? (boolean (some #(= ::star (::type %)) (map (φ env) form)))}
+                         {::ast/form form'
+                          ::ast/symbolic-edges form'
+                          ::ast/has-star? (boolean (some #(= ::ast/star (::ast/type %)) (map (φ env) form)))}
                          (when-some [recursion (first (filter recursion-point form))]
-                           {::recursion-point true
-                            ::recursion-limit (::recursion-limit (φ env recursion))})))
-         ::fn        {::symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
-                      ::value form} ; already resolved
-         ::lambda    (let [base {::symbolic-edge (let [[_fn ?name ?parameters] form]
+                           {::ast/recursion-point true
+                            ::ast/recursion-limit (::ast/recursion-limit (φ env recursion))})))
+         ::ast/fn        {::ast/symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
+                      ::ast/value form} ; already resolved
+         ::ast/lambda    (let [base {::ast/symbolic-edge (let [[_fn ?name ?parameters] form]
                                                    (if (symbol? ?name)
                                                      `(~'fn ~?name ~'...)
                                                      '(fn anonymous ...)))
-                                 ::parameters '(%)
-                                 ::partial true
-                                 ::value form}]
+                                 ::ast/parameters '(%)
+                                 ::ast/partial true
+                                 ::ast/value form}]
                        (if-let [kw (get-kw-fn-form-kw form)]
-                         (merge base (select-keys (φ env kw) #{::symbolic-edge ::form-resolved ::form-short}) {::kind ::keyword-fn})
+                         (merge base (select-keys (φ env kw) #{::ast/symbolic-edge ::ast/form-resolved ::ast/form-short}) {::ast/kind ::ast/keyword-fn})
                          base))
-         ::call      (let [[f & params] form] ; symbolic – quoted by defmacro
-                       {::symbolic-edge form ; symbolic – interpreter will template later
-                        ::value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
-                        ::var (var-resolver env f)
-                        ::parameters params
-                        ::arguments (replace {'% ''%} params)
-                        ::partial (contains? (set params) '%)
-                        ::form-resolved (resolver env f)
-                        ::lexical-env (let [params (remove #{'%} params)]
+         ::ast/call      (let [[f & params] form] ; symbolic – quoted by defmacro
+                       {::ast/symbolic-edge form ; symbolic – interpreter will template later
+                        ::ast/value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
+                        ::ast/var (var-resolver env f)
+                        ::ast/parameters params
+                        ::ast/arguments (replace {'% ''%} params)
+                        ::ast/partial (contains? (set params) '%)
+                        ::ast/form-resolved (resolver env f)
+                        ::ast/lexical-env (let [params (remove #{'%} params)]
                                         (merge (lexical-bindings-map env)
                                           (zipmap (map quote-form (filter symbol? params))
                                             (filter symbol? params))))})
-         ::traversal (let [edge (φ env (fst form))
-                           base (case (::type edge)
-                                  ::star {::kind ::star, ::multiplicity ::many}
-                                  {::edge (cond-> edge (not= ::symbol (::type edge)) (assoc ::leaf false))
-                                   ::lexical-env (::lexical-env edge)})
+         ::ast/traversal (let [edge (φ env (fst form))
+                           base (case (::ast/type edge)
+                                  ::ast/star {::ast/kind ::ast/star, ::ast/multiplicity ::ast/many}
+                                  {::ast/edge (cond-> edge (not= ::ast/symbol (::ast/type edge)) (assoc ::ast/leaf false))
+                                   ::ast/lexical-env (::ast/lexical-env edge)})
                            continuation (φ env (snd form))]
                        (merge base
-                         {::partial (and (::partial edge) (::partial continuation))}
-                         (when (= ::star (::kind continuation)) {::multiplicity ::many})
-                         (when (= ::recur (::type continuation))
-                           {::recursion-point true
-                            ::recursion-limit (::recursion-limit continuation)})
+                         {::ast/partial (and (::ast/partial edge) (::ast/partial continuation))}
+                         (when (= ::ast/star (::ast/kind continuation)) {::ast/multiplicity ::ast/many})
+                         (when (= ::ast/recur (::ast/type continuation))
+                           {::ast/recursion-point true
+                            ::ast/recursion-limit (::ast/recursion-limit continuation)})
                          ))))
-     (assoc % ::id (compute-id %)))))
+     (assoc % ::ast/id (ast/compute-node-id %)))))
 
-(defmulti -escape ::type)
-(defmethod -escape ::star [point] point)
-(defmethod -escape ::recur [point] point)
-(defmethod -escape ::literal [point] point)
-(defmethod -escape ::keyword [point] (update point ::form-short quote-form))
-(defmethod -escape ::string [point] point)
-(defmethod -escape ::symbol [point] (-> (update point ::symbolic-edge quote-form)
-                                      (update ::form-short quote-form)))
-(defmethod -escape ::var [point] (-> (update point ::parameters quote-form)
-                                    (update ::form-short quote-form)))
-(defmethod -escape ::quoted-var [point] (-> (update point ::form unquote*) ; special case
-                                           (update ::form-short quote-form)))
-(defmethod -escape ::pull [point] (-> (update point ::form quote-form)
-                                    (update ::symbolic-edges quote-form)))
-(defmethod -escape ::fn [point] (update point ::symbolic-edge quote-form))
-(defmethod -escape ::lambda [point] (-> (update point ::symbolic-edge quote-form)
-                                      (update ::parameters quote-form)))
+(defmulti -escape ::ast/type)
+(defmethod -escape ::ast/star [point] point)
+(defmethod -escape ::ast/recur [point] point)
+(defmethod -escape ::ast/literal [point] point)
+(defmethod -escape ::ast/keyword [point] (update point ::ast/form-short quote-form))
+(defmethod -escape ::ast/string [point] point)
+(defmethod -escape ::ast/symbol [point] (-> (update point ::ast/symbolic-edge quote-form)
+                                      (update ::ast/form-short quote-form)))
+(defmethod -escape ::ast/var [point] (-> (update point ::ast/parameters quote-form)
+                                    (update ::ast/form-short quote-form)))
+(defmethod -escape ::ast/quoted-var [point] (-> (update point ::ast/form unquote*) ; special case
+                                           (update ::ast/form-short quote-form)))
+(defmethod -escape ::ast/pull [point] (-> (update point ::ast/form quote-form)
+                                    (update ::ast/symbolic-edges quote-form)))
+(defmethod -escape ::ast/fn [point] (update point ::ast/symbolic-edge quote-form))
+(defmethod -escape ::ast/lambda [point] (-> (update point ::ast/symbolic-edge quote-form)
+                                      (update ::ast/parameters quote-form)))
 
-(defmethod -escape ::call [point] (-> (update point ::symbolic-edge quote-form)
-                                    (update ::parameters quote-form)
-                                    (update ::arguments conj 'list)))
+(defmethod -escape ::ast/call [point] (-> (update point ::ast/symbolic-edge quote-form)
+                                    (update ::ast/parameters quote-form)
+                                    (update ::ast/arguments conj 'list)))
 
-(defmethod -escape ::traversal [point] (update-existing point ::edge -escape))
+(defmethod -escape ::ast/traversal [point] (update-existing point ::ast/edge -escape))
 
 (defn escape [point]
-  (-escape (update point ::form quote-form)))
+  (-escape (update point ::ast/form quote-form)))
 
 
 (defn- ψ ; psi
   "A coalgebra describe how to unfold an HFQL expression into a tree. For any HFQL form, return its children."
   [hfql]
   (case (projection-type hfql)
-    ::pull      hfql
-    ::traversal [(snd hfql)]
-    (::star ::keyword ::symbol ::var ::string ::fn ::call ::lambda ::literal ::quoted-var)
+    ::ast/pull      hfql
+    ::ast/traversal [(snd hfql)]
+    (::ast/star ::ast/keyword ::ast/symbol ::ast/var ::ast/string ::ast/fn ::ast/call ::ast/lambda ::ast/literal ::ast/quoted-var)
     ()
-    ::recur ; we don't produce an infinite AST to ease debugging.
+    ::ast/recur ; we don't produce an infinite AST to ease debugging.
     ()))
 
 (defn- unfold [φ ψ seed] (fmap φ (coiter ψ seed)))
@@ -362,9 +361,9 @@
   ([env hfql] (unfold (φ env) ψ (postwalk reshape-traversals-up (prewalk reshape-traversals-down hfql)))))
 
 (tests
-  (::has-star? (extract (analyze {} [:a])))
+  (::ast/has-star? (extract (analyze {} [:a])))
   := false
-  (::has-star? (extract (analyze {} [:a '*])))
+  (::ast/has-star? (extract (analyze {} [:a '*])))
   := true
   )
 
@@ -381,8 +380,8 @@
 (defn hydrate [[point children]] ; hydrate :: (a, [(a, [...]) ...]) -> RoseTree a
   (rose-tree point (mapv hydrate children)))
 
-(defn marshal [w] (fmap (comp escape #(update % ::form emit*)) w))
-(defn unmarshal [rose-tree] (fmap #(update % ::form unquote*) rose-tree))
+(defn marshal [w] (fmap (comp escape #(update % ::ast/form emit*)) w))
+(defn unmarshal [rose-tree] (fmap #(update % ::ast/form unquote*) rose-tree))
 
 (defmacro hfql [form] `(unmarshal (hydrate ~(emit (marshal (analyze &env form))))))
 
@@ -392,7 +391,7 @@
 
 (defn wrap-in-pull [W]
   (let [point (extract W)
-        pullW (analyze (::lexical-env point) [(::form point)])]
+        pullW (analyze (::ast/lexical-env point) [(::ast/form point)])]
     (rose-tree (extract pullW)
       [(traverse-two (fn [_W1 W2] (extract W2))
          (first (unwrap pullW)) W)])))

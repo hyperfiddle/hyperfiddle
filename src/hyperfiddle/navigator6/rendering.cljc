@@ -8,6 +8,7 @@
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2.analyzer :as ana]
+            [hyperfiddle.hfql2.ast :as-alias ast]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
 
@@ -241,7 +242,7 @@
   ;; [{fs/jfile-kind name}] => "dir" instead of `::fs/dir`.
   (let [metas (hfql/metas stepT)]
     (or
-      (and (= ::ana/many (::ana/multiplicity metas))
+      (and (= ::ast/many (::ast/multiplicity metas))
         stepT)
       (and (hfql/recursion-end?! stepT) ; runs IO, but IO will run anyway as part of this rendering phase.
         stepT)

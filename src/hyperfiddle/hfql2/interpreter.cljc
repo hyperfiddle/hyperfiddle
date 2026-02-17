@@ -165,7 +165,7 @@
                           (if (= ::unbound argument)
                             (either/left (ex-info "Unbound function argument" {:parameter parameter}))
                             (either/right argument))))
-                  (::ana/parameters point) (concat (::ana/arguments point) (repeat ::unbound)))]
+                  (::ast/parameters point) (concat (::ast/arguments point) (repeat ::unbound)))]
        (either/sequenceEither args))
      (catch #?(:clj Throwable, :cljs :default) err
        (either/left err)))))
@@ -175,16 +175,16 @@
 (defn- from-either [e] (either/either identity identity e))
 
 (defn template-symbolic-edge [env point & [point-free?]]
-  (let [edge (::ana/edge point)
-        {::ana/keys [form parameters]} edge]
-    (case (::ana/type edge)
-      ::ana/call (cons (first form)
+  (let [edge (::ast/edge point)
+        {::ast/keys [form parameters]} edge]
+    (case (::ast/type edge)
+      ::ast/call (cons (first form)
                    (map (fn [parameter argument]
                           (if (or (:symbolic (meta parameter)) (:symbolic (meta argument)))
                             parameter
                             argument))
                      parameters (from-either (resolve-arguments edge env))))
-      ::ana/symbol (cond
+      ::ast/symbol (cond
                        point-free? form
                        :else (list form (from-either (force-thunk (resolve '% env '%))))) ; introduce a point
       form)))
@@ -192,9 +192,9 @@
 (declare hfql?)
 
 (defn symbolic-edge-static [point]
-  (::ana/symbolic-edge
-   (case (::ana/type point)
-     ::ana/traversal (::ana/edge point)
+  (::ast/symbolic-edge
+   (case (::ast/type point)
+     ::ast/traversal (::ast/edge point)
      point)))
 
 (defn symbolic-edge ; FIXME uniformize
@@ -203,8 +203,8 @@
                         [(meta point) (pos (runCofreeT point))]
                         [point (::scope point)])]
     (case (projection-type point)
-      ::ana/traversal (template-symbolic-edge scope point point-free)
-      ;; ::ana/call (template-symbolic-edge (::scope point) point point-free) ; TODO
+      ::ast/traversal (template-symbolic-edge scope point point-free)
+      ;; ::ast/call (template-symbolic-edge (::scope point) point point-free) ; TODO
       (symbolic-edge-static point))))
 
 (def mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
@@ -236,7 +236,7 @@
      ))
 
 (defn- getter [point]
-  (let [key (ana/unquote* (get point ::ana/form))]
+  (let [key (ana/unquote* (get point ::ast/form))]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
       (binding [thunks/*cache-strategy* ::thunks/weak]
@@ -259,23 +259,23 @@
             (try
               (either/right
                 (fmap-original-object (fn [%]
-                                        (let [ifn (::ana/value point)]
+                                        (let [ifn (::ast/value point)]
                                           (if (try (contains? % ifn) ; FIXME find a better check
                                                    (catch #?(:clj Throwable, :cljs :default) _
                                                      false))
-                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ana/form point)))
+                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ast/form point)))
                                                 (*navigate* % ifn (get % ifn)))
-                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ana/form point)))
+                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ast/form point)))
                                                 (apply ifn [%])))))
                   %))
               (catch #?(:clj Throwable, :cljs :default) err
                 (either/left err)))))))))
 
 (defn- call [point]
-  (let [call! (if (= ::ana/keyword-fn (::ana/kind point))
-                (let [key (::ana/form-resolved point)]
+  (let [call! (if (= ::ast/keyword-fn (::ast/kind point))
+                (let [key (::ast/form-resolved point)]
                   #(*navigate* %1 key (get %1 key)))
-                (let [f (::ana/value point)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
+                (let [f (::ast/value point)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
                   #(apply f %&)))]
     (mem-reader
       (binding [thunks/*cache-strategy* ::thunks/weak]
@@ -283,7 +283,7 @@
           (=<<
             (fn [args]
               (try
-                #?(:clj (log/debug "[IO]" `call (::ana/symbolic-edge point)))
+                #?(:clj (log/debug "[IO]" `call (::ast/symbolic-edge point)))
                 (either/right
                   (fmap-original-objects (fn [args] (apply call! args)) args))
                 (catch #?(:clj Throwable, :cljs :default) err
@@ -353,15 +353,15 @@
 (declare unfoldT)
 
 (defn- recursion-point? [hfql]
-  (or (= ::ana/recur (projection-type (extract hfql)))
-    (::ana/recursion-point (extract hfql))
+  (or (= ::ast/recur (projection-type (extract hfql)))
+    (::ast/recursion-point (extract hfql))
     (when-let [child (first (unwrap hfql))]
       (and (star-traversal? (extract child))
         (recursion-point? child)))))
 
 (defn- direct-recursion-point? [hfql]
   (and (recursion-point? hfql)
-    (or (= ::ana/recur (projection-type (extract hfql)))
+    (or (= ::ast/recur (projection-type (extract hfql)))
       (star-traversal? (extract hfql)))))
 
 (defn- star-keys
@@ -445,7 +445,7 @@ Pulling on non-maps (non associative) is perfectly fine.
     (take-while some?)
     (take-while (fn [%] (contains? (::env (extract %)) '%)))
     (last)
-    (mapHead #(assoc % ::ana/recursion-root true))
+    (mapHead #(assoc % ::ast/recursion-root true))
     ))
 
 (defn- recurse-or-stop
@@ -454,11 +454,11 @@ Pulling on non-maps (non associative) is perfectly fine.
   limit. Returns nil if the limit is exhausted."
   [hfql env limit-source]
   (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
-        limit (or (::ana/recursion-limit (extract limit-source))
-                  (::ana/recursion-limit (extract recursion-root))
+        limit (or (::ast/recursion-limit (extract limit-source))
+                  (::ast/recursion-limit (extract recursion-root))
                   0)]
     (when (pos? limit)
-      (fmap #(assoc % ::ana/recursion-limit (dec limit)) recursion-root))))
+      (fmap #(assoc % ::ast/recursion-limit (dec limit)) recursion-root))))
 
 (defn hfqlT
   "A coalgebra transforming one HFQL AST node (a Cofree point) into an effect point.
@@ -477,19 +477,19 @@ Pulling on non-maps (non associative) is perfectly fine.
         children (unwrap hfql)
         transform
         (case (projection-type point)
-          ::ana/symbol  (comp (leaf point) focus-% getter)
-          ::ana/keyword (comp (leaf point) focus-% getter)
-          ::ana/string  (comp (leaf point) focus-% getter)
-          ::ana/literal (comp (leaf point) focus-% getter)
-          ::ana/fn      (comp (leaf point) focus-% get-or-call)
-          ::ana/var     (comp (leaf point) (focus-arguments point) call)
-          ::ana/quoted-var (comp (leaf point) focus-% getter)
-          ::ana/call    (comp (leaf point) (focus-arguments point) call)
-          ::ana/lambda  (comp (leaf point) (focus-arguments point) call)
-          ::ana/star    (comp (leaf point) focus-% (constantly star))
-          ::ana/recur   (constantly (mem-reader (fn [env] (pair env [(find-recursion-point (mapHead #(assoc % ::env env) hfql)) ; TODO extract helper for parent-aware tree walk
+          ::ast/symbol  (comp (leaf point) focus-% getter)
+          ::ast/keyword (comp (leaf point) focus-% getter)
+          ::ast/string  (comp (leaf point) focus-% getter)
+          ::ast/literal (comp (leaf point) focus-% getter)
+          ::ast/fn      (comp (leaf point) focus-% get-or-call)
+          ::ast/var     (comp (leaf point) (focus-arguments point) call)
+          ::ast/quoted-var (comp (leaf point) focus-% getter)
+          ::ast/call    (comp (leaf point) (focus-arguments point) call)
+          ::ast/lambda  (comp (leaf point) (focus-arguments point) call)
+          ::ast/star    (comp (leaf point) focus-% (constantly star))
+          ::ast/recur   (constantly (mem-reader (fn [env] (pair env [(find-recursion-point (mapHead #(assoc % ::env env) hfql)) ; TODO extract helper for parent-aware tree walk
                                                                      ]))))
-          ::ana/pull
+          ::ast/pull
           (constantly
             (mem-reader
               (fn [env]
@@ -527,17 +527,17 @@ Pulling on non-maps (non associative) is perfectly fine.
                         (insert-at star-position kids star-kids)
                         (if recur-point
                           (if-let [root (recurse-or-stop hfql env recur-point)]
-                            [(bf/first #(assoc % ::ana/recursive-child true) root)] ; only used in matrix.cljc. TODO confirm use case.
+                            [(bf/first #(assoc % ::ast/recursive-child true) root)] ; only used in matrix.cljc. TODO confirm use case.
                             [])
                           []))
                       (mapv (fn [child] (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) child))) ; TODO extract helper for parent-aware tree walk
                       ))))))
-          ::ana/traversal
-          (let [lexical-symbol? (= ::ana/symbol (projection-type (::ana/edge point)))  ; not a function
-                lexical-value (::ana/value (::ana/edge point))
+          ::ast/traversal
+          (let [lexical-symbol? (= ::ast/symbol (projection-type (::ast/edge point)))  ; not a function
+                lexical-value (::ast/value (::ast/edge point))
                 edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
                                            lexical-symbol? (ana/hfql identity)
-                                           :else (ana/hydrate [(::ana/edge point) ()]) ; ::leaf false is set by the analyzer
+                                           :else (ana/hydrate [(::ast/edge point) ()]) ; ::leaf false is set by the analyzer
                                            ))]
             (constantly
               (mem-reader
@@ -554,7 +554,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                           ;; (not downstream) so ::recur nodes stay invisible to pull_algebra.
                           (let [unwrapped (first (unwrap direct-child))
                                 unwrapped (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) unwrapped)]
-                            (if (= ::ana/recur (projection-type (extract unwrapped)))
+                            (if (= ::ast/recur (projection-type (extract unwrapped)))
                               (if-let [root (recurse-or-stop hfql env unwrapped)]
                                 [root]
                                 [])
@@ -613,8 +613,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                    (and (thunk? %) (clojure.core/realized? %)) (left? (force-thunk %))
                    (either? %) (left? %)
                    :else :unknown)]
-      (str "#hfql/" (name (::ana/type metadata :hfql/hfql)) " "
-        {:form (::ana/form metadata)
+      (str "#hfql/" (name (::ast/type metadata :hfql/hfql)) " "
+        {:form (::ast/form metadata)
          :seeded? seeded?
          :realized? realized?
          :error? error?})))
@@ -639,12 +639,12 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- hfqlt-equals [^HFQLT this ^HFQLT other]
   (or (identical? this other)
     (and (instance? HFQLT this) (instance? HFQLT other)
-      (= (::ana/id (.-metadata this))
-        (::ana/id (.-metadata other)))
+      (= (::ast/id (.-metadata this))
+        (::ast/id (.-metadata other)))
       (= (pos (runCofreeT this))
         (pos (runCofreeT other))))))
 
-(defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ana/id (.-metadata hfqlt))))
+(defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ast/id (.-metadata hfqlt))))
 
 (defn hoistHfqlT
   "Apply f to metadata at every node in the HFQLT tree. Lazy — children are only transformed when accessed."
@@ -661,7 +661,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   [t f & args] (apply vary-meta t f args))
 
 (defn- lexical-env [point]
-  (::ana/lexical-env point))
+  (::ast/lexical-env point))
 
 (def iterator? cd/iterator?)
 (def enumeration? cd/enumeration?)
@@ -684,7 +684,7 @@ Pulling on non-maps (non associative) is perfectly fine.
              ;; built. And under * traversal IO will be forced to produce a new
              ;; list of children. FIXME, memoize the CofreeF instance and
              ;; rebuild it only if `value` or `children` did change.
-             ;; #?(:clj (log/debug "Unwrapping" (::ana/symbolic-edge (or (::ana/edge metas) metas))))
+             ;; #?(:clj (log/debug "Unwrapping" (::ast/symbolic-edge (or (::ast/edge metas) metas))))
              (let [[value children] (runReader step scope)]
                (->CofreeF value
                  (let [value (binding [thunks/*cache-strategy* ::thunks/hard] ; cache branch values, discarded when no leaves are referencing it, as per lazy-seq semantics, recursively up to the root.
@@ -693,7 +693,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                      ;; don't use fmap under here - we want to enforce lazy children.
                      (map ; for each child, unfold it and seed it with next scope.
                        (comp (seed (case (projection-type point) ; decide what's next scope.
-                                     ::ana/pull scope ; a "pull" point doesn't alter '% – it doesn't run anything. Only collects kvs.
+                                     ::ast/pull scope ; a "pull" point doesn't alter '% – it doesn't run anything. Only collects kvs.
                                      (assoc scope '% value)))
                          (unfoldT coalgebra))
                        children)
@@ -704,7 +704,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                        ;; #dbg
                        (let [forced (if (contains? scope ::BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE) ; Used by hyperfiddle.navigator6.selection2/find-selectable-point
                                       '(nil)
-                                      (do #?(:clj (log/trace "Running IO for * traversal." (::ana/symbolic-edge (or (::ana/edge point) point))))
+                                      (do #?(:clj (log/trace "Running IO for * traversal." (::ast/symbolic-edge (or (::ast/edge point) point))))
                                           (either/either
                                             (constantly ()) ; stop navigation at first error
                                             identity
@@ -849,17 +849,17 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- pull-algebra [W children]
   (let [point (meta W)]
     (case (projection-type point)
-      ::ana/pull
+      ::ast/pull
       (thunk
         (into {}
           (map (fn [W value]
                  (let [point (meta W)]
                    (case (projection-type point)
-                     ::ana/traversal (force-thunk value)
+                     ::ast/traversal (force-thunk value)
                      (pair (symbolic-edge W ::point-free true) (original-object (force-thunk value))))))
             (unwrap W)
             children)))
-      ::ana/traversal
+      ::ast/traversal
       (thunk
         (let [key (symbolic-edge W ::point-free true)
               val (if (seq children) ; regular traversal always have children, but bounded recursion final point doesn't.
