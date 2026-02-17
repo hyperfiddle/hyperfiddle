@@ -40,9 +40,3 @@
     (hfql/wrap-in-pull stepT) ; FIXME highly questionable
     #_(throw (ex-info "No pull child" {:type (::ana/type (hfql/metas stepT))}))))
 
-#_(defn ^:deprecated get-rows-container [stepT]
-  (case (::ana/type (hfql/metas stepT))
-    ::ana/traversal (if (= ::ana/many (::ana/multiplicity (hfql/metas stepT)))
-                      stepT
-                      (get-rows-container (first (unwrap stepT))))
-    stepT))

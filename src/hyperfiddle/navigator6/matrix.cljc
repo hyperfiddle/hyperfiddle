@@ -201,15 +201,6 @@
                rowT
                nil)))))))
 
-#_(e/defn HandleSelection [commands]
-  (->> commands
-    (utils/InterceptCommand `Select! (e/fn [[_ GetElementT]]
-                                       (let [selectionT (e/client (find-clicked-cell-or-row event))]
-                                         (e/client (prn "selectionT" selected-index selectionT))
-                                         (e/server (e/Reconcile
-                                                     (if selectionT
-                                                       [`selection/SetSelection! selectionT]
-                                                       [`Noop]))))))))
 
 (defn- bounds-by-axis [transpose? [offsetV limitV offsetH limitH :as initial]]
   (if transpose?
@@ -279,19 +270,7 @@
 
 (def COLLECTION-LIMIT 10000)
 
-#_(let [monoid #?(:clj clojure.lang.PersistentQueue/EMPTY :cljs #queue [])]
-  (defn stream-in [coll]
-    (m/relieve
-      (m/reductions conj monoid
-        (m/seed coll)))))
 
-
-#_(comment
-  (m/? (m/reduce {} nil
-         (m/reductions (fn [_ q] (prn [(count q) (sequence q)]) nil) nil
-           (stream-in (range 10)))))
-
-  )
 
 (defn- reshape-maps [transpose? single? stepT]
   (when stepT
