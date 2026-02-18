@@ -25,6 +25,7 @@
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2.analyzer :as ana]
+            [hyperfiddle.hfql2.ast :as ast]
             [dustingetz.loader :refer [Offload]]
             [contrib.assert :refer [is]])
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
@@ -52,11 +53,11 @@
           ::star)
       (and (hfql/recursion-end?! hfqlT) ; will run IO
         ::recursion-end)
-      (case (::ana/type metas)
-        ::ana/star ::star
-        ::ana/pull ::pull
-        ::ana/traversal (render-type (first (hfql/next-steps hfqlT)))
-        ::unknown))))
+      (cond
+        (ast/star? metas) ::star
+        (ast/pull? metas) ::pull
+        (ast/traversal? metas) (render-type (first (hfql/next-steps hfqlT)))
+        :else ::unknown))))
 
 (e/defn ResolveRenderer [hfqlT]
   (e/server
@@ -107,7 +108,7 @@
   (e/client
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
       (let [id (e/server (with-bindings* (or e/*bindings* {}) ; Inject bindings must be active before thunk forcing
-                           (fn [] (hash [(::ana/id ((glitch-guard hfql/metas) stepT)) ; HACK
+                           (fn [] (hash [(ast/node-id ((glitch-guard hfql/metas) stepT)) ; HACK
                                          (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
                                          ]))))]
         (rebooting id ; glitch guard

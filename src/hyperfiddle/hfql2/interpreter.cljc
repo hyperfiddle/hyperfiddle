@@ -165,7 +165,7 @@
                           (if (= ::unbound argument)
                             (either/left (ex-info "Unbound function argument" {:parameter parameter}))
                             (either/right argument))))
-                  (::ast/parameters point) (concat (::ast/arguments point) (repeat ::unbound)))]
+                  (ast/parameters point) (concat (ast/arguments point) (repeat ::unbound)))]
        (either/sequenceEither args))
      (catch #?(:clj Throwable, :cljs :default) err
        (either/left err)))))
@@ -175,9 +175,10 @@
 (defn- from-either [e] (either/either identity identity e))
 
 (defn template-symbolic-edge [env point & [point-free?]]
-  (let [edge (::ast/edge point)
-        {::ast/keys [form parameters]} edge]
-    (case (::ast/type edge)
+  (let [edge (ast/edge point)
+        form (ast/form edge)
+        parameters (ast/parameters edge)]
+    (case (ast/node-type edge)
       ::ast/call (cons (first form)
                    (map (fn [parameter argument]
                           (if (or (:symbolic (meta parameter)) (:symbolic (meta argument)))
@@ -192,9 +193,9 @@
 (declare hfql?)
 
 (defn symbolic-edge-static [point]
-  (::ast/symbolic-edge
-   (case (::ast/type point)
-     ::ast/traversal (::ast/edge point)
+  (ast/symbolic-edge
+   (case (ast/node-type point)
+     ::ast/traversal (ast/edge point)
      point)))
 
 (defn symbolic-edge ; FIXME uniformize
@@ -236,7 +237,7 @@
      ))
 
 (defn- getter [point]
-  (let [key (ana/unquote* (get point ::ast/form))]
+  (let [key (ana/unquote* (ast/form point))]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
       (binding [thunks/*cache-strategy* ::thunks/weak]
@@ -259,23 +260,23 @@
             (try
               (either/right
                 (fmap-original-object (fn [%]
-                                        (let [ifn (::ast/value point)]
+                                        (let [ifn (ast/node-value point)]
                                           (if (try (contains? % ifn) ; FIXME find a better check
                                                    (catch #?(:clj Throwable, :cljs :default) _
                                                      false))
-                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (::ast/form point)))
+                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (ast/form point)))
                                                 (*navigate* % ifn (get % ifn)))
-                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (::ast/form point)))
+                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (ast/form point)))
                                                 (apply ifn [%])))))
                   %))
               (catch #?(:clj Throwable, :cljs :default) err
                 (either/left err)))))))))
 
 (defn- call [point]
-  (let [call! (if (= ::ast/keyword-fn (::ast/kind point))
-                (let [key (::ast/form-resolved point)]
+  (let [call! (if (= ::ast/keyword-fn (ast/kind point))
+                (let [key (ast/form-resolved point)]
                   #(*navigate* %1 key (get %1 key)))
-                (let [f (::ast/value point)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
+                (let [f (ast/node-value point)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
                   #(apply f %&)))]
     (mem-reader
       (binding [thunks/*cache-strategy* ::thunks/weak]
@@ -283,7 +284,7 @@
           (=<<
             (fn [args]
               (try
-                #?(:clj (log/debug "[IO]" `call (::ast/symbolic-edge point)))
+                #?(:clj (log/debug "[IO]" `call (ast/symbolic-edge point)))
                 (either/right
                   (fmap-original-objects (fn [args] (apply call! args)) args))
                 (catch #?(:clj Throwable, :cljs :default) err
@@ -354,7 +355,7 @@
 
 (defn- recursion-point? [hfql]
   (or (= ::ast/recur (projection-type (extract hfql)))
-    (::ast/recursion-point (extract hfql))
+    (ast/recursion-point? (extract hfql))
     (when-let [child (first (unwrap hfql))]
       (and (star-traversal? (extract child))
         (recursion-point? child)))))
@@ -445,7 +446,7 @@ Pulling on non-maps (non associative) is perfectly fine.
     (take-while some?)
     (take-while (fn [%] (contains? (::env (extract %)) '%)))
     (last)
-    (mapHead #(assoc % ::ast/recursion-root true))
+    (mapHead ast/mark-recursion-root)
     ))
 
 (defn- recurse-or-stop
@@ -454,8 +455,8 @@ Pulling on non-maps (non associative) is perfectly fine.
   limit. Returns nil if the limit is exhausted."
   [hfql env limit-source]
   (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
-        limit (or (::ast/recursion-limit (extract limit-source))
-                  (::ast/recursion-limit (extract recursion-root))
+        limit (or (ast/recursion-limit (extract limit-source))
+                  (ast/recursion-limit (extract recursion-root))
                   0)]
     (when (pos? limit)
       (fmap #(assoc % ::ast/recursion-limit (dec limit)) recursion-root))))
@@ -527,17 +528,17 @@ Pulling on non-maps (non associative) is perfectly fine.
                         (insert-at star-position kids star-kids)
                         (if recur-point
                           (if-let [root (recurse-or-stop hfql env recur-point)]
-                            [(bf/first #(assoc % ::ast/recursive-child true) root)] ; only used in matrix.cljc. TODO confirm use case.
+                            [(bf/first ast/mark-recursive-child root)] ; only used in matrix.cljc. TODO confirm use case.
                             [])
                           []))
                       (mapv (fn [child] (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) hfql)) child))) ; TODO extract helper for parent-aware tree walk
                       ))))))
           ::ast/traversal
-          (let [lexical-symbol? (= ::ast/symbol (projection-type (::ast/edge point)))  ; not a function
-                lexical-value (::ast/value (::ast/edge point))
+          (let [lexical-symbol? (= ::ast/symbol (projection-type (ast/edge point)))  ; not a function
+                lexical-value (ast/node-value (ast/edge point))
                 edgeT (unfoldT hfqlT (cond (star-traversal? point) (ana/hfql identity)
                                            lexical-symbol? (ana/hfql identity)
-                                           :else (ana/hydrate [(::ast/edge point) ()]) ; ::leaf false is set by the analyzer
+                                           :else (ana/hydrate [(ast/edge point) ()]) ; ::leaf false is set by the analyzer
                                            ))]
             (constantly
               (mem-reader
@@ -613,8 +614,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                    (and (thunk? %) (clojure.core/realized? %)) (left? (force-thunk %))
                    (either? %) (left? %)
                    :else :unknown)]
-      (str "#hfql/" (name (::ast/type metadata :hfql/hfql)) " "
-        {:form (::ast/form metadata)
+      (str "#hfql/" (name (or (ast/node-type metadata) :hfql/hfql)) " "
+        {:form (ast/form metadata)
          :seeded? seeded?
          :realized? realized?
          :error? error?})))
@@ -639,12 +640,12 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- hfqlt-equals [^HFQLT this ^HFQLT other]
   (or (identical? this other)
     (and (instance? HFQLT this) (instance? HFQLT other)
-      (= (::ast/id (.-metadata this))
-        (::ast/id (.-metadata other)))
+      (= (ast/node-id (.-metadata this))
+        (ast/node-id (.-metadata other)))
       (= (pos (runCofreeT this))
         (pos (runCofreeT other))))))
 
-(defn- hfqlt-hash [^HFQLT hfqlt] (hash (::ast/id (.-metadata hfqlt))))
+(defn- hfqlt-hash [^HFQLT hfqlt] (hash (ast/node-id (.-metadata hfqlt))))
 
 (defn hoistHfqlT
   "Apply f to metadata at every node in the HFQLT tree. Lazy — children are only transformed when accessed."
@@ -661,7 +662,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   [t f & args] (apply vary-meta t f args))
 
 (defn- lexical-env [point]
-  (::ast/lexical-env point))
+  (ast/lexical-env point))
 
 (def iterator? cd/iterator?)
 (def enumeration? cd/enumeration?)
@@ -684,7 +685,7 @@ Pulling on non-maps (non associative) is perfectly fine.
              ;; built. And under * traversal IO will be forced to produce a new
              ;; list of children. FIXME, memoize the CofreeF instance and
              ;; rebuild it only if `value` or `children` did change.
-             ;; #?(:clj (log/debug "Unwrapping" (::ast/symbolic-edge (or (::ast/edge metas) metas))))
+             ;; #?(:clj (log/debug "Unwrapping" (ast/symbolic-edge (or (ast/edge metas) metas))))
              (let [[value children] (runReader step scope)]
                (->CofreeF value
                  (let [value (binding [thunks/*cache-strategy* ::thunks/hard] ; cache branch values, discarded when no leaves are referencing it, as per lazy-seq semantics, recursively up to the root.
@@ -704,7 +705,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                        ;; #dbg
                        (let [forced (if (contains? scope ::BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE) ; Used by hyperfiddle.navigator6.selection2/find-selectable-point
                                       '(nil)
-                                      (do #?(:clj (log/trace "Running IO for * traversal." (::ast/symbolic-edge (or (::ast/edge point) point))))
+                                      (do #?(:clj (log/trace "Running IO for * traversal." (ast/symbolic-edge (or (ast/edge point) point))))
                                           (either/either
                                             (constantly ()) ; stop navigation at first error
                                             identity
