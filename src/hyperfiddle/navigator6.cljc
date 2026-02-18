@@ -188,32 +188,35 @@
 (e/defn HfqlRoot
   "HFQL navigator entrypoint. Renders styles, tooltips, and dispatches routes.
 
-   setup-fn — (fn [args] -> bindings-map) called when route contains an Inject
-              segment, e.g. /(Inject,'mbrainz-full')/attributes/. The returned
-              map is merged into e/*bindings* for the subtree. nil is fine."
+   setup-fn — multi-arity (fn [& args] -> bindings-map) for dependency injection.
+              Zero-arity is called once at root — returned map is merged into e/*bindings*.
+              N-arity is called per Inject route segment, e.g. /(Inject,'mbrainz-full')/.
+              nil is fine (defaults to (constantly {}))."
   ([sitemap entrypoints] (HfqlRoot sitemap entrypoints nil))
   ([sitemap entrypoints setup-fn]
-   (let [setup-fn (or setup-fn (constantly {}))]
-     (e/server
+   (e/server
+     (let [setup-fn (or setup-fn (constantly {}))]
        (binding [#_#_e/*exports* (e/exports)
-                 e/*bindings* (#(or e/*bindings* {}))
-                 rendering/*server-pretty (or (get e/*bindings* #'rendering/*server-pretty)
-                                            rendering/*server-pretty
-                                            {})
-                 rendering/*tooltip-fn* (or (get e/*bindings* #'rendering/*tooltip-fn*)
-                                          rendering/*tooltip-fn*)]
-         (e/client
-           (dom/style (dom/text css tooltip/css))
-           (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))
-           (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
-           (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
-           #_(Index sitemap entrypoints) ;; replaced by in-band HFQL pages index
-           (tooltip/TooltipArea
-             (e/fn []
-               (tooltip/Tooltip)
-               (dom/div
-                 (dom/props {:class "Browser"})
-                 (RouteDispatch sitemap entrypoints setup-fn))))))))))
+                 e/*bindings* (merge
+                                {#'rendering/*server-pretty {}
+                                 #'rendering/*tooltip-fn* nil}
+                                (#(or e/*bindings* {}))
+                                (e/Offload #(setup-fn)))]
+         (binding [rendering/*server-pretty (get e/*bindings* #'rendering/*server-pretty)
+                   rendering/*tooltip-fn* (get e/*bindings* #'rendering/*tooltip-fn*)]
+           (e/client
+             (dom/style (dom/text css tooltip/css))
+             (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))
+             (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
+             (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
+             (forms/Checkbox* false {:class "data-loader__enabled" :style {:position :absolute, :inset-block-start "1dvw", :inset-inline-end "1dvw"}})
+             #_(Index sitemap entrypoints) ;; replaced by in-band HFQL pages index
+             (tooltip/TooltipArea
+               (e/fn []
+                 (tooltip/Tooltip)
+                 (dom/div
+                   (dom/props {:class "Browser"})
+                   (RouteDispatch sitemap entrypoints setup-fn)))))))))))
 
 
 

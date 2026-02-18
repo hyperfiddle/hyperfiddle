@@ -13,9 +13,10 @@
    [datomic.api :as d]
    [datomic.lucene]
    [dustingetz.datomic-contrib2 :as dx] ; side-effect: extends EntityMap
-   [dustingetz.str :refer [blank->nil]]
+   [dustingetz.str :refer [blank->nil pprint-str]]
    [hyperfiddle.hfql2 :as hfql :refer [hfql hfql-resolve]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve Navigable Suggestable ComparableRepresentation]]
+   [hyperfiddle.navigator6.rendering :as rendering]
    [hyperfiddle.navigator6.search :refer [*local-search]])
   (:import [datomic.db Datum Db]))
 
@@ -226,7 +227,8 @@
 
 (def rich-sitemap
   {'databases
-   (hfql {(databases) {* [db-name d/db-stats]}})
+   (hfql {(databases) {* [^{::hfql/link ['. [`(~'Inject ~'%v) 'attributes]]}
+                           db-name d/db-stats]}})
 
    'attributes
    (hfql {(attributes)
@@ -279,6 +281,33 @@
                 ::hfql/Tooltip `hyperfiddle.navigator6.rendering/FnTooltip}
               #(:tx %)
               :added]}})})
+
+;; ── Setup function (DI for agent and fiddle hosting) ────────────
+
+(defn make-setup-fn
+  "Create the multi-arity setup-fn for dependency injection.
+   Zero-arity:  static bindings for root (URI, security flag, rendering config).
+   One-arity:   called per Inject route segment with db-name from URL."
+  [datomic-uri]
+  (fn
+    ([] ;; Static bindings — always active on every page
+     {#'*uri* datomic-uri
+      #'*allow-listing-and-browsing-all-dbs* true
+      #'rendering/*server-pretty
+      {datomic.query.EntityMap
+       (fn [entity] (str "EntityMap[" (dx/best-human-friendly-identity entity) "]"))}
+      #'rendering/*tooltip-fn*
+      (fn [_entity _edge value]
+        (pprint-str (into {} (d/touch value)) :print-length 10 :print-level 2))})
+    ([db-name] ;; Called when route has (Inject "mbrainz-full")
+     (let [uri (dx/set-db-name-in-datomic-uri datomic-uri db-name)
+           conn (d/connect uri)
+           db (d/db conn)]
+       {#'*uri*      uri
+        #'*db-name*  db-name
+        #'*conn*     conn
+        #'*db*       db
+        #'*db-stats* (d/db-stats db)}))))
 
 (comment
   ;; ── Demo: connect an agent with datomic browsing ──────────────
