@@ -251,13 +251,13 @@
                       ::ast/form-short #?(:clj (aliased-form form), :cljs form)}
          ::ast/string    {::ast/symbolic-edge form}
          ::ast/symbol    {::ast/symbolic-edge form ; potentially aliased
-                      ::ast/value (escape-method-call form), ; macroexpand will auto-resolve
+                      ::ast/resolved-runtime-value (escape-method-call form), ; macroexpand will auto-resolve
                       ::ast/var (var-resolver env form) ; nil if symbol is lexicaly bound
                       ::ast/form-resolved (resolver env form) ; resolve via eventual ns alias
                       ::ast/form-short #?(:clj (aliased-form form), :cljs form)}
          ::ast/var       (let [sym (second form)]
                       {::ast/symbolic-edge form ; the var object itself
-                       ::ast/value form ; also the var object itself
+                       ::ast/resolved-runtime-value form ; also the var object itself
                        ::ast/parameters '(%)
                        ::ast/form-resolved (resolver env sym)
                        ::ast/form-short #?(:clj (aliased-form sym), :cljs sym)})
@@ -271,25 +271,25 @@
                        (merge
                          {::ast/form form'
                           ::ast/symbolic-edges form'
-                          ::ast/has-star? (boolean (some #(= ::ast/star (::ast/type %)) (map (φ env) form)))}
+                          ::ast/pull-has-star? (boolean (some #(= ::ast/star (::ast/type %)) (map (φ env) form)))}
                          (when-some [recursion (first (filter recursion-point form))]
                            {::ast/recursion-point true
                             ::ast/recursion-limit (::ast/recursion-limit (φ env recursion))})))
          ::ast/fn        {::ast/symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
-                      ::ast/value form} ; already resolved
+                      ::ast/resolved-runtime-value form} ; already resolved
          ::ast/lambda    (let [base {::ast/symbolic-edge (let [[_fn ?name ?parameters] form]
                                                    (if (symbol? ?name)
                                                      `(~'fn ~?name ~'...)
                                                      '(fn anonymous ...)))
                                  ::ast/parameters '(%)
                                  ::ast/partial true
-                                 ::ast/value form}]
+                                 ::ast/resolved-runtime-value form}]
                        (if-let [kw (get-kw-fn-form-kw form)]
                          (merge base (select-keys (φ env kw) #{::ast/symbolic-edge ::ast/form-resolved ::ast/form-short}) {::ast/kind ::ast/keyword-fn})
                          base))
          ::ast/call      (let [[f & params] form] ; symbolic – quoted by defmacro
                        {::ast/symbolic-edge form ; symbolic – interpreter will template later
-                        ::ast/value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
+                        ::ast/resolved-runtime-value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
                         ::ast/var (var-resolver env f)
                         ::ast/parameters params
                         ::ast/arguments (replace {'% ''%} params)
@@ -361,9 +361,9 @@
   ([env hfql] (unfold (φ env) ψ (postwalk reshape-traversals-up (prewalk reshape-traversals-down hfql)))))
 
 (tests
-  (::ast/has-star? (extract (analyze {} [:a])))
+  (::ast/pull-has-star? (extract (analyze {} [:a])))
   := false
-  (::ast/has-star? (extract (analyze {} [:a '*])))
+  (::ast/pull-has-star? (extract (analyze {} [:a '*])))
   := true
   )
 

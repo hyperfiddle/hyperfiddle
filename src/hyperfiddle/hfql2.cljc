@@ -50,7 +50,7 @@
 (defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
 (def metas meta) ; HFQLT implements IMeta — meta returns the static metadata map
-(defpointfree pull-has-star? (comp ast/has-star? meta))
+(defpointfree pull-has-star? (comp ast/pull-has-star? meta))
 (defpointfree partial? (comp ast/partial? meta))
 (defpointfree fullfilled? (some-fn seeded? (complement partial?)))
 (defpointfree hfql? co/hfql?)
@@ -397,7 +397,7 @@
       :hyperfiddle.hfql2.ast/form [:a :b :c],
       :hyperfiddle.hfql2.ast/lexical-env '{},
       :hyperfiddle.hfql2.ast/symbolic-edges [:a :b :c]
-      :hyperfiddle.hfql2.ast/has-star? false
+      :hyperfiddle.hfql2.ast/pull-has-star? false
       :hyperfiddle.hfql2.ast/partial _}
   )
 
@@ -456,7 +456,7 @@
       :hyperfiddle.hfql2.ast/symbolic-edges [:a :b :c],
       :hyperfiddle.hfql2.interpreter/static-children _
       :hyperfiddle.hfql2.interpreter/scope '{a 1, b 2}
-      :hyperfiddle.hfql2.ast/has-star? false
+      :hyperfiddle.hfql2.ast/pull-has-star? false
       :hyperfiddle.hfql2.ast/partial _
       })
 
@@ -827,7 +827,7 @@ identifier, though it might not be serializable."
     (when hfqlT
       (-> (if-let [suggestedT (suggest-at-point! hfqlT)]
             (if (-> (::default (metas suggestedT))    ; default was suggested
-                  (and (ast/has-star? (metas hfqlT))) ; but static expression has a *
+                  (and (ast/pull-has-star? (metas hfqlT))) ; but static expression has a *
                   (and (> 1 (count (children-ids hfqlT))))) ; so if there's more static children than just *, skip rendering defaults
               hfqlT
               (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))
@@ -986,10 +986,9 @@ identifier, though it might not be serializable."
 
 (defmethod describe-formatted ::ast/symbol [hfqlT]
   (let [desc (describe hfqlT)
-        form (ast/form desc)
         form-resolved (ast/form-resolved desc)
         var (ast/node-var desc)]
-    (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" (or form-resolved form) (some-> var meta :arglists) (some-> var meta :doc))))
+    (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" form-resolved (some-> var meta :arglists) (some-> var meta :doc))))
 
 (defmethod describe-formatted ::ast/keyword [hfqlT] (ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/string  [hfqlT] (ast/form (describe hfqlT)))
