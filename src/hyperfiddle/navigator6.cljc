@@ -206,6 +206,7 @@
                    rendering/*tooltip-fn* (get e/*bindings* #'rendering/*tooltip-fn*)]
            (e/client
              (dom/style (dom/text css tooltip/css))
+             (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "electric-forms.css"))}))
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix.css"))}))
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
@@ -234,7 +235,13 @@
   )
 
 (def css
-  (str forms/css
+  (str
+    "@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700;800&display=swap');
+*:has(.Browser), .Browser, .Browser * { box-sizing: border-box; }
+body:has(.Browser) { font-family: 'Open Sans', Arial, Verdana, sans-serif; background-color: rgb(248 250 252); }
+html:has(.Browser) { scrollbar-gutter: stable; }
+"
+    forms/css
     loader/css
     table-block-css
 

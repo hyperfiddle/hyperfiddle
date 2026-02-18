@@ -12,7 +12,7 @@
                              :connection "scm:git:git://github.com/hyperfiddle/hyperfiddle.git"
                              :developerConnection "scm:git:ssh://git@github.com/hyperfiddle/hyperfiddle.git"}
 
- :hyperfiddle/imported-demos {"../datomic-browser/src/dustingetz/datomic_browser2.cljc" "target/classes/dustingetz/datomic_browser2.cljc"}
+ :hyperfiddle/imported-demos {}
  :deps/prep-lib {:alias :build :fn prep :ensure "target/classes"}
  :paths ["src" "resources" "target/classes"]
 
