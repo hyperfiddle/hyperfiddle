@@ -14,7 +14,6 @@
 (s/def ::partial boolean?)     ; true while the node still expects arguments (e.g. `%`)
 (s/def ::id int?)              ; content-derived hash, see `compute-node-id`
 (s/def ::symbolic-edge any?)   ; the edge label for this node in its parent pull (keyword, symbol, string, ...)
-(s/def ::symbolic-edges (s/coll-of any?)) ; ordered edge labels for children of a pull node
 (s/def ::form-resolved any?)   ; alias-resolved form. May be a qualified keyword (::foo), qualified
                                ; symbol (clojure.core/inc), or a full call form ((my.ns/fn arg1 %)).
                                ; The type depends on the node -- this spec is intentionally open.
@@ -22,7 +21,7 @@
 (s/def ::resolved-runtime-value any?) ; the value obtained by resolving this node's form (e.g. the function
                                       ; object for a symbol, the var for a var ref). Only present on nodes where
                                       ; resolution produces something distinct from the form itself.
-(s/def ::var (s/nilable var?))  ; the Clojure var backing this node, if any
+(s/def ::var (s/nilable var?))  ; the Clojure var backing this node, if any. E.g. a symbol resolving to lexical scope won't have a var.
 (s/def ::parameters sequential?) ; symbolic parameter list (symbols like ['db '%])
 (s/def ::arguments sequential?)  ; runtime argument values provided at a call site
 (s/def ::pull-has-star? boolean?) ; whether a pull expression contains the `*` wildcard. Pull nodes only.
@@ -71,7 +70,8 @@
   (s/keys :req [::type ::form ::lexical-env ::partial ::id ::form-short]))
 
 (defmethod node-spec ::string [_]
-  (s/keys :req [::type ::form ::lexical-env ::partial ::id]))
+  (s/and (s/keys :req [::type ::form ::lexical-env ::partial ::id])
+         #(string? (::form %))))
 
 (defmethod node-spec ::symbol [_]
   (s/keys :req [::type ::form ::lexical-env ::partial ::id
@@ -91,7 +91,8 @@
           :opt [::recursion-point ::recursion-limit]))
 
 (defmethod node-spec ::fn [_]
-  (s/keys :req [::type ::form ::lexical-env ::partial ::id]))
+  (s/keys :req [::type ::form ::lexical-env ::partial ::id]
+          :opt [::resolved-runtime-value ::var ::form-resolved ::form-short]))
 
 (defmethod node-spec ::lambda [_]
   (s/keys :req [::type ::form ::lexical-env ::partial ::id
@@ -184,37 +185,48 @@
   [form-meta form lexical-env]
   (finalize (merge form-meta {::type ::string, ::form form, ::lexical-env lexical-env})))
 
+(declare ->fn)
+
 (defn ->symbol
   "Construct a symbol node. Represents a bare symbol reference that resolves to a
-  value at runtime. Distinguished from `->var` by not being var-backed and from
-  `->fn` by not being callable."
+  value at runtime. When the value is a function, delegates to `->fn` so that
+  the node's type is `::fn` — the interpreter dispatches fn-valued symbols
+  differently (get-or-call vs getter)."
   [form-meta form lexical-env value var form-resolved form-short]
-  (finalize (merge form-meta {::type ::symbol, ::form form, ::lexical-env lexical-env
-                              ::resolved-runtime-value value, ::var var
-                              ::form-resolved form-resolved, ::form-short form-short})))
+  (if (fn? value) ; TODO looks like a wart. figure out if we can drop `::fn` and only keep `::symbol`.
+    (->fn form-meta form lexical-env
+      :value value :var var :form-resolved form-resolved :form-short form-short)
+    (finalize (merge form-meta {::type ::symbol, ::form form, ::lexical-env lexical-env
+                                ::resolved-runtime-value value, ::var var
+                                ::form-resolved form-resolved, ::form-short form-short}))))
 
 (defn ->var
   "Construct a var node. Represents a Clojure var reference with known parameters.
   The form is the var form itself (e.g. `#'inc`). `symbolic-edge`, `node-value`,
   and `parameters` are all derived: symbolic-edge and value are the form,
-  parameters are always `'(%)`."
+  parameters are always `'(%)`.
+  NOTE: `form-resolved` and `form-short` could be derived from the var object's
+  metadata (`:ns`, `:name`). This simplification is deferred to the φ-wiring
+  phase, when the analyzer calls constructors directly with real var objects
+  instead of symbolic `(var sym)` forms."
   [form-meta form lexical-env form-resolved form-short]
   (finalize (merge form-meta {::type ::var, ::form form, ::lexical-env lexical-env
                               ::form-resolved form-resolved, ::form-short form-short})))
 
 (defn ->quoted-var
   "Construct a quoted-var node (`#'foo`). The var is referenced but not called;
-  its value is the var object itself."
-  [form-meta form lexical-env symbolic-edge form-resolved form-short]
+  its value is the var object itself. `symbolic-edge` is always the form itself
+  (derived, not passed)."
+  [form-meta form lexical-env form-resolved form-short]
   (finalize (merge form-meta {::type ::quoted-var, ::form form, ::lexical-env lexical-env
-                              ::symbolic-edge symbolic-edge, ::form-resolved form-resolved
+                              ::symbolic-edge form, ::form-resolved form-resolved
                               ::form-short form-short})))
 
 (defn ->pull
   "Construct a pull node. A pull collects a set of edges (its children) from a
-  map-like value. `symbolic-edges` is derived from the form (the vector of edge
-  labels). `pull-has-star?` indicates whether `*` was present, which triggers
-  dynamic suggestion augmentation at runtime."
+  map-like value. `symbolic-edge` returns the form (the vector of edge labels).
+  `pull-has-star?` indicates whether `*` was present, which triggers dynamic
+  suggestion augmentation at runtime."
   [form-meta form lexical-env pull-has-star?
    & {:keys [recursion-point recursion-limit]}]
   (finalize (cond-> (merge form-meta {::type ::pull, ::form form, ::lexical-env lexical-env
@@ -222,12 +234,18 @@
               recursion-point (assoc ::recursion-point true, ::recursion-limit recursion-limit))))
 
 (defn ->fn
-  "Construct an fn node. Represents a plain function value (not a var) used as
-  an edge. The function will be applied to the value at point during traversal.
-  Both `symbolic-edge` and `node-value` are derived from the form (the function
-  object itself)."
-  [form-meta form lexical-env]
-  (finalize (merge form-meta {::type ::fn, ::form form, ::lexical-env lexical-env})))
+  "Construct an fn node. Represents a function value used as an edge. The
+  function will be applied to the value at point during traversal. Both
+  `symbolic-edge` and `node-value` are derived from the form. When called
+  from `->symbol` for a symbol that resolves to a function, the optional
+  keyword args carry the symbol's metadata (var, display forms, etc.)."
+  [form-meta form lexical-env
+   & {:keys [value var form-resolved form-short]}]
+  (finalize (cond-> (merge form-meta {::type ::fn, ::form form, ::lexical-env lexical-env})
+              value         (assoc ::resolved-runtime-value value)
+              var           (assoc ::var var)
+              form-resolved (assoc ::form-resolved form-resolved)
+              form-short    (assoc ::form-short form-short))))
 
 (defn ->lambda
   "Construct a lambda node. Represents an inline function expression. Lambda
@@ -252,12 +270,13 @@
   arglists, and records the provided arguments -- i.e. all values that are
   bound at analysis time (literals, lexical bindings, etc.), as opposed to
   unbound parameters like `%` which are resolved later at runtime.
-  `symbolic-edge` is derived from the form (the full call form)."
-  [form-meta form lexical-env value var parameters arguments
-   partial form-resolved]
+  `symbolic-edge` is derived from the form (the full call form).
+  `partial` is inferred: true when `parameters` contains the symbol `%`."
+  [form-meta form lexical-env value var parameters arguments form-resolved]
   (finalize (merge form-meta {::type ::call, ::form form, ::lexical-env lexical-env
                               ::resolved-runtime-value value, ::var var
-                              ::parameters parameters, ::arguments arguments, ::partial partial
+                              ::parameters parameters, ::arguments arguments
+                              ::partial (boolean (some #{'%} parameters))
                               ::form-resolved form-resolved})))
 
 (defn- ->traversal
@@ -330,36 +349,29 @@
   [node] (or (::form-resolved node) (::form node)))
 
 (defn symbolic-edge
-  "Return the edge label for this node in its parent pull. This is what
-  identifies a column in a table view -- e.g. `:user/name`, `'identity`,
-  `\"json-key\"`. For most edge types (literal, keyword, string, symbol, var,
-  fn, call) the edge label is the form itself. Only quoted-var and lambda store
-  a distinct symbolic-edge. Returns nil for structural nodes (pull, star, recur,
-  traversal) that don't represent a single edge."
+  "Return the edge label(s) for this node. For most edge types (literal,
+  keyword, string, symbol, var, fn, call) the edge label is the form itself.
+  For pull nodes, returns the ordered vector of child edge labels (the form).
+  Only quoted-var and lambda store a distinct symbolic-edge. Returns nil for
+  structural nodes (star, recur, traversal) that don't represent an edge."
   [node]
   (if (contains? node ::symbolic-edge)
     (::symbolic-edge node)
     (case (node-type node)
-      (::literal ::keyword ::string ::symbol ::var ::fn ::call) (::form node)
+      (::literal ::keyword ::string ::symbol ::var ::fn ::call ::pull) (::form node)
       nil)))
-
-(defn symbolic-edges
-  "Return the ordered list of child edge labels for a pull node. Determines
-  column order in table views. Derived from the form (pull forms and their
-  edge list are the same value)."
-  [node] (when (= ::pull (node-type node)) (::form node)))
 
 (defn node-value
   "Return the runtime value of this node. For nodes that carry a distinct
   resolved runtime value (symbol, call), returns it. For nodes where the form IS
-  the value (keyword, literal, string, fn, var, lambda), returns the form.
-  Returns nil for structural nodes (pull, star, recur, traversal, quoted-var)
-  that don't represent a single value."
+  the value (keyword, literal, string, fn, var, lambda, quoted-var), returns the
+  form. Returns nil for structural nodes (pull, star, recur, traversal) that
+  don't represent a single value."
   [node]
   (if (contains? node ::resolved-runtime-value)
     (::resolved-runtime-value node)
     (case (node-type node)
-      (::keyword ::literal ::string ::fn ::var ::lambda) (::form node)
+      (::keyword ::literal ::string ::fn ::var ::lambda ::quoted-var) (::form node)
       nil)))
 
 (defn node-var
@@ -491,16 +503,6 @@
   when the traversal has a continuation. Absent key is treated as true."
   [node] (not (false? (::leaf node))))
 
-(defn projection-type
-  "Classify an AST node for interpreter dispatch. Returns the `::type` value
-  for most nodes, but refines `::symbol` to `::fn` when the node's runtime
-  value is a function. This distinction matters because symbols that resolve to
-  functions are called during traversal, while other symbols are looked up as
-  keys."
-  [point]
-  (case (node-type point)
-    ::symbol (if (fn? (node-value point)) ::fn ::symbol)
-    (node-type point)))
 
 ;;;; Mutators
 ;;
@@ -551,6 +553,7 @@
    (valid-node? n) := true
    (star? n) := true
    (form n) := '*
+   (node-value n) := nil
    (partial? n) := true
    ))
 
@@ -568,6 +571,7 @@
    (form n) := '...
    (unbounded-recursion? n) := true
    (bounded-recursion? n) := false
+   (node-value n) := nil
    (recursion-limit n) := ##Inf
    (recursion-limit (dec-recursion-limit n)) := ##Inf
    ))
@@ -597,6 +601,7 @@
    (valid-node? n) := true
    (literal? n) := true
    (node-value n) := 42
+   (node-value (->literal nil nil {})) := nil ; form IS the value, even when nil
    (symbolic-edge n) := 42
    (partial? n) := true
    ))
@@ -608,6 +613,7 @@
    (keyword-node? n) := true
    (form n) := :db/ident
    (symbolic-edge n) := :db/ident
+   (node-value n) := :db/ident
    (form-resolved n) := :db/ident
    (form-short n) := :ident
    (partial? n) := true
@@ -620,6 +626,7 @@
    (string-node? n) := true
    (form n) := "name"
    (symbolic-edge n) := "name"
+   (node-value n) := "name"
    (partial? n) := true
    ))
 
@@ -638,10 +645,12 @@
    ))
 
 (tests
-  "->symbol (fn value)"
+  "->symbol (fn value) delegates to ->fn"
   (let [n (->symbol nil 'inc {} inc #'inc 'clojure.core/inc 'inc)]
     (valid-node? n) := true
-    (symbol-node? n) := true
+    (fn-node? n) := true        ; fn-valued symbols become ::fn nodes
+    (symbol-node? n) := false   ; no longer ::symbol
+    (node-type n) := ::fn
     (node-value n) := inc
     (node-var n) := #'inc
     (form-resolved n) := 'clojure.core/inc
@@ -651,7 +660,7 @@
 
 (tests
  "->var"
- (let [n (->var nil #'inc {} 'clojure.core/inc 'inc)] ; TODO don't pass the resolved form, it can be infered from the var object itself.
+ (let [n (->var nil #'inc {} 'clojure.core/inc 'inc)]
    (valid-node? n) := true
    (var-node? n) := true
    (node-value n) := #'inc
@@ -663,10 +672,11 @@
 
 (tests
  "->quoted-var"
- (let [n (->quoted-var nil '#'inc {} '#'inc 'clojure.core/inc 'inc)] ; TODO no need to pass '#'inc twice.
+ (let [n (->quoted-var nil '#'inc {} 'clojure.core/inc 'inc)]
    (valid-node? n) := true
    (quoted-var? n) := true
    (symbolic-edge n) := '#'inc
+   (node-value n) := '#'inc
    (form-resolved n) := 'clojure.core/inc
    (form-short n) := 'inc
    (partial? n) := true
@@ -678,7 +688,8 @@
    (valid-node? n) := true
    (pull? n) := true
    (form n) := [:a :b]
-   (symbolic-edges n) := [:a :b] ; TODO symbolic-edges as an accessor function should not exist. It should be `symbolic-edge` that, when called on pull does return the symbolic edges value.
+   (symbolic-edge n) := [:a :b]
+   (node-value n) := nil
    (pull-has-star? n) := false
    (partial? n) := true
    ))
@@ -689,17 +700,17 @@
    (valid-node? n) := true
    (pull? n) := true
    (pull-has-star? n) := true
-   (symbolic-edges n) := [:a '*] ; TODO same comment as above.
+   (symbolic-edge n) := [:a '*]
    (partial? n) := true
    ))
 
 (tests
  "->pull with recursion"
- (let [n (->pull nil [:a] {} false :recursion-point true :recursion-limit ##Inf)] ; TODO recursion point and limit should not be passed as an arg to the constructor, instead AST nodes should have ::children and form a Rose Tree. Recursion point becomes a derived (computed) value and recursion limit is derived from the node-value of the eventual recusion node child.
+ (let [n (->pull nil [:a] {} false :recursion-point true :recursion-limit ##Inf)] ; Deferred: derive recursion-point/limit from children once AST is a rose tree
    (valid-node? n) := true
    (recursion-point? n) := true
    (recursion-limit n) := ##Inf
-   (symbolic-edges n) := [:a] ; TODO same comment about symbolic-edge vs symbolic-edges. ; TODO also as a consequence of the comment about recursion-point, the returned value here should contain `'...` .
+   (symbolic-edge n) := [:a]
    (partial? n) := true
    ))
 
@@ -717,6 +728,7 @@
  (let [n (->lambda nil '(fn [%] (:db/id %)) {} '(fn [%] (:db/id %)) '(%))]
    (valid-node? n) := true
    (lambda? n) := true
+   (node-value n) := '(fn [%] (:db/id %))
    (parameters n) := '(%)
    (kind n) := nil
    (partial? n) := true
@@ -734,7 +746,7 @@
 
 (tests
  "->call"
- (let [n (->call nil '(+ 42 a %) {'a 1} +  #'+ '(42 a %) '(42 1 '%) true 'clojure.core/+)] ; TODO partial should be infered and computed. ; TODO form resolved should be derived from the resolved var, if any. If `f` resolve to a lexical binding then there's no var and we can reused the symbolic form.
+ (let [n (->call nil '(+ 42 a %) {'a 1} +  #'+ '(42 a %) '(42 1 '%) 'clojure.core/+)]
    (valid-node? n) := true
    (call? n) := true
    (node-value n) := +
@@ -747,7 +759,7 @@
 
 (tests
  "->call non-partial"
- (let [n (->call nil '(inc 42) {} inc #'inc '(x) '(42) false 'clojure.core/inc)] ; TODO same comment(s) as above.
+ (let [n (->call nil '(inc 42) {} inc #'inc '(x) '(42) 'clojure.core/inc)]
    (valid-node? n) := true
    (call? n) := true
    (partial? n) := false
@@ -761,6 +773,7 @@
    (star-traversal? n) := true
    (kind n) := ::star
    (multiplicity n) := ::many
+   (node-value n) := nil
    (edge n) := nil ; correct. '* is purely syntactic.
    (lexical-env n) := {}
    (partial? n) := true
@@ -768,7 +781,7 @@
 
 (tests
  "->star-traversal with recursion"
- (let [n (->star-traversal nil '{* ...} true :recursion-point true :recursion-limit ##Inf)] ; TODO same comment as for pull with recursion.
+ (let [n (->star-traversal nil '{* ...} true :recursion-point true :recursion-limit ##Inf)] ; Deferred: derive from children once AST is a rose tree
    (valid-node? n) := true
    (traversal? n) := true
    (star-traversal? n) := true
@@ -794,76 +807,22 @@
    ))
 
 (tests
- "->edge-traversal with ::many"
- (let [kw-edge (->keyword nil :users {} :users)
-       n (->edge-traversal nil '{:users [...]} kw-edge true :multiplicity ::many)] ; TODO this test is not a thing. Multiplicity many comes from the use of star traversal. This test should be removed.
-   (valid-node? n) := true
-   (multiplicity n) := ::many))
-
-(tests
- "->edge-traversal with recursion"
+ "->edge-traversal with unbounded recursion (`...`)"
  (let [kw-edge (->keyword nil :children {} :children)
        n (->edge-traversal nil '{:children ...} kw-edge true
-                           :recursion-point true :recursion-limit 3)] ; TODO this test is legit, but the user of `...` implies recursion limit should be ##Inf. Also we should have a sibling test for `{:children 3}`.
+                           :recursion-point true :recursion-limit ##Inf)]
+   (valid-node? n) := true
+   (recursion-point? n) := true
+   (recursion-limit n) := ##Inf))
+
+(tests
+ "->edge-traversal with bounded recursion (`{:children 3}`)"
+ (let [kw-edge (->keyword nil :children {} :children)
+       n (->edge-traversal nil '{:children 3} kw-edge true
+                           :recursion-point true :recursion-limit 3)]
    (valid-node? n) := true
    (recursion-point? n) := true
    (recursion-limit n) := 3))
-
-(tests
- "node-value: keyword returns form"
- (node-value (->keyword nil :db/id {} :id)) := :db/id)
-
-(tests
- "node-value: literal returns form"
- (node-value (->literal nil 42 {})) := 42)
-
-(tests
- "node-value: literal nil returns nil (via form branch)"
- (node-value (->literal nil nil {})) := nil)
-
-(tests
- "node-value: string returns form"
- (node-value (->string nil "x" {})) := "x")
-
-(tests
- "node-value: symbol returns resolved-runtime-value"
- (node-value (->symbol nil 'x {} 99 nil 'x 'x)) := 99)
-
-(tests
- "node-value: fn returns resolved-runtime-value"
- (node-value (->fn nil inc {})) := inc)
-
-(tests
- "node-value: var returns resolved-runtime-value"
- (node-value (->var nil #'inc {} 'clojure.core/inc 'inc)) := #'inc)
-
-(tests
- "node-value: lambda returns resolved-runtime-value"
- (node-value (->lambda nil '(fn [%] %) {} '(fn [%] %) '(%))) := '(fn [%] %)) ; TODO this test is not great. ->lambda should take a parameter for the lambda's runtime value and here we should compare the value, not the quoted form.
-
-(tests
- "node-value: call returns resolved-runtime-value"
- (node-value (->call nil '(f) {} 'f nil '() '() false 'f)) := 'f) ; TODO same as for lambda just above.
-
-(tests
- "node-value: pull returns nil (structural)"
- (node-value (->pull nil [:a] {} false)) := nil)
-
-(tests
- "node-value: star returns nil (structural)"
- (node-value (->star nil)) := nil)
-
-(tests
- "node-value: recur returns nil (structural)"
- (node-value (->unbounded-recursion nil)) := nil)
-
-(tests
- "node-value: traversal returns nil (structural)"
- (node-value (->star-traversal nil '{* x} true)) := nil)
-
-(tests
- "node-value: quoted-var returns nil (structural)"
- (node-value (->quoted-var nil '#'inc {} '#'inc 'clojure.core/inc 'inc)) := nil) ; TODO no this should return the quoted var form
 
 (tests
  "form-short returns ::form-short when present"
@@ -889,109 +848,7 @@
  (star? (->star nil)) := true
  (star? (->literal nil 42 {})) := false)
 
-(tests ; TODO remove this test, already covered above
- "recur-node?"
- (recur-node? (->unbounded-recursion nil)) := true
- (recur-node? (->star nil)) := false)
-
-(tests ; TODO remove this test, already covered above
- "literal?"
- (literal? (->literal nil 42 {})) := true
- (literal? (->keyword nil :a {} :a)) := false)
-
-(tests ; TODO remove this test, already covered above
- "keyword-node?"
- (keyword-node? (->keyword nil :a {} :a)) := true
- (keyword-node? (->literal nil 42 {})) := false)
-
-(tests ; TODO remove this test, already covered above
- "string-node?"
- (string-node? (->string nil "x" {})) := true
- (string-node? (->keyword nil :a {} :a)) := false)
-
-(tests ; TODO remove this test, already covered above
- "symbol-node?"
- (symbol-node? (->symbol nil 'x {} 1 nil 'x 'x)) := true
- (symbol-node? (->keyword nil :a {} :a)) := false)
-
-(tests ; TODO remove this test, already covered above
- "var-node?"
- (var-node? (->var nil #'inc {} 'clojure.core/inc 'inc)) := true
- (var-node? (->symbol nil 'x {} 1 nil 'x 'x)) := false)
-
-(tests ; TODO remove this test, already covered above
- "quoted-var?"
- (quoted-var? (->quoted-var nil '#'inc {} '#'inc 'clojure.core/inc 'inc)) := true
- (quoted-var? (->var nil #'inc {} 'clojure.core/inc 'inc)) := false)
-
-(tests ; TODO remove this test, already covered above
- "pull?"
- (pull? (->pull nil [:a] {} false)) := true
- (pull? (->star nil)) := false)
-
-(tests ; TODO remove this test, already covered above
- "fn-node?"
- (fn-node? (->fn nil inc {})) := true
- (fn-node? (->symbol nil 'x {} 1 nil 'x 'x)) := false)
-
-(tests ; TODO remove this test, already covered above
- "lambda?"
- (lambda? (->lambda nil '(fn [%] %) {} '(fn [%] %) '(%))) := true
- (lambda? (->fn nil inc {})) := false)
-
-(tests ; TODO remove this test, already covered above
- "call?"
- (call? (->call nil '(f) {} 'f nil '() '() false 'f)) := true
- (call? (->lambda nil '(fn [%] %) {} '(fn [%] %) '(%))) := false)
-
-(tests ; TODO remove this test, already covered above
- "traversal?"
- (traversal? (->star-traversal nil '{* x} true)) := true
- (traversal? (->pull nil [:a] {} false)) := false)
-
-(tests ; TODO remove this test, already covered above
- "star-traversal? checks both traversal type and star kind"
- (star-traversal? (->star-traversal nil '{* x} true)) := true
- (let [kw (->keyword nil :a {} :a)]
-   (star-traversal? (->edge-traversal nil '{:a [...]} kw true))) := false
- (star-traversal? (->star nil)) := false) ; pull star is NOT a star traversal
-
-(tests ; TODO remove this test, already covered above
- "multiplicity-many?"
- (multiplicity-many? (->star-traversal nil '{* x} true)) := true
- (let [kw (->keyword nil :a {} :a)]
-   (multiplicity-many? (->edge-traversal nil '{:a [...]} kw true))) := false
- (let [kw (->keyword nil :a {} :a)]
-   (multiplicity-many? (->edge-traversal nil '{:a [...]} kw true :multiplicity ::many))) := true)
-
-(tests ; TODO remove this test, not meaningful after the AST rose tree refactor.
- "recursion-point?"
- (recursion-point? (->pull nil [:a] {} false :recursion-point true :recursion-limit ##Inf)) := true
- (recursion-point? (->pull nil [:a] {} false)) := false
- (recursion-point? (->star-traversal nil '{* ...} true :recursion-point true :recursion-limit 3)) := true)
-
-(tests ; TODO remove this test, already covered above
- "bounded-recursion?"
- (bounded-recursion? (->bounded-recursion nil 5)) := true
- (bounded-recursion? (->unbounded-recursion nil)) := false
- (bounded-recursion? (->star nil)) := false) ; non-recur node
-
-(tests ; TODO remove this test, already covered above
- "unbounded-recursion?"
- (unbounded-recursion? (->unbounded-recursion nil)) := true
- (unbounded-recursion? (->bounded-recursion nil 5)) := false
- (unbounded-recursion? (->star nil)) := false) ; non-recur node
-
-(tests ; TODO remove this test, already covered above
- "partial? defaults to true"
- (partial? (->star nil)) := true
- (partial? (->keyword nil :a {} :a)) := true)
-
-(tests ; TODO remove this test, already covered above
- "partial? respects explicit false"
- (partial? (->call nil '(f 1) {} 'f nil '[x] '[1] false 'f)) := false)
-
-(tests ; TODO leaf? should be derived from the presence of children in the rose tree.
+(tests ; Deferred: derive leaf? from children once AST is a rose tree
  "leaf? absent key is true"
  (leaf? (->keyword nil :a {} :a)) := true)
 
@@ -1002,43 +859,6 @@
 (tests
  "leaf? explicit true"
  (leaf? (assoc (->keyword nil :a {} :a) ::leaf true)) := true)
-
-;; TODO figure out if projection-type brings anything more than `node-type`. If no, remove it.
-(tests
- "projection-type: keyword"
- (projection-type (->keyword nil :a {} :a)) := ::keyword)
-
-(tests
- "projection-type: symbol with non-fn value"
- (projection-type (->symbol nil 'x {} 42 nil 'x 'x)) := ::symbol)
-
-(tests
- "projection-type: symbol with fn value -> ::fn"
- (projection-type (->symbol nil 'inc {} inc #'inc 'clojure.core/inc 'inc)) := ::fn)
-
-(tests
- "projection-type: pull"
- (projection-type (->pull nil [:a] {} false)) := ::pull)
-
-(tests
- "projection-type: traversal"
- (projection-type (->star-traversal nil '{* x} true)) := ::traversal)
-
-(tests
- "projection-type: fn"
- (projection-type (->fn nil inc {})) := ::fn)
-
-(tests
- "projection-type: call"
- (projection-type (->call nil '(f) {} 'f nil '() '() false 'f)) := ::call)
-
-(tests
- "projection-type: literal"
- (projection-type (->literal nil 42 {})) := ::literal)
-
-(tests
- "projection-type: lambda"
- (projection-type (->lambda nil '(fn [%] %) {} '(fn [%] %) '(%))) := ::lambda)
 
 (tests
  "mark-recursion-root"
@@ -1062,20 +882,7 @@
    (recursive-child? n') := true
    ))
 
-(tests ; TODO remove this test, already covered above 
- "dec-recursion-limit counts down"
- (let [n (->bounded-recursion nil 3)]
-   (recursion-limit n) := 3
-   (recursion-limit (dec-recursion-limit n)) := 2
-   (recursion-limit (dec-recursion-limit (dec-recursion-limit n))) := 1
-   (recursion-limit (dec-recursion-limit (dec-recursion-limit (dec-recursion-limit n)))) := 0))
-
-(tests ; TODO remove this test, already covered above
- "dec-recursion-limit clamps at zero"
- (let [n (->bounded-recursion nil 0)]
-   (recursion-limit (dec-recursion-limit n)) := 0))
-
-(tests ; TODO leaf? should be derived from the presence of children in the rose tree or from when recursion limit hits 0
+(tests ; Deferred: derive leaf? from children or recursion-limit once AST is a rose tree
  "set-leaf"
  (let [kw (->keyword nil :a {} :a)]
    (leaf? kw) := true
@@ -1094,20 +901,14 @@
        b (->keyword nil :db/name {} :name)]
    (not= (node-id a) (node-id b)) := true))
 
-(tests ; TODO this test case is boggus. ->string for 42 is forbidden. BTW we need the spec to reflect that. We should find a better test example.
+(tests
  "compute-node-id: different types, same form -> different id"
- (let [a (->literal nil 42 {})
-       b (->string nil 42 {})]
+ (let [a (->literal nil "hello" {})
+       b (->string nil "hello" {})]
    (not= (node-id a) (node-id b)) := true))
 
 (tests
- "partial defaults to true when not provided" ; TODO partial should not be provided. It should be infered, and therefore doesn't "default" to anything.
- (partial? (->star nil)) := true
- (partial? (->keyword nil :a {} :a)) := true
- (partial? (->literal nil 42 {})) := true)
-
-(tests
- "->edge-traversal multiplicity defaults to ::one" ; TODO we could rather say that the default multiplicity is ::one, unless explicitely marked ::many by the use of star traversal
+ "multiplicity is ::one unless marked ::many via star traversal"
  (let [kw (->keyword nil :a {} :a)]
    (multiplicity (->edge-traversal nil '{:a [...]} kw true)) := ::one))
 
@@ -1115,11 +916,3 @@
  "->star-traversal is always ::many"
  (multiplicity (->star-traversal nil '{* x} true)) := ::many)
 
-(tests ; TODO remove this test, already covered above
- "->edge-traversal inherits lexical-env from edge"
- (let [kw (->keyword nil :a '{x 1} :a)]
-   (lexical-env (->edge-traversal nil '{:a [...]} kw true)) := '{x 1}))
-
-(tests ; TODO remove this test, already covered above 
- "->star-traversal has empty lexical-env"
- (lexical-env (->star-traversal nil '{* x} true)) := {})
