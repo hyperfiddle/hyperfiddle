@@ -165,6 +165,15 @@
 (e/defn ^::e/export FnTooltip [entity edge value]
   (e/server (when *tooltip-fn* (*tooltip-fn* entity edge value))))
 
+(e/defn ^::e/export HrefCell
+  "Render a string value as an external hyperlink (<a href=... target=_blank>).
+   Use via ::hfql/Render metadata on URL-valued fields in sitemaps."
+  [_object _edgeT value]
+  (e/client
+    (let [v (e/server value)]
+      (dom/a (dom/props {:href v :target "_blank" :rel "noopener"})
+        (dom/text v)))))
+
 (e/defn RenderTooltip* [tooltip-ident object edgeT value]
   (let [tooltip-qualified-ident (hyperfiddle.hfql2.analyzer/unquote* tooltip-ident) ; FIXME syntax wart
         Tooltip (Resolve tooltip-qualified-ident (get {::hfql/ColumnHeaderTooltip DefaultColumnHeaderTooltip} tooltip-ident (e/fn [_object _edge _value])))
