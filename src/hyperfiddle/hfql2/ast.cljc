@@ -3,7 +3,12 @@
   for AST nodes. Consumers should access nodes through this API rather than raw
   keyword lookup, so that the map representation remains an implementation detail."
   (:require [clojure.spec.alpha :as s]
-            [hyperfiddle.rcf :refer [tests]]))
+            [hyperfiddle.ct.rose-tree :as rt :refer [rose-tree mapHead]]
+            [hyperfiddle.ct.comonad :refer [extract]]
+            [hyperfiddle.ct.cofree :refer [unwrap]]
+            [hyperfiddle.rcf :refer [tests]])
+  #?(:clj (:import [hyperfiddle.ct.rose_tree RoseTree])
+     :cljs (:import [hyperfiddle.ct.rose-tree RoseTree])))
 
 ;;;; Specs -- keys
 
@@ -24,7 +29,7 @@
 (s/def ::var (s/nilable var?))  ; the Clojure var backing this node, if any. E.g. a symbol resolving to lexical scope won't have a var.
 (s/def ::parameters sequential?) ; symbolic parameter list (symbols like ['db '%])
 (s/def ::arguments sequential?)  ; runtime argument values provided at a call site
-(s/def ::children (s/coll-of ::node)) ; child AST nodes (pull: edges, traversal: continuation)
+;; ::children removed — tree structure lives in RoseTree. Use `unwrap` to access children.
 (s/def ::metadata (s/nilable map?))  ; metadata from the original source form, restored by the `form` accessor
 (s/def ::recursion-limit (s/or :bounded nat-int? :unbounded #{##Inf})) ; remaining recursion depth
 (s/def ::multiplicity #{::one ::many}) ; cardinality of the node's result: ::one for single values, ::many for collections
@@ -85,7 +90,7 @@
                 ::symbolic-edge ::form-resolved ::form-short]))
 
 (defmethod node-spec ::pull [_]
-  (s/keys :req [::type ::lexical-env ::id ::children ::metadata]))
+  (s/keys :req [::type ::lexical-env ::id ::metadata]))
 
 (defmethod node-spec ::fn [_]
   (s/keys :req [::type ::form ::lexical-env ::id]
@@ -102,52 +107,54 @@
           :opt [::lexical-env]))
 
 (defmethod node-spec ::traversal [_]
-  (s/keys :req [::type ::lexical-env ::id ::multiplicity ::children ::metadata]
+  (s/keys :req [::type ::lexical-env ::id ::multiplicity ::metadata]
           :opt [::kind ::edge]))
 
-(s/def ::node (s/multi-spec node-spec ::type))
+(s/def ::node-attrs (s/multi-spec node-spec ::type))
+(s/def ::node (s/and #(instance? RoseTree %)
+                     #(s/valid? ::node-attrs (extract %))))
 
 ;;;; Internal helpers
 
-;; Forward declaration for children accessor, defined in Accessors section below.
-(declare children)
-
 ;; form is a multimethod defined here (before compute-node-id which needs it).
-;; Nodes that store ::form use the :default method. Nodes whose form is derived
-;; (star, recur, literal, pull, traversal) have their own method.
+;; Dispatches on ::type extracted from the RoseTree. Nodes that store ::form use
+;; the :default method. Nodes whose form is derived (star, recur, literal, pull,
+;; traversal) have their own method. Pull and traversal derive form from the tree
+;; structure via `unwrap`.
 (defmulti form
-  "Return the source form of `node`. Some node types derive their form from
-  stored fields (star from nothing, recur from recursion-limit, literal from
-  its value, pull/traversal from children). Others read `::form` directly.
+  "Return the source form of `node` (a RoseTree). Some node types derive their
+  form from stored fields, others from tree structure (pull/traversal via unwrap).
   When `::metadata` is present the metadata is restored onto the result so
   that `form ∘ analyze == id`."
-  ::type)
+  (fn [node] (::type (extract node))))
 
-(defmethod form :default [node] (::form node))
-(defmethod form ::star [node] (with-meta '* (::metadata node)))
+(defmethod form :default [node] (::form (extract node)))
+(defmethod form ::star [node] (with-meta '* (::metadata (extract node))))
 (defmethod form ::recur [node]
-  (let [limit (::recursion-limit node)]
+  (let [a (extract node), limit (::recursion-limit a)]
     (if (= ##Inf limit)
-      (with-meta '... (::metadata node))
+      (with-meta '... (::metadata a))
       limit)))
-(defmethod form ::literal [node] (::resolved-runtime-value node))
+(defmethod form ::literal [node] (::resolved-runtime-value (extract node)))
 (defmethod form ::pull [node]
-  (with-meta (mapv form (children node)) (::metadata node)))
+  (with-meta (mapv form (unwrap node)) (::metadata (extract node))))
 (defmethod form ::traversal [node]
-  (let [child-form (form (first (children node)))]
-    (with-meta {(form (::edge node)) child-form} (::metadata node))))
+  (let [a (extract node)
+        child-form (form (first (unwrap node)))]
+    (with-meta {(form (::edge a)) child-form} (::metadata a))))
 
 (defn compute-node-id
-  "Derive a stable identity hash from a node's semantic content.
+  "Derive a stable identity hash from a RoseTree node's semantic content.
   Two nodes with the same type, form, and display forms will share the same id.
   Used to compare structural equality across independently constructed trees --
   e.g. two cells representing the same column in the same pull will have the
   same id even if they belong to different rows. `::symbolic-edge` is included
   because quoted-var and lambda have a distinct edge label from their form.
-  For pull and traversal nodes, `form` is computed from children (not stored)."
+  For pull and traversal nodes, `form` is computed from children (via unwrap)."
   [node]
-  (hash (assoc (select-keys node #{::type ::symbolic-edge ::form-short ::form-resolved})
-               ::form (form node))))
+  (let [a (extract node)]
+    (hash (assoc (select-keys a #{::type ::symbolic-edge ::form-short ::form-resolved})
+                 ::form (form node)))))
 
 (def ^:private node-defaults
   "Default values merged with lowest precedence by `finalize`. Any key
@@ -155,10 +162,13 @@
   {::lexical-env {}})
 
 (defn- finalize
-  "Merge defaults, compute ::id, and validate. Called by every constructor.
-  `node-defaults` is merged underneath so explicit values always win."
-  [node]
-  (s/assert ::node (assoc (merge node-defaults node) ::id (compute-node-id node))))
+  "Build a RoseTree node from attrs and children, compute ::id, and validate.
+  Called by every constructor. `node-defaults` is merged underneath so explicit
+  values always win. Returns a validated RoseTree."
+  [attrs children]
+  (let [rt (rose-tree (merge node-defaults attrs) children)
+        id (compute-node-id rt)]
+    (s/assert ::node (rose-tree (assoc (extract rt) ::id id) children))))
 
 ;;;; Constructors
 ;;
@@ -172,11 +182,11 @@
   "Construct a star (`*`) wildcard node. Signals \"include all suggested edges\"
   inside a pull expression. Form is always `'*` (derived)."
   [& {:keys [metadata]}]
-  (finalize (merge metadata {::type ::star, ::metadata metadata})))
+  (finalize (merge metadata {::type ::star, ::metadata metadata}) ()))
 
 (defn- ->recur [recursion-limit & {:keys [metadata]}]
   (finalize (merge metadata {::type ::recur, ::recursion-limit recursion-limit
-                              ::metadata metadata})))
+                              ::metadata metadata}) ()))
 
 (defn ->bounded-recursion
   "Construct a bounded recur node (`... 5`). `limit` is the maximum recursion
@@ -196,7 +206,8 @@
   [value & {:keys [metadata lexical-env]}]
   (finalize (cond-> (merge metadata {::type ::literal, ::resolved-runtime-value value,
                                       ::metadata metadata})
-              lexical-env (assoc ::lexical-env lexical-env))))
+              lexical-env (assoc ::lexical-env lexical-env))
+            ()))
 
 (defn ->keyword
   "Construct a keyword node. Keywords are the most common edge type in pull
@@ -206,14 +217,16 @@
   can genuinely differ."
   [form form-short & {:keys [metadata lexical-env]}]
   (finalize (cond-> (merge metadata {::type ::keyword, ::form form, ::form-short form-short})
-              lexical-env (assoc ::lexical-env lexical-env))))
+              lexical-env (assoc ::lexical-env lexical-env))
+            ()))
 
 (defn ->string
   "Construct a string edge node. Strings name edges in map-like structures
   where keys are strings (e.g. JSON-shaped data)."
   [form & {:keys [metadata lexical-env]}]
   (finalize (cond-> (merge metadata {::type ::string, ::form form})
-              lexical-env (assoc ::lexical-env lexical-env))))
+              lexical-env (assoc ::lexical-env lexical-env))
+            ()))
 
 (declare ->fn)
 
@@ -229,7 +242,8 @@
     (finalize (cond-> (merge metadata {::type ::symbol, ::form form
                                         ::resolved-runtime-value value, ::var var
                                         ::form-resolved form-resolved, ::form-short form-short})
-                lexical-env (assoc ::lexical-env lexical-env)))))
+                lexical-env (assoc ::lexical-env lexical-env))
+              ())))
 
 (defn ->var
   "Construct a var node. Represents a Clojure var reference with known parameters.
@@ -243,7 +257,8 @@
   [form form-resolved form-short & {:keys [metadata lexical-env]}]
   (finalize (cond-> (merge metadata {::type ::var, ::form form
                                       ::form-resolved form-resolved, ::form-short form-short})
-              lexical-env (assoc ::lexical-env lexical-env))))
+              lexical-env (assoc ::lexical-env lexical-env))
+            ()))
 
 (defn ->quoted-var
   "Construct a quoted-var node (`#'foo`). The var is referenced but not called;
@@ -252,16 +267,19 @@
   [form form-resolved form-short & {:keys [metadata lexical-env]}]
   (finalize (cond-> (merge metadata {::type ::quoted-var, ::form form, ::symbolic-edge form
                                       ::form-resolved form-resolved, ::form-short form-short})
-              lexical-env (assoc ::lexical-env lexical-env))))
+              lexical-env (assoc ::lexical-env lexical-env))
+            ()))
 
 (defn ->pull
   "Construct a pull node. A pull collects a set of edges (its children) from a
-  map-like value. `children` are the edge AST nodes (keyword, star, recur,
-  traversal, etc.). `form`, `pull-has-star?`, `recursion-point?`, and
-  `recursion-limit` are all derived from children — not passed."
+  map-like value. `children` are the edge AST nodes (RoseTree instances:
+  keyword, star, recur, traversal, etc.). `form`, `pull-has-star?`,
+  `recursion-point?`, and `recursion-limit` are all derived from children
+  via `unwrap` — not passed."
   [children & {:keys [metadata lexical-env]}]
-  (finalize (cond-> (merge metadata {::type ::pull, ::children children, ::metadata metadata})
-              lexical-env (assoc ::lexical-env lexical-env))))
+  (finalize (cond-> (merge metadata {::type ::pull, ::metadata metadata})
+              lexical-env (assoc ::lexical-env lexical-env))
+            children))
 
 (defn ->fn
   "Construct an fn node. Represents a function value used as an edge. The
@@ -275,7 +293,8 @@
               value         (assoc ::resolved-runtime-value value)
               var           (assoc ::var var)
               form-resolved (assoc ::form-resolved form-resolved)
-              form-short    (assoc ::form-short form-short))))
+              form-short    (assoc ::form-short form-short))
+            ()))
 
 (defn ->lambda
   "Construct a lambda node. Represents an inline function expression. Lambda
@@ -293,7 +312,8 @@
               lexical-env   (assoc ::lexical-env lexical-env)
               kind          (assoc ::kind kind)
               form-resolved (assoc ::form-resolved form-resolved)
-              form-short    (assoc ::form-short form-short))))
+              form-short    (assoc ::form-short form-short))
+            ()))
 
 (defn ->call
   "Construct a call node. Represents a function call expression like
@@ -309,17 +329,18 @@
                                       ::resolved-runtime-value value, ::var var
                                       ::parameters parameters, ::arguments arguments
                                       ::form-resolved form-resolved})
-              lexical-env (assoc ::lexical-env lexical-env))))
+              lexical-env (assoc ::lexical-env lexical-env))
+            ()))
 
 (defn- ->traversal
   [child & {:keys [metadata lexical-env kind multiplicity edge]}]
   (finalize (cond-> (merge metadata {::type ::traversal
-                                      ::children (list child)
                                       ::multiplicity (or multiplicity ::one)
                                       ::metadata metadata})
               lexical-env (assoc ::lexical-env lexical-env)
               kind (assoc ::kind kind)
-              edge (assoc ::edge edge))))
+              edge (assoc ::edge edge))
+            (list child)))
 
 (defn ->star-traversal
   "Construct a star traversal node. Produced from the pair form `{* ...}`, meaning
@@ -338,144 +359,100 @@
 (defn ->edge-traversal
   "Construct an edge traversal node. Represents navigation from a parent value
   to a child value through a specific edge (keyword, symbol, call, etc.). The
-  `edge` argument is the inner AST node describing the edge function -- e.g. a
-  ::keyword node for `:user/name`, a ::call node for `(all-users)`. `lexical-env`
-  is inherited from the edge. `child` is the single continuation AST node.
-  `form` is derived from edge and child. `partial?` is derived from edge."
+  `edge` argument is the inner AST node (a RoseTree) describing the edge
+  function -- e.g. a ::keyword node for `:user/name`, a ::call node for
+  `(all-users)`. `lexical-env` is inherited from the edge. `child` is the
+  single continuation AST node (a RoseTree). `form` is derived from edge and
+  child. `partial?` is derived from edge."
   [edge child & {:keys [metadata multiplicity]}]
-  (->traversal child :metadata metadata :lexical-env (::lexical-env edge)
+  (->traversal child :metadata metadata :lexical-env (::lexical-env (extract edge))
     :edge edge :multiplicity multiplicity))
 
 ;;;; Accessors
 ;;
-;; Each function extracts a single field from an AST node map. Prefer these over
-;; raw keyword access so that (1) the map representation stays an implementation
-;; detail, (2) tooling (ns-publics, IDE go-to-definition) can discover the API,
-;; and (3) documentation is attached to a navigable Clojure var.
+;; Each function reads from an AST node (a RoseTree). Accessors call `extract`
+;; to get the attrs map. Use `unwrap` directly for tree-structural access.
 
 (defn node-type
-  "Return the type of `node`. Node types are defined by the `::type` spec."
-  [node] (::type node))
+  "Return the type of `node` (a RoseTree)."
+  [node] (::type (extract node)))
 
 ;; `form` is defined as a defmulti in the Internal helpers section above.
 
 (defn form-short
-  "Return the shortest unambiguous form for display. For keywords this is the
-  unqualified name when unambiguous; for symbols it drops the namespace when the
-  var is unique in the current context. Falls back to the original form for node
-  types where no shortening applies (literals, strings, stars, etc.)."
-  [node] (or (::form-short node) (form node)))
+  "Return the shortest unambiguous form for display."
+  [node] (or (::form-short (extract node)) (form node)))
 
 (defn form-resolved
-  "Return the alias-resolved form. E.g. `::foo` becomes `:ns/foo`, `inc`
-  becomes `clojure.core/inc`. The type depends on the node: a qualified keyword
-  for keyword nodes, a qualified symbol for var/symbol nodes, or a full call
-  form like `(my.ns/fn arg1 %)` for call nodes. Falls back to the original form
-  for node types where no resolution applies (literals, strings, stars, etc.)."
-  [node] (or (::form-resolved node) (form node)))
+  "Return the alias-resolved form."
+  [node] (or (::form-resolved (extract node)) (form node)))
 
 (defn symbolic-edge
-  "Return the edge label(s) for this node. For most edge types (literal,
-  keyword, string, symbol, var, fn, call) the edge label is the form itself.
-  For pull nodes, returns the ordered vector of child edge labels (the form).
-  Only quoted-var and lambda store a distinct symbolic-edge. Returns nil for
-  structural nodes (star, recur, traversal) that don't represent an edge."
+  "Return the edge label(s) for this node."
   [node]
-  (if (contains? node ::symbolic-edge)
-    (::symbolic-edge node)
-    (case (node-type node)
-      (::literal ::keyword ::string ::symbol ::var ::fn ::call ::pull) (form node)
-      nil)))
+  (let [a (extract node)]
+    (if (contains? a ::symbolic-edge)
+      (::symbolic-edge a)
+      (case (::type a)
+        (::literal ::keyword ::string ::symbol ::var ::fn ::call ::pull) (form node)
+        nil))))
 
 (defn node-value
-  "Return the runtime value of this node. For nodes that carry a distinct
-  resolved runtime value (symbol, call, literal), returns it. For nodes where
-  the form IS the value (keyword, string, fn, var, lambda, quoted-var), returns
-  the form. Returns nil for structural nodes (pull, star, recur, traversal)
-  that don't represent a single value."
+  "Return the runtime value of this node."
   [node]
-  (if (contains? node ::resolved-runtime-value)
-    (::resolved-runtime-value node)
-    (case (node-type node)
-      (::keyword ::string ::fn ::var ::lambda ::quoted-var) (::form node)
-      nil)))
+  (let [a (extract node)]
+    (if (contains? a ::resolved-runtime-value)
+      (::resolved-runtime-value a)
+      (case (::type a)
+        (::keyword ::string ::fn ::var ::lambda ::quoted-var) (::form a)
+        nil))))
 
 (defn node-var
-  "Return the Clojure var backing this node, if any. Present on var, symbol, and
-  call nodes when the form resolved to a var. Nil for anonymous functions,
-  literals, keywords."
-  [node] (::var node))
+  "Return the Clojure var backing this node, if any."
+  [node] (::var (extract node)))
 
 (defn parameters
-  "Return the symbolic parameter list of this node. Present on var, call, and
-  lambda nodes. Parameters are symbols like `['db '%]` extracted from the var's
-  arglists or the lambda's argument vector. Var nodes always have `'(%)` (derived).
-  These are names, not values -- see `arguments` for runtime values."
+  "Return the symbolic parameter list of this node."
   [node]
-  (if (contains? node ::parameters)
-    (::parameters node)
-    (when (= ::var (node-type node)) '(%))))
+  (let [a (extract node)]
+    (if (contains? a ::parameters)
+      (::parameters a)
+      (when (= ::var (::type a)) '(%)))))
 
 (defn arguments
-  "Return the runtime argument values provided at a call site. Present on call
-  nodes. Unlike `parameters` (which are symbolic names), arguments are the
-  actual values passed to the function at analysis time, e.g. `[42 :unbound]`
-  in `(user-by-id 42 %)`."
-  [node] (::arguments node))
+  "Return the runtime argument values provided at a call site."
+  [node] (::arguments (extract node)))
 
 (defn lexical-env
-  "Return the lexical environment captured at analysis time. A map from symbols
-  to values representing the bindings in scope when this node was analyzed."
-  [node] (::lexical-env node))
+  "Return the lexical environment captured at analysis time."
+  [node] (::lexical-env (extract node)))
 
 (defn node-id
-  "Return the content-derived identity hash of this node. Two nodes with the
-  same type, form, and edge labels share the same id, even across independently
-  constructed trees. Useful for comparing structural equality -- e.g. two cells
-  representing the same column in the same pull expression."
-  [node] (::id node))
-
-(defn children
-  "Return the child nodes of this node. Pull nodes have edge children,
-  traversals have a single continuation child. Nodes without children
-  return an empty seq."
-  [node] (or (::children node) ()))
+  "Return the content-derived identity hash of this node."
+  [node] (::id (extract node)))
 
 (defn edge
-  "Return the inner AST node describing a traversal's edge function. Present on
-  traversal nodes. The edge node is itself a full AST node map. For example, in
-  `{:user/name [...]}` the traversal's edge is the `::keyword` node for
-  `:user/name`. In `{(all-users) [...]}` the edge is a `::call` node for
-  `(all-users)`. The interpreter reads the edge to determine how to navigate
-  from parent to child value."
-  [node] (::edge node))
+  "Return the inner AST node (a RoseTree) describing a traversal's edge function."
+  [node] (::edge (extract node)))
 
 (defn kind
-  "Return the syntactic origin tag for traversal and lambda nodes. Where
-  `node-type` says WHAT a node is structurally (e.g. `::traversal`), `kind`
-  says HOW it was generated:
-  - `::star` (traversals only): from `{* ...}` -- \"for all children\". The value
-    at point is a collection and the continuation applies to each element.
-  - `::keyword-fn` (lambdas only): from `{:k [...]}` keyword-as-function sugar.
-  Nil on nodes without a special syntactic origin. The interpreter uses kind to
-  choose between navigation strategies."
-  [node] (::kind node))
+  "Return the syntactic origin tag for traversal and lambda nodes."
+  [node] (::kind (extract node)))
 
 (defn multiplicity
-  "Return the cardinality of this traversal node's result. `::one` for single-
-  valued traversals (e.g. `{:user/name [...]}`), `::many` for collection-valued
-  traversals. Star traversals (`{* ...}`) are always `::many`. Always present on
-  traversal nodes; defaults to `::one` at construction time."
-  [node] (::multiplicity node))
+  "Return the cardinality of this traversal node's result."
+  [node] (::multiplicity (extract node)))
 
 (defn recursion-limit
   "Return the remaining recursion depth. On recur nodes: stored directly.
-  On parent nodes (pull, traversal): derived from the recur child. `##Inf`
-  for unlimited, nat-int for bounded, nil when not recursive."
+  On parent nodes (pull, traversal): derived from the recur child via `unwrap`.
+  `##Inf` for unlimited, nat-int for bounded, nil when not recursive."
   [node]
-  (or (::recursion-limit node)
-      (some (fn [c] (when (= ::recur (::type c)) (::recursion-limit c)))
-            (children node))))
+  (let [a (extract node)]
+    (or (::recursion-limit a)
+        (some (fn [c] (when (= ::recur (::type (extract c)))
+                        (::recursion-limit (extract c))))
+              (unwrap node)))))
 
 ;;;; Type predicates
 ;;
@@ -510,13 +487,13 @@
 
 (defn pull-has-star?
   "True if this pull node's children include a star wildcard."
-  [node] (boolean (some star? (children node))))
+  [node] (boolean (some star? (unwrap node))))
 
 (defn recursion-point?
   "True if this node has a recur child (target of `...` recursion). The
   interpreter uses this to find where to loop back when unfolding recursive
   structures."
-  [node] (boolean (some recur-node? (children node))))
+  [node] (boolean (some recur-node? (unwrap node))))
 
 (defn bounded-recursion?
   "True if this recur node has a finite recursion limit (e.g. `... 5`)."
@@ -534,13 +511,13 @@
   their parameters. Traversals derive from their edge."
   node-type)
 (defmethod partial? :default [_] true)
-(defmethod partial? ::call [node] (boolean (some #{'%} (::parameters node))))
-(defmethod partial? ::traversal [node] (partial? (::edge node)))
+(defmethod partial? ::call [node] (boolean (some #{'%} (::parameters (extract node)))))
+(defmethod partial? ::traversal [node] (partial? (edge node)))
 
 (defn leaf?
-  "True if this node is terminal — either it has no children, or its
-  recursion limit has reached 0."
-  [node] (boolean (or (empty? (children node))
+  "True if this node is terminal — either it has no children (via unwrap),
+  or its recursion limit has reached 0."
+  [node] (boolean (or (empty? (unwrap node))
                       (some-> (recursion-limit node) zero?))))
 
 
@@ -549,31 +526,32 @@
 ;; For keys set by the interpreter at runtime, outside of the static AST
 ;; produced by phi. These are not part of the constructor signatures because
 ;; they are discovered during tree traversal, not analysis.
+;; All mutators work on RoseTree nodes with `mapHead` baked in.
 
 (defn mark-recursion-root
   "Mark this node as the root of a recursive structure. Set by the interpreter
   when it detects a `...` recursion and identifies which ancestor is the
   recursion target."
-  [node] (assoc node ::recursion-root true))
+  [node] (mapHead #(assoc % ::recursion-root true) node))
 
 (defn recursion-root?
   "True if this node has been marked as a recursion root by the interpreter."
-  [node] (boolean (::recursion-root node)))
+  [node] (boolean (::recursion-root (extract node))))
 
 (defn mark-recursive-child
   "Mark this node as a child produced by recursive unfolding. Used by the
   navigator UI to filter out recursive children from column pickers."
-  [node] (assoc node ::recursive-child true))
+  [node] (mapHead #(assoc % ::recursive-child true) node))
 
 (defn recursive-child?
   "True if this node was produced by recursive unfolding."
-  [node] (boolean (::recursive-child node)))
+  [node] (boolean (::recursive-child (extract node))))
 
 (defn dec-recursion-limit
   "Decrement the recursion limit by one, clamping at zero. Called by the
   interpreter each time it unfolds one level of a recursive structure. When the
   limit reaches zero, recursion stops and the node becomes a leaf."
-  [node] (update node ::recursion-limit #(max 0 (dec %))))
+  [node] (mapHead #(update % ::recursion-limit (fn [l] (max 0 (dec l)))) node))
 
 ;;;; Tests
 
@@ -594,7 +572,7 @@
  "->star with metadata"
  (let [n (->star :metadata {:line 42})]
    (star? n) := true
-   (:line n) := 42))
+   (:line (extract n)) := 42))
 
 (tests
  "->unbounded-recursion"
@@ -724,7 +702,7 @@
    (pull? n) := true
    (form n) := [:a :b]
    (symbolic-edge n) := [:a :b]
-   (children n) := (list a b)
+   (unwrap n) := (list a b)
    (leaf? n) := false
    (node-value n) := nil
    (pull-has-star? n) := false
@@ -814,7 +792,7 @@
    (multiplicity n) := ::many
    (node-value n) := nil
    (star? (edge n)) := true
-   (children n) := (list child)
+   (unwrap n) := (list child)
    (leaf? n) := false
    (lexical-env n) := {}
    (partial? n) := true
@@ -847,7 +825,7 @@
    (multiplicity n) := ::one
    (kind n) := nil
    (edge n) := kw-edge
-   (children n) := (list child)
+   (unwrap n) := (list child)
    (leaf? n) := false
    (lexical-env n) := (lexical-env kw-edge)
    (identical? (lexical-env n) (lexical-env kw-edge)) := true
