@@ -311,6 +311,7 @@
   [form symbolic-edge parameters
    & {:keys [metadata lexical-env kind form-resolved form-short]}]
   (finalize (cond-> (merge metadata {::type ::lambda, ::form form
+                                      ::resolved-runtime-value form
                                       ::symbolic-edge symbolic-edge, ::parameters parameters})
               lexical-env   (assoc ::lexical-env lexical-env)
               kind          (assoc ::kind kind)
