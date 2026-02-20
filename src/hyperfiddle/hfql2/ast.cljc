@@ -3,12 +3,12 @@
   for AST nodes. Consumers should access nodes through this API rather than raw
   keyword lookup, so that the map representation remains an implementation detail."
   (:require [clojure.spec.alpha :as s]
-            [hyperfiddle.ct.rose-tree :as rt :refer [rose-tree mapHead]]
+            #?(:clj  [hyperfiddle.ct.rose-tree :as rt :refer [rose-tree mapHead]]
+               :cljs [hyperfiddle.ct.rose-tree :as rt :refer [rose-tree mapHead RoseTree]])
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.rcf :refer [tests]])
-  #?(:clj (:import [hyperfiddle.ct.rose_tree RoseTree])
-     :cljs (:import [hyperfiddle.ct.rose-tree RoseTree])))
+  #?(:clj (:import [hyperfiddle.ct.rose_tree RoseTree])))
 
 ;;;; Specs -- keys
 
@@ -136,6 +136,9 @@
       (with-meta '... (::metadata a))
       limit)))
 (defmethod form ::literal [node] (::resolved-runtime-value (extract node)))
+(defmethod form ::quoted-var [node]
+  (let [a (extract node)]
+    (with-meta (list 'quote (::form a)) (::metadata a))))
 (defmethod form ::pull [node]
   (with-meta (mapv form (unwrap node)) (::metadata (extract node))))
 (defmethod form ::traversal [node]
@@ -552,6 +555,18 @@
   interpreter each time it unfolds one level of a recursive structure. When the
   limit reaches zero, recursion stops and the node becomes a leaf."
   [node] (mapHead #(update % ::recursion-limit (fn [l] (max 0 (dec l)))) node))
+
+(defn set-metadata
+  "Set the metadata on a node. Metadata keys (e.g. :line, :column) are merged
+  underneath existing attrs so they never shadow core AST keys. ::metadata is
+  set to the original map for `form` to restore via `with-meta`."
+  [node metadata]
+  (mapHead #(merge metadata % {::metadata metadata}) node))
+
+(defn set-lexical-env
+  "Set the lexical environment on a node."
+  [node lexical-env]
+  (mapHead #(assoc % ::lexical-env lexical-env) node))
 
 ;;;; Tests
 

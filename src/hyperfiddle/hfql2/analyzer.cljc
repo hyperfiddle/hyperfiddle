@@ -231,88 +231,62 @@
   )
 
 (defn- φ ; phi
-  "An algebra collecting static knowledge about an HFQL expression."
+  "An algebra constructing AST nodes from an HFQL expression and its processed children.
+  Leaf nodes ignore `children` (always `()`). Pull passes `children` directly to `->pull`.
+  Traversal edges are constructed via recursive `(φ env edge-form ())` calls.
+  Metadata and lexical-env are set uniformly at the end via mutators."
   ([env] (partial φ env))
-  ([env form]
-   (as-> (meta form) %
-     (merge
-       %
-       {::ast/type        (projection-type form)
-        ::ast/form        (quote-form form)
-        ::ast/lexical-env (lexical-bindings-map env)
-        ::ast/partial true ; a partial point depends on %. % is late-bound.
-        }
-       (case (projection-type form)
-         ::ast/star      {} ; '* and recur have no edge, and no value on purpose. They are purely syntactic.
-         ::ast/recur     {::ast/recursion-limit (if (nat-int? form) form ##Inf)}
-         ::ast/literal   {::ast/symbolic-edge form}
-         ::ast/keyword   {::ast/symbolic-edge form
-                      ::ast/form-resolved form ; keyword auto-resolve at read-time.
-                      ::ast/form-short #?(:clj (aliased-form form), :cljs form)}
-         ::ast/string    {::ast/symbolic-edge form}
-         ::ast/symbol    {::ast/symbolic-edge form ; potentially aliased
-                      ::ast/resolved-runtime-value (escape-method-call form), ; macroexpand will auto-resolve
-                      ::ast/var (var-resolver env form) ; nil if symbol is lexicaly bound
-                      ::ast/form-resolved (resolver env form) ; resolve via eventual ns alias
-                      ::ast/form-short #?(:clj (aliased-form form), :cljs form)}
-         ::ast/var       (let [sym (second form)]
-                      {::ast/symbolic-edge form ; the var object itself
-                       ::ast/resolved-runtime-value form ; also the var object itself
-                       ::ast/parameters '(%)
-                       ::ast/form-resolved (resolver env sym)
-                       ::ast/form-short #?(:clj (aliased-form sym), :cljs sym)})
-         ::ast/quoted-var (let [sym (second (unquote* form))]
-                       {::ast/form (unquote* form)
-                        ::ast/symbolic-edge form
-                        ::ast/form-resolved (resolver env sym)
-                        ::ast/form-short #?(:clj (aliased-form sym), :cljs sym)})
-         ::ast/pull      (let [recursion-point (some-fn #{'...} nat-int?)
-                           form' (vec (remove recursion-point form))]
-                       (merge
-                         {::ast/form form'
-                          ::ast/symbolic-edges form'
-                          ::ast/pull-has-star? (boolean (some #(= ::ast/star (::ast/type %)) (map (φ env) form)))}
-                         (when-some [recursion (first (filter recursion-point form))]
-                           {::ast/recursion-point true
-                            ::ast/recursion-limit (::ast/recursion-limit (φ env recursion))})))
-         ::ast/fn        {::ast/symbolic-edge form ; e.g. '#function[clojure.core/identity] – useful for tests
-                      ::ast/resolved-runtime-value form} ; already resolved
-         ::ast/lambda    (let [base {::ast/symbolic-edge (let [[_fn ?name ?parameters] form]
-                                                   (if (symbol? ?name)
-                                                     `(~'fn ~?name ~'...)
-                                                     '(fn anonymous ...)))
-                                 ::ast/parameters '(%)
-                                 ::ast/partial true
-                                 ::ast/resolved-runtime-value form}]
-                       (if-let [kw (get-kw-fn-form-kw form)]
-                         (merge base (select-keys (φ env kw) #{::ast/symbolic-edge ::ast/form-resolved ::ast/form-short}) {::ast/kind ::ast/keyword-fn})
-                         base))
-         ::ast/call      (let [[f & params] form] ; symbolic – quoted by defmacro
-                       {::ast/symbolic-edge form ; symbolic – interpreter will template later
-                        ::ast/resolved-runtime-value f ; macroexpand will auto-resolve, from lexical, dynamic or global scope.
-                        ::ast/var (var-resolver env f)
-                        ::ast/parameters params
-                        ::ast/arguments (replace {'% ''%} params)
-                        ::ast/partial (contains? (set params) '%)
-                        ::ast/form-resolved (resolver env f)
-                        ::ast/lexical-env (let [params (remove #{'%} params)]
-                                        (merge (lexical-bindings-map env)
-                                          (zipmap (map quote-form (filter symbol? params))
-                                            (filter symbol? params))))})
-         ::ast/traversal (let [edge (φ env (fst form))
-                           base (case (::ast/type edge)
-                                  ::ast/star {::ast/kind ::ast/star, ::ast/multiplicity ::ast/many}
-                                  {::ast/edge (cond-> edge (not= ::ast/symbol (::ast/type edge)) (assoc ::ast/leaf false))
-                                   ::ast/lexical-env (::ast/lexical-env edge)})
-                           continuation (φ env (snd form))]
-                       (merge base
-                         {::ast/partial (and (::ast/partial edge) (::ast/partial continuation))}
-                         (when (= ::ast/star (::ast/kind continuation)) {::ast/multiplicity ::ast/many})
-                         (when (= ::ast/recur (::ast/type continuation))
-                           {::ast/recursion-point true
-                            ::ast/recursion-limit (::ast/recursion-limit continuation)})
-                         ))))
-     (assoc % ::ast/id (ast/compute-node-id %)))))
+  ([env form children]
+   (let [mdata (meta form)
+         lenv  (lexical-bindings-map env)
+         ptype (projection-type form)
+         node  (case ptype
+                 ::ast/star      (ast/->star)
+                 ::ast/recur     (if (nat-int? form)
+                                   (ast/->bounded-recursion form)
+                                   (ast/->unbounded-recursion))
+                 ::ast/literal   (ast/->literal form)
+                 ::ast/keyword   (ast/->keyword form #?(:clj (aliased-form form) :cljs form))
+                 ::ast/string    (ast/->string form)
+                 ::ast/symbol    (ast/->symbol form (escape-method-call form) (var-resolver env form)
+                                   (resolver env form) #?(:clj (aliased-form form) :cljs form))
+                 ::ast/var       (let [sym (second form)]
+                                   (ast/->var form (resolver env sym)
+                                     #?(:clj (aliased-form sym) :cljs sym)))
+                 ::ast/quoted-var (let [sym (second (unquote* form))]
+                                    (ast/->quoted-var (unquote* form) (resolver env sym)
+                                      #?(:clj (aliased-form sym) :cljs sym)))
+                 ::ast/fn        (ast/->fn form :value form)
+                 ::ast/lambda    (let [kw (get-kw-fn-form-kw form)]
+                                   (if kw
+                                     (let [kw-node (φ env kw ())]
+                                       (ast/->lambda form (ast/symbolic-edge kw-node) '(%)
+                                         :kind ::ast/keyword-fn
+                                         :form-resolved (ast/form-resolved kw-node)
+                                         :form-short (ast/form-short kw-node)))
+                                     (ast/->lambda form
+                                       (let [[_fn ?name _params] form]
+                                         (if (symbol? ?name) `(~'fn ~?name ~'...) '(fn anonymous ...)))
+                                       '(%))))
+                 ::ast/call      (let [[f & params] form]
+                                   (ast/->call form f (var-resolver env f) params
+                                     (replace {'% ''%} params) (resolver env f)))
+                 ::ast/pull      (ast/->pull children)
+                 ::ast/traversal (let [edge-form (fst form)
+                                       cont-node (first children)]
+                                   (if (= '* edge-form)
+                                     (ast/->star-traversal cont-node)
+                                     (let [edge-node (φ env edge-form ())
+                                           mult (when (ast/star-traversal? cont-node) ::ast/many)]
+                                       (ast/->edge-traversal edge-node cont-node :multiplicity mult)))))
+         lenv  (if (= ::ast/call ptype)
+                 (let [[_f & params] form
+                       ps (remove #{'%} params)]
+                   (merge lenv (zipmap (map quote-form (filter symbol? ps))
+                                 (filter symbol? ps))))
+                 lenv)]
+     (cond-> (ast/set-metadata node mdata)
+       (not= ::ast/traversal ptype) (ast/set-lexical-env lenv)))))
 
 (defmulti -escape ::ast/type)
 (defmethod -escape ::ast/star [point] point)
@@ -320,12 +294,11 @@
 (defmethod -escape ::ast/literal [point] point)
 (defmethod -escape ::ast/keyword [point] (update point ::ast/form-short quote-form))
 (defmethod -escape ::ast/string [point] point)
-(defmethod -escape ::ast/symbol [point] (-> (update point ::ast/symbolic-edge quote-form)
+(defmethod -escape ::ast/symbol [point] (-> (update-existing point ::ast/symbolic-edge quote-form)
                                       (update ::ast/form-short quote-form)))
 (defmethod -escape ::ast/var [point] (-> (update point ::ast/parameters quote-form)
                                     (update ::ast/form-short quote-form)))
-(defmethod -escape ::ast/quoted-var [point] (-> (update point ::ast/form unquote*) ; special case
-                                           (update ::ast/form-short quote-form)))
+(defmethod -escape ::ast/quoted-var [point] (update point ::ast/form-short quote-form))
 (defmethod -escape ::ast/pull [point] (-> (update point ::ast/form quote-form)
                                     (update ::ast/symbolic-edges quote-form)))
 (defmethod -escape ::ast/fn [point] (update point ::ast/symbolic-edge quote-form))
@@ -336,7 +309,8 @@
                                     (update ::ast/parameters quote-form)
                                     (update ::ast/arguments conj 'list)))
 
-(defmethod -escape ::ast/traversal [point] (update-existing point ::ast/edge -escape))
+(defmethod -escape ::ast/traversal [point]
+  (update-existing point ::ast/edge (fn [edge] (escape (extract edge)))))
 
 (defn escape [point]
   (-escape (update point ::ast/form quote-form)))
@@ -353,7 +327,12 @@
     ::ast/recur ; we don't produce an infinite AST to ease debugging.
     ()))
 
-(defn- unfold [φ ψ seed] (fmap φ (coiter ψ seed)))
+(defn- unfold [φ ψ seed]
+  (let [tree (coiter ψ seed)]
+    ((fn fold [t]
+       (let [cs (mapv fold (unwrap t))]
+         (φ (extract t) cs)))
+     tree)))
 
 (defn analyze
   "Unfold an HFQL symbolic expression into an AST, gathering a maximum of static knowledge about expressions."
@@ -361,9 +340,9 @@
   ([env hfql] (unfold (φ env) ψ (postwalk reshape-traversals-up (prewalk reshape-traversals-down hfql)))))
 
 (tests
-  (::ast/pull-has-star? (extract (analyze {} [:a])))
+  (ast/pull-has-star? (analyze {} [:a]))
   := false
-  (::ast/pull-has-star? (extract (analyze {} [:a '*])))
+  (ast/pull-has-star? (analyze {} [:a '*]))
   := true
   )
 
@@ -381,9 +360,104 @@
   (rose-tree point (mapv hydrate children)))
 
 (defn marshal [w] (fmap (comp escape #(update % ::ast/form emit*)) w))
-(defn unmarshal [rose-tree] (fmap #(update % ::ast/form unquote*) rose-tree))
+(defn unmarshal [rt]
+  (fmap (fn [attrs]
+          (cond-> (update attrs ::ast/form unquote*)
+            (::ast/edge attrs)
+            (update ::ast/edge (fn [m] (rose-tree (update m ::ast/form unquote*) ())))))
+    rt))
 
 (defmacro hfql [form] `(unmarshal (hydrate ~(emit (marshal (analyze &env form))))))
+
+(tests
+  (ast/pull-has-star? (hfql [:a]))
+  := false
+  (ast/pull-has-star? (hfql [:a *]))
+  := true
+  )
+
+(tests
+  "form ∘ hfql = id — keywords"
+  (ast/form (hfql []))           := []
+  (ast/form (hfql [:a]))         := [:a]
+  )
+
+(tests
+  "form ∘ hfql = id — star"
+  (ast/form (hfql [*]))          := '[*]
+  (ast/form (hfql [:a *]))       := '[:a *]
+  (ast/form (hfql [* :a]))       := '[* :a]
+  (ast/form (hfql [:a * :b]))    := '[:a * :b]
+  )
+
+(tests
+  "form ∘ hfql = id — recursion"
+  (ast/form (hfql [:a ...]))     := '[:a ...]
+  (ast/form (hfql [:a 3]))       := [:a 3]
+  (ast/form (hfql [:a ''3]))     := '[:a '3])
+
+(tests
+  "form ∘ hfql = id — leaf types in pull"
+  (ast/form (hfql [:a inc]))     := '[:a inc]
+  (ast/form (hfql [:a "name"]))  := [:a "name"]
+  (ast/form (hfql [:a (inc %)]))  := '[:a (inc %)]
+  (ast/form (hfql [:a #'inc]))   := '[:a (var inc)]
+  (ast/form (hfql [:a '#'inc]))   := '[:a (quote (var inc))]
+  )
+
+(tests
+  "form ∘ hfql = id — keyword traversal"
+  (ast/form (hfql {:a [:b]}))       := {:a [:b]}
+  )
+
+(tests
+  "form ∘ hfql = id — star traversal"
+  (ast/form (hfql {* inc}))        := '{* inc}
+  (ast/form (hfql {* [:a]}))       := '{* [:a]}
+  )
+
+(tests
+  "form ∘ hfql = id — traversal with recursion"
+  (ast/form (hfql {inc ...}))  := '{inc ...}
+  (ast/form (hfql {inc 3}))    := '{inc 3})
+
+(tests
+  "form ∘ hfql = id — call traversal"
+  (ast/form (hfql {(inc %) ...}))  := '{(inc %) ...})
+
+(tests
+  "form ∘ hfql = id — nested"
+  (ast/form (hfql [:a {:b [:c :d]}]))      := '[:a {:b [:c :d]}]
+  (ast/form (hfql [:a * {:b [:c ...]}]))   := '[:a * {:b [:c ...]}]
+  (ast/form (hfql [{:a [{:b [:c]}]}]))     := '[{:a [{:b [:c]}]}])
+
+(tests
+  "form ∘ hfql = id — mixed pull"
+  (ast/form (hfql [:a inc "name" (inc %) *]))
+  := '[:a inc "name" (inc %) *]
+  (ast/form (hfql [:a {:b [:c]} :d]))
+  := '[:a {:b [:c]} :d])
+
+(tests
+  "form ∘ hfql = id — metadata on pull"
+  (meta (ast/form (hfql ^{:x 1} [:a])))        := {:x 1}
+  (meta (ast/form (hfql ^{:x 1} [:a :b])))     := {:x 1}
+  (meta (ast/form (hfql ^{:x 1} [:a * :b])))   := {:x 1})
+
+(tests
+  "form ∘ hfql = id — metadata on traversal"
+  (let [m (meta (first (ast/form (hfql [^{:x 1} {:a [:b]}]))))]
+    (:x m) := 1)
+  (let [m (meta (first (ast/form (hfql [^{:x 1} {* inc}]))))]
+    (:x m) := 1))
+
+(tests
+  "form ∘ hfql = id — metadata on nested pull"
+  (let [form (ast/form (hfql ^{:outer true} [:a {:b ^{:inner true} [:c :d]}]))]
+    (:outer (meta form)) := true
+    (let [traversal-form (second form)         ; {:b [:c :d]}
+          inner-pull (val (first traversal-form))]
+      (:inner (meta inner-pull)) := true)))
 
 (defn- traverse-two [f W1 W2]
   (rose-tree (f W1 W2)
