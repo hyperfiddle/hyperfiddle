@@ -39,10 +39,7 @@
                                       ;   point is expected to be a collection; the continuation applies to each element.
                                       ; ::keyword-fn (lambdas only): from `{:k [...]}` keyword-as-function sugar.
                                       ; Matters for the interpreter which handles star traversals differently.
-(s/def ::edge ::node)          ; for traversals: the inner AST node (itself a full node map) that describes the
-                               ; edge function. E.g. in `{:user/name [...]}`, the traversal's edge is the
-                               ; ::keyword node for `:user/name`. In `{(all-users) [...]}`, the edge is a
-                               ; ::call node for `(all-users)`.
+
 ;; Interpreter-set keys (not part of the static node spec produced by phi)
 (s/def ::recursion-root boolean?)  ; marks the root of a recursive structure at runtime
 (s/def ::recursive-child boolean?) ; marks a child that was produced by recursive unfolding
@@ -60,6 +57,18 @@
 (defmulti node-spec
   "Return the spec for an AST node map, dispatched on ::type."
   ::type)
+
+(s/def ::node-attrs (s/multi-spec node-spec ::type))
+(s/def ::node (s/and #(instance? RoseTree %)
+                     #(s/valid? ::node-attrs (extract %))))
+
+(s/def ::edge ::node) ; for traversals: the inner AST node (itself a full node
+                      ; map) that describes the edge function. E.g. in
+                      ; `{:user/name [...]}`, the traversal's edge is
+                      ; the ::keyword node for `:user/name`. In
+                      ; `{(all-users) [...]}`, the edge is a ::call node
+                      ; for `(all-users)`.
+
 
 (defmethod node-spec ::star [_]
   (s/keys :req [::type ::lexical-env ::id ::metadata]))
@@ -109,10 +118,6 @@
 (defmethod node-spec ::traversal [_]
   (s/keys :req [::type ::lexical-env ::id ::multiplicity ::metadata]
           :opt [::kind ::edge]))
-
-(s/def ::node-attrs (s/multi-spec node-spec ::type))
-(s/def ::node (s/and #(instance? RoseTree %)
-                     #(s/valid? ::node-attrs (extract %))))
 
 (defmulti form
   "Return the source form of `node` (a RoseTree). Some node types derive their
