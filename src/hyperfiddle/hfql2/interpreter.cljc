@@ -656,7 +656,6 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (def ^:deprecated iterator? cd/iterator?)
 (def ^:deprecated enumeration? cd/enumeration?)
-(def ^:deprecated to-seq cd/to-seq)
 
 (defn unfoldT
   "Build an HFQLT navigator from an AST (rose tree) using a coalgebra.
@@ -717,7 +716,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                  (-> (seed (assoc scope '% %) childT) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
                                    (vary-meta assoc ::hfql/positional-index positional-index) ; note positional index isn't a stable identity in the general case.
                                    )))
-                             (to-seq forced))
+                             (cd/to-seq forced))
                            (meta forced)))))))))
            (ast/lexical-env ast-node))))))
 

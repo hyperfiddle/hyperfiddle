@@ -114,18 +114,11 @@
 (s/def ::node (s/and #(instance? RoseTree %)
                      #(s/valid? ::node-attrs (extract %))))
 
-;;;; Internal helpers
-
-;; form is a multimethod defined here (before compute-node-id which needs it).
-;; Dispatches on ::type extracted from the RoseTree. Nodes that store ::form use
-;; the :default method. Nodes whose form is derived (star, recur, literal, pull,
-;; traversal) have their own method. Pull and traversal derive form from the tree
-;; structure via `unwrap`.
 (defmulti form
   "Return the source form of `node` (a RoseTree). Some node types derive their
   form from stored fields, others from tree structure (pull/traversal via unwrap).
-  When `::metadata` is present the metadata is restored onto the result so
-  that `form ∘ analyze == id`."
+  When `::metadata` is present the metadata is restored onto the result so that
+  `form ∘ analyze == id`."
   (fn [node] (::type (extract node))))
 
 (defmethod form :default [node] (::form (extract node)))
@@ -374,11 +367,11 @@
 
 ;;;; Accessors
 ;;
-;; Each function reads from an AST node (a RoseTree). Accessors call `extract`
-;; to get the attrs map. Use `unwrap` directly for tree-structural access.
+;; Each function reads from an AST node (a RoseTree). Use `unwrap` directly for
+;; tree-structural access.
 
 (defn node-type
-  "Return the type of `node` (a RoseTree)."
+  "Return the type of `node`."
   [node] (::type (extract node)))
 
 ;; `form` is defined as a defmulti in the Internal helpers section above.

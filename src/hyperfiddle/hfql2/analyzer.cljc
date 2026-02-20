@@ -288,6 +288,10 @@
      (cond-> (ast/set-metadata node mdata)
        (not= ::ast/traversal ptype) (ast/set-lexical-env lenv)))))
 
+(declare -escape)
+(defn escape [point]
+  (-escape (update point ::ast/form quote-form)))
+
 (defmulti -escape ::ast/type)
 (defmethod -escape ::ast/star [point] point)
 (defmethod -escape ::ast/recur [point] point)
@@ -312,8 +316,6 @@
 (defmethod -escape ::ast/traversal [point]
   (update-existing point ::ast/edge (fn [edge] (escape (extract edge)))))
 
-(defn escape [point]
-  (-escape (update point ::ast/form quote-form)))
 
 
 (defn- ψ ; psi
