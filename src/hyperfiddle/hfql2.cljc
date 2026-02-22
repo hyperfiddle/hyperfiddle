@@ -906,9 +906,17 @@ identifier, though it might not be serializable."
                   (let [item-suggestion
                         (try
                           (let [coll (from-right nil (value-at-point hfqlT))]
-                            (when (multiplicity-many-value? coll)
+                            (cond
+                              (multiplicity-many-value? coll)
                               (when-let [sample (first coll)]
-                                (from-right nil (suggest* sample)))))
+                                (let [s (from-right nil (suggest* sample))]
+                                  (cond
+                                    (and s (= ::ana/pull (::ana/type (metas s)))) s
+                                    (imap? sample) (build-hfql (vec (keys sample))))))
+                              ;; value-at-point is already a map (e.g. {*} traversal fanned out
+                              ;; a collection of maps, [*] sees one map directly)
+                              (imap? coll)
+                              (build-hfql (vec (keys coll)))))
                           (catch #?(:clj Throwable, :cljs :default) _ nil))]
                     (if (and item-suggestion (= ::ana/pull (::ana/type (metas item-suggestion))))
                       (let [suggested? (set/difference (children-ids item-suggestion) (children-ids hfqlT))]
