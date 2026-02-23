@@ -689,32 +689,29 @@ Pulling on non-maps (non associative) is perfectly fine.
                        children)
                      (if (empty? children) ; if recursion is bounded and over, * won't have more children
                        ()
-                       ;; Isn't there a way here to produce a lazy-seq producing unseeded children upto multiplicity?
-                       ;; It seems no because to know the children count we must run IO.
-                       ;; #dbg
-                       (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (ast/symbolic-edge (or (ast/edge ast-node) ast-node))))
-                                        (either/either
-                                          (constantly ()) ; stop navigation at first error
-                                          identity
-                                          (force-thunk value) ; ⚠ will force all effects up to the root to compute children multiplicity
-                                          ))
-                             ;; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
-                             childT (unfoldT coalgebra (first children)) ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
-                             ]
-                         (with-meta ; carry metadata over
-                           ;; Can't use `sequence` here. `sequence` produces a chunked iterator seq and we must not force any form of batching in presence of IO. The user decides upstream.
-                           (map-indexed  ; Record item's index for eventual positional selection.
-                             (fn [positional-index value_i]
-                               (let [% (thunk ::thunks/weak ; lazy-seq spine do not hold onto navigated values. Leaves does.
-                                         (try
-                                           (either/right (safe-ccp-nav forced nil value_i)) ; hard-wired navigate call – a fan-out is never a leaf.
-                                           (catch #?(:clj Throwable, :cljs :default) err
-                                             (either/left err))))]
-                                 (-> (seed (assoc scope '% %) childT) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
-                                   (vary-meta assoc ::hfql/positional-index positional-index) ; note positional index isn't a stable identity in the general case.
-                                   )))
-                             (cd/to-seq forced))
-                           (meta forced)))))))))
+                       ;; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
+                       (let [childT (unfoldT coalgebra (first children))] ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation. No IO — builds template from AST.
+                         (lazy-seq ; defer IO until children are actually iterated
+                           (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (ast/symbolic-edge (or (ast/edge ast-node) ast-node))))
+                                            (either/either
+                                              (constantly ()) ; stop navigation at first error
+                                              identity
+                                              (force-thunk value) ; forces effects up to the root to compute children multiplicity
+                                              ))]
+                             (with-meta ; carry metadata over
+                               ;; Can't use `sequence` here. `sequence` produces a chunked iterator seq and we must not force any form of batching in presence of IO. The user decides upstream.
+                               (map-indexed  ; Record item's index for eventual positional selection.
+                                 (fn [positional-index value_i]
+                                   (let [% (thunk ::thunks/weak ; lazy-seq spine do not hold onto navigated values. Leaves does.
+                                             (try
+                                               (either/right (safe-ccp-nav forced nil value_i)) ; hard-wired navigate call – a fan-out is never a leaf.
+                                               (catch #?(:clj Throwable, :cljs :default) err
+                                                 (either/left err))))]
+                                     (-> (seed (assoc scope '% %) childT) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
+                                       (vary-meta assoc ::hfql/positional-index positional-index) ; note positional index isn't a stable identity in the general case.
+                                       )))
+                                 (cd/to-seq forced))
+                               (meta forced)))))))))))
            (ast/lexical-env ast-node))))))
 
 (defn seed
