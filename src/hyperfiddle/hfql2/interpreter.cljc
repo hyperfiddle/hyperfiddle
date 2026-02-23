@@ -255,27 +255,6 @@
                 (catch #?(:clj Throwable, :cljs :default) err
                   (either/left err))))))))))
 
-(defn- get-or-call [ast-node]
-  (mem-reader ; explicit reader for clarity
-    (binding [thunks/*cache-strategy* ::thunks/weak]
-      (thunked
-        (=<<
-          (fn [%]
-            (try
-              (either/right
-                (fmap-original-object (fn [%]
-                                        (let [ifn (ast/node-value ast-node)]
-                                          (if (try (contains? % ifn) ; FIXME find a better check
-                                                   (catch #?(:clj Throwable, :cljs :default) _
-                                                     false))
-                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" '*navigate* (ast/form ast-node)))
-                                                (*navigate* % ifn (get % ifn)))
-                                            (do #?(:clj (log/debug "[IO]" 'get-or-call ">" 'apply (ast/form ast-node)))
-                                                (apply ifn [%])))))
-                  %))
-              (catch #?(:clj Throwable, :cljs :default) err
-                (either/left err)))))))))
-
 (defn- call [ast-node]
   (let [call! (if (= ::ast/keyword-fn (ast/kind ast-node))
                 (let [key (ast/form-resolved ast-node)]
@@ -478,15 +457,16 @@ Pulling on non-maps (non associative) is perfectly fine.
   (let [children (unwrap ast-node)
         transform
         (case (ast/node-type ast-node)
-          ::ast/symbol  (comp (leaf ast-node) focus-% (if (fn? (ast/node-value ast-node)) get-or-call getter))
-          ::ast/keyword (comp (leaf ast-node) focus-% getter)
-          ::ast/string  (comp (leaf ast-node) focus-% getter)
-          ::ast/literal (comp (leaf ast-node) focus-% getter)
-          ::ast/fn      (comp (leaf ast-node) focus-% get-or-call)
-          ::ast/var     (comp (leaf ast-node) (focus-arguments ast-node) call)
-          ::ast/quoted-var (comp (leaf ast-node) focus-% getter)
-          ::ast/call    (comp (leaf ast-node) (focus-arguments ast-node) call)
-          ::ast/lambda  (comp (leaf ast-node) (focus-arguments ast-node) call)
+          ::ast/symbol        (comp (leaf ast-node) (focus-arguments ast-node) call)
+          ::ast/quoted-symbol (comp (leaf ast-node) focus-% getter)
+          ::ast/keyword       (comp (leaf ast-node) focus-% getter)
+          ::ast/string        (comp (leaf ast-node) focus-% getter)
+          ::ast/literal       (comp (leaf ast-node) focus-% getter)
+          ::ast/runtime-value (comp (leaf ast-node) (focus-arguments ast-node) call)
+          ::ast/var           (comp (leaf ast-node) (focus-arguments ast-node) call)
+          ::ast/quoted-var    (comp (leaf ast-node) focus-% getter)
+          ::ast/call          (comp (leaf ast-node) (focus-arguments ast-node) call)
+          ::ast/lambda        (comp (leaf ast-node) (focus-arguments ast-node) call)
           ::ast/star    (comp (leaf ast-node) focus-% (constantly star))
           ::ast/recur   (constantly (mem-reader (fn [env] (pair env [(find-recursion-point (mapHead #(assoc % ::env env) ast-node)) ; TODO extract helper for parent-aware tree walk
                                                                      ]))))
@@ -534,8 +514,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                       (mapv (fn [child] (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) ast-node)) child))) ; TODO extract helper for parent-aware tree walk
                       ))))))
           ::ast/traversal
-          (let [lexical-symbol? (and (= ::ast/symbol (ast/node-type (ast/edge ast-node)))  ; not a function
-                                    (not (fn? (ast/node-value (ast/edge ast-node)))))
+          (let [lexical-symbol? (and (= ::ast/symbol (ast/node-type (ast/edge ast-node)))
+                                     (not (fn? (ast/node-value (ast/edge ast-node)))))
                 lexical-value (ast/node-value (ast/edge ast-node))
                 edgeT (unfoldT hfqlT (cond (ast/star-traversal? ast-node) (ana/hfql identity)
                                            lexical-symbol? (ana/hfql identity)
@@ -994,7 +974,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   := {:a 1}
 
   (from-either (force-thunk (extract (seed {'% {identity 'identity}} (-hfql identity)))))
-  := 'identity
+  := {identity 'identity} ; identity is called (not looked up), returns the map
   )
 
 (tests

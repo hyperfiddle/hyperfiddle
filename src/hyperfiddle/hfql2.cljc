@@ -105,26 +105,24 @@
   := '(4))
 
 (tests
-  "Literals – symbol, value and var do not mix."
+  "Quoted symbol always looks up."
   (values (seed {'% {'str 'str, str str, #'str #'str}} (hfql 'str)))
   := '(str)
 
-  "Function values are looked up if they appear themselves in a map."
+  "Unquoted symbol always calls (even if fn appears as key in map)."
   (values (seed {'% {'str 'str, str str, #'str #'str}} (hfql str)))
-  := (list str)
+  := (list (str {'str 'str, str str, #'str #'str}))
 
   "Quoted var is always looked up as a literal."
   (values (seed {'% {'str 'str, str str, #'str #'str}} (eval '(hfql '#'str)))) ; HACK eval is an RCF workaround. RCF chocked on :the-var form.
   := [#'clojure.core/str])
 
 (tests
-  "Function values are applied if they don't appear themselves in a map."
-  ;; This behavior can be ambiguous but this is necessary in cases where userland retrun {fn ...}
-  ;; or when the function is lexically bound and cannot be resolved through a var.
-  ;; To disambiguate, use:
-  ;; - 'f to always lookup
-  ;; - #'f to always apply
-  ;; - pass a custom getter function
+  "Unquoted symbol always calls — no ambiguity."
+  ;; Symbols are always called. To look up, use:
+  ;; - 'f for symbol keys
+  ;; - #'f for var keys (calling)
+  ;; - '#'f for var keys (lookup)
   (values (seed {'% {'str 'str, :str :str #'str #'str}} (hfql str)))
   := '("{str str, :str :str, #'clojure.core/str #'clojure.core/str}"))
 
@@ -391,7 +389,7 @@
   (let [form-a (ana/unquote* (ast/form rose-a))
         merged-form (vec (distinct (into (vec form-a) (ana/unquote* (ast/form rose-b)))))]
     (assoc (extract rose-a)
-      ::ast/lexical-env {} ::ast/form merged-form ::ast/symbolic-edges merged-form)))
+      ::ast/lexical-env {} ::ast/form merged-form)))
 
 (tests
   (merge-pull-metas
@@ -401,21 +399,22 @@
       :hyperfiddle.hfql2.ast/type :hyperfiddle.hfql2.ast/pull,
       :hyperfiddle.hfql2.ast/form [:a :b :c],
       :hyperfiddle.hfql2.ast/lexical-env {},
-      :hyperfiddle.hfql2.ast/symbolic-edges [:a :b :c]
       :hyperfiddle.hfql2.ast/metadata nil}
   )
 
 (defn symbolic-edge* [attrs]
   (or (::label attrs)
       (let [type (::ast/type attrs)
-            edge (::ast/edge attrs)]   ; ::ast/edge on traversal nodes is a RoseTree
-        (if (= type ::ast/traversal)
-          (ast/symbolic-edge edge)     ; edge IS a RoseTree -- works correctly
-          (or (::ast/symbolic-edge attrs)
-              (case type
-                (::ast/literal ::ast/keyword ::ast/string ::ast/symbol
-                 ::ast/var ::ast/fn ::ast/call ::ast/pull) (::ast/form attrs)
-                nil))))))
+            edge (::ast/edge attrs)]
+        (case type
+          ::ast/traversal (ast/symbolic-edge edge)
+          (::ast/star ::ast/recur ::ast/literal ::ast/keyword ::ast/string ::ast/symbol
+           ::ast/var ::ast/runtime-value ::ast/call ::ast/pull) (::ast/form attrs)
+          (::ast/quoted-var ::ast/quoted-symbol) (::ast/form attrs)
+          ::ast/lambda (if (= ::ast/keyword-fn (::ast/kind attrs))
+                         (or (::ast/form-resolved attrs) (::ast/form attrs))
+                         (let [[_fn ?name] (::ast/form attrs)]
+                           (if (symbol? ?name) `(~'fn ~?name ~'...) '(fn anonymous ...))))))))
 
 (defn symbolic-edge [hfqlT]
   (when hfqlT
@@ -462,7 +461,6 @@
       :hyperfiddle.hfql2.ast/type :hyperfiddle.hfql2.ast/pull,
       :hyperfiddle.hfql2.ast/form [:a :b :c],
       :hyperfiddle.hfql2.ast/lexical-env {},
-      :hyperfiddle.hfql2.ast/symbolic-edges [:a :b :c],
       :hyperfiddle.hfql2.ast/metadata nil
       :hyperfiddle.hfql2.interpreter/static-children _
       :hyperfiddle.hfql2.interpreter/scope '{a 1, b 2}
@@ -778,8 +776,8 @@ identifier, though it might not be serializable."
      "Singleton fn for the `type` column in Java object suggestions.
       Why a fn and not a symbol? `build-hfql` calls `ana/analyze` at runtime (not the
       `hfql` macro), so we can't pass the symbol 'type — the analyzer would classify it
-      as ::symbol and the coalgebra would (get obj 'type) instead of (type obj).
-      We need ::fn / get-or-call semantics, which requires passing a function value.
+      as ::symbol and the coalgebra would call it, not look it up. We pass a function
+      value which becomes a ::runtime-value node — always called.
       Why a def? compute-id hashes ::form (the fn object) to produce HFQL IDs.
       ColumnPicker and each MatrixRow both call suggest-java-object independently —
       if each call created a fresh (with-meta type ...), the IDs wouldn't match and
@@ -971,9 +969,11 @@ identifier, though it might not be serializable."
 
 (defmulti describe describe-dispatch-fn)
 (defmethod describe :default [_] nil)
-(defmethod describe ::ast/symbol  [stepT] (metas stepT))
-(defmethod describe ::ast/keyword [stepT] (metas stepT))
-(defmethod describe ::ast/string  [stepT] (metas stepT))
+(defmethod describe ::ast/symbol         [stepT] (metas stepT))
+(defmethod describe ::ast/quoted-symbol  [stepT] (metas stepT))
+(defmethod describe ::ast/runtime-value  [stepT] (metas stepT))
+(defmethod describe ::ast/keyword        [stepT] (metas stepT))
+(defmethod describe ::ast/string         [stepT] (metas stepT))
 (defn- describe-call [metas] (assoc metas ::symbolic-edge (symbolic-edge* metas)))
 (defmethod describe ::ast/call   [stepT] (describe-call (metas stepT)))
 (defmethod describe ::ast/traversal [stepT] (describe-call (extract (ast/edge (::co/AST (metas stepT))))))

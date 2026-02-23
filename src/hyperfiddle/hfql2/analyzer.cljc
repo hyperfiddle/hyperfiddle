@@ -49,7 +49,7 @@
 (defn quote-nat-ints [form] (if (nat-int? form) (list 'quote form) form))
 
 (defn- quoted-var-form? [form] (and (quoted? form) (var-form? (unquote* form))))
-
+
 ;;;;;;;;;;;;;;;;;;;;;
 ;; KW special form ;;
 ;;;;;;;;;;;;;;;;;;;;;
@@ -96,7 +96,10 @@
 
 
 
-(defn projection-type [form]
+(defn- quoted-symbol-form? [form]
+  (and (quoted? form) (symbol? (second form))))
+
+(defn form-type [form]
   (cond
     (= '* form)           ::ast/star
     (or (= '... form)
@@ -104,7 +107,7 @@
     (symbol? form)        ::ast/symbol
     (keyword? form)       ::ast/keyword
     (string? form)        ::ast/string
-    (fn? form)            ::ast/fn
+    (fn? form)            ::ast/runtime-value
     (var-form? form)      ::ast/var
     (symbolic-call? form) ::ast/call
     (pair? form)          ::ast/traversal
@@ -112,6 +115,7 @@
     (map? form)           ::ast/traversals
     (vector? form)        ::ast/pull
     (quoted-var-form? form) ::ast/quoted-var
+    (quoted-symbol-form? form) ::ast/quoted-symbol
     (quoted? form)    ::ast/literal
     (lambda? form)        ::ast/lambda
     ;; TODO ifn? – maybe
@@ -120,26 +124,27 @@
     ::ast/literal))
 
 (defn- reshape-traversals-down [hfql]
-  (case (projection-type hfql)
+  (case (form-type hfql)
     ::ast/call (reduced (reduced hfql))
     ::ast/lambda (reduced (reduced hfql))
     ::ast/literal (reduced (reduced hfql))
     ::ast/quoted-var (reduced (reduced hfql))
-    (::ast/pull ::ast/traversals ::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/fn ::ast/var)
+    ::ast/quoted-symbol (reduced (reduced hfql))
+    (::ast/pull ::ast/traversals ::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/runtime-value ::ast/var)
     hfql))
 
 (defn- reshape-traversals-up [hfql]
   (if (reduced? hfql)
     (unreduced hfql)
-    (case (projection-type hfql)
+    (case (form-type hfql)
       ::ast/pull (into [] (mapcat (fn [hfql] (if (and (vector? hfql) (not (pair? hfql))) hfql [hfql])) hfql))
       ::ast/traversals (if (= 1 (count hfql))
                      (if-let [metas (meta hfql)]
                        (vary-meta (apply pair (first hfql)) merge metas)
                        (first hfql))
                      (with-meta (into [] hfql) (meta hfql)))
-      (::ast/call ::ast/lambda ::ast/literal ::ast/quoted-var) (throw (ex-info "Encountered invalid AST node." {:value hfql}))
-      (::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/fn ::ast/var)
+      (::ast/call ::ast/lambda ::ast/literal ::ast/quoted-var ::ast/quoted-symbol) (throw (ex-info "Encountered invalid AST node." {:value hfql}))
+      (::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/runtime-value ::ast/var)
       hfql)))
 
 (defn- lexical? [env sym] (contains? env sym))
@@ -156,9 +161,14 @@
   (and (qualified-symbol? sym)
     (not (str/starts-with? (name sym) "."))))
 
+(defn- method-call? [sym]
+  (or (indirect-method-call? sym)
+    (direct-method-call? sym)
+    (static-method-call? sym)))
+
 (defn- supports-direct-method-syntax? []
   #?(:clj (>= 1.12 (parse-double (re-find #"^[0-9]+\.[0-9]+" (clojure-version))))
-     :cljs false ; TODO I actually don't know. Maybe cljs does support it.
+     :cljs false ; TODO I actually don't know. Maybe cljs does support it. Yes, cljs 1.12+ does support it.
      ))
 
 (defn- escape-method-call [form]
@@ -173,13 +183,11 @@
 (defn- var-resolver [env form]
   (cond
     (lexical? env form)          nil
-    (indirect-method-call? form) nil
-    (direct-method-call? form)   nil
-    (static-method-call? form)   nil
+    (method-call? form)          nil
     (symbol? form)               `(var ~form)
     :else                        nil))
 
-(defmacro resolve-direct-method [sym] ; No call to resolve, respects ②
+(defmacro resolve-direct-method [sym] ; No call to cc/resolve, respects ②
   {:pre [(direct-method-call? sym)]}
   `(symbol (.getName ~(symbol (namespace sym))) ~(name sym)))
 
@@ -193,8 +201,7 @@
     :else                        nil))
 
 (defn- lexical-bindings-map [lexical-env]
-  (zipmap (map #(quote-form %) (keys lexical-env))
-    (keys lexical-env)))
+  (zipmap (map #(quote-form %) (keys lexical-env)) (keys lexical-env)))
 
 #?(:clj
    (defn aliased-form
@@ -237,10 +244,8 @@
   Metadata and lexical-env are set uniformly at the end via mutators."
   ([env] (partial φ env))
   ([env form children]
-   (let [mdata (meta form)
-         lenv  (lexical-bindings-map env)
-         ptype (projection-type form)
-         node  (case ptype
+   (let [ftype (form-type form)
+         node  (case ftype
                  ::ast/star      (ast/->star)
                  ::ast/recur     (if (nat-int? form)
                                    (ast/->bounded-recursion form)
@@ -258,18 +263,16 @@
                                     (ast/->quoted-var (unquote* form) (list 'var (resolver env sym))
                                       #?(:clj (list 'var (aliased-form sym)) :cljs (list 'var sym))
                                       :resolved-runtime-value #?(:clj (resolve sym) :cljs nil)))
-                 ::ast/fn        (ast/->fn form :value form)
+                 ::ast/runtime-value (ast/->runtime-value form)
+                 ::ast/quoted-symbol (ast/->quoted-symbol (second form))
                  ::ast/lambda    (let [kw (get-kw-fn-form-kw form)]
                                    (if kw
                                      (let [kw-node (φ env kw ())]
-                                       (ast/->lambda form (ast/symbolic-edge kw-node) '(%)
+                                       (ast/->lambda form '(%)
                                          :kind ::ast/keyword-fn
                                          :form-resolved (ast/form-resolved kw-node)
                                          :form-short (ast/form-short kw-node)))
-                                     (ast/->lambda form
-                                       (let [[_fn ?name _params] form]
-                                         (if (symbol? ?name) `(~'fn ~?name ~'...) '(fn anonymous ...)))
-                                       '(%))))
+                                     (ast/->lambda form '(%))))
                  ::ast/call      (let [[f & params] form]
                                    (ast/->call form f (var-resolver env f) params
                                      (replace {'% ''%} params) (resolver env f)))
@@ -281,53 +284,49 @@
                                      (let [edge-node (φ env edge-form ())
                                            mult (when (ast/star-traversal? cont-node) ::ast/many)]
                                        (ast/->edge-traversal edge-node cont-node :multiplicity mult)))))
-         lenv  (if (= ::ast/call ptype)
+         lenv  (lexical-bindings-map env)
+         lenv  (if (= ::ast/call ftype)
                  (let [[_f & params] form
                        ps (remove #{'%} params)]
                    (merge lenv (zipmap (map quote-form (filter symbol? ps))
                                  (filter symbol? ps))))
                  lenv)]
-     (cond-> (ast/set-metadata node mdata)
-       (not= ::ast/traversal ptype) (ast/set-lexical-env lenv)))))
+     (cond-> (ast/set-metadata node (meta form))
+       (not= ::ast/traversal ftype) (ast/set-lexical-env lenv)))))
 
 (declare -escape)
-(defn escape [point]
-  (-escape (update point ::ast/form quote-form)))
+(defn escape [point] (-escape (update point ::ast/form quote-form)))
 
 (defmulti -escape ::ast/type)
 (defmethod -escape ::ast/star [point] point)
 (defmethod -escape ::ast/recur [point] point)
 (defmethod -escape ::ast/literal [point] point)
-(defmethod -escape ::ast/keyword [point] (update point ::ast/form-short quote-form))
+(defmethod -escape ::ast/keyword [point] point)
 (defmethod -escape ::ast/string [point] point)
-(defmethod -escape ::ast/symbol [point] (-> (update-existing point ::ast/symbolic-edge quote-form)
-                                      (update ::ast/form-short quote-form)))
+(defmethod -escape ::ast/symbol [point] (update point ::ast/form-short quote-form))
 (defmethod -escape ::ast/var [point] (-> (update point ::ast/form-resolved quote-form)
                                     (update ::ast/form-short quote-form)))
 (defmethod -escape ::ast/quoted-var [point] (-> (update point ::ast/form-resolved quote-form)
                                            (update ::ast/form-short quote-form)))
-(defmethod -escape ::ast/pull [point] (-> (update point ::ast/form quote-form)
-                                    (update ::ast/symbolic-edges quote-form)))
-(defmethod -escape ::ast/fn [point] (update point ::ast/symbolic-edge quote-form))
-(defmethod -escape ::ast/lambda [point] (-> (update point ::ast/symbolic-edge quote-form)
-                                      (update ::ast/parameters quote-form)))
+(defmethod -escape ::ast/pull [point] point)
+(defmethod -escape ::ast/runtime-value [point] point)
+(defmethod -escape ::ast/quoted-symbol [point] point)
+(defmethod -escape ::ast/lambda [point] (update point ::ast/parameters quote-form))
 
-(defmethod -escape ::ast/call [point] (-> (update point ::ast/symbolic-edge quote-form)
-                                    (update ::ast/parameters quote-form)
-                                    (update ::ast/arguments conj 'list)))
+(defmethod -escape ::ast/call [point] (-> (update point ::ast/parameters quote-form)
+                                        (update ::ast/arguments conj 'list)))
 
-(defmethod -escape ::ast/traversal [point]
-  (update-existing point ::ast/edge (fn [edge] (escape (extract edge)))))
+(defmethod -escape ::ast/traversal [point] (update point ::ast/edge (comp escape extract)))
 
 
 
 (defn- ψ ; psi
   "A coalgebra describe how to unfold an HFQL expression into a tree. For any HFQL form, return its children."
   [hfql]
-  (case (projection-type hfql)
+  (case (form-type hfql)
     ::ast/pull      hfql
     ::ast/traversal [(snd hfql)]
-    (::ast/star ::ast/keyword ::ast/symbol ::ast/var ::ast/string ::ast/fn ::ast/call ::ast/lambda ::ast/literal ::ast/quoted-var)
+    (::ast/star ::ast/keyword ::ast/symbol ::ast/var ::ast/string ::ast/runtime-value ::ast/quoted-symbol ::ast/call ::ast/lambda ::ast/literal ::ast/quoted-var)
     ()
     ::ast/recur ; we don't produce an infinite AST to ease debugging.
     ()))
@@ -354,9 +353,9 @@
 (defmulti emit* type)
 (defmethod emit* :default [x] (quote-form x))
 (defmethod emit*  #?(:clj clojure.lang.AMapEntry :cljs MapEntry) [[k v]]
-  `(pair ~(quote-form k) ~(quote-form v)))
+  `(pair ~(emit* k) ~(emit* v)))
 
-(defn emit [w] ; emit :: Comonad w => w a -> (a, [(a, [...]) ...])
+(defn emit [w] ; emit :: Cofree w => w a -> (a, [(a, [...]) ...])
   (pair
     (extract w)
     (mapv emit (unwrap w))))
@@ -365,15 +364,16 @@
   (rose-tree point (mapv hydrate children)))
 
 (defn marshal [w] (fmap (comp escape #(update % ::ast/form emit*)) w))
-(defn unmarshal [rt]
+(defn unmarshal [ast-node]
   (fmap (fn [attrs]
           (cond-> (-> attrs
                     (update ::ast/form unquote*)
                     (update-existing ::ast/form-resolved unquote*)
-                    (update-existing ::ast/form-short unquote*))
+                    (update-existing ::ast/form-short unquote*)
+                    (update-existing ::ast/parameters unquote*))
             (::ast/edge attrs)
             (update ::ast/edge (fn [m] (rose-tree (update m ::ast/form unquote*) ())))))
-    rt))
+    ast-node))
 
 (defmacro hfql [form] `(unmarshal (hydrate ~(emit (marshal (analyze &env form))))))
 

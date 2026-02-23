@@ -13,12 +13,12 @@
 ;;;; Specs -- keys
 
 (s/def ::type #{::star ::recur ::literal ::keyword ::string ::symbol
-                ::var ::quoted-var ::pull ::fn ::lambda ::call ::traversal})
+                ::var ::quoted-var ::pull ::runtime-value ::quoted-symbol ::lambda ::call ::traversal})
 (s/def ::form any?)            ; the original source form as read by the analyzer
 (s/def ::lexical-env (s/map-of symbol? any?)) ; symbol->value bindings captured at analysis time
 ;; ::partial removed — now a derived predicate, see `partial?` defmulti below.
 (s/def ::id int?)              ; content-derived hash, see `compute-node-id`
-(s/def ::symbolic-edge any?)   ; the edge label for this node in its parent pull (keyword, symbol, string, ...)
+;; ::symbolic-edge removed — now a fully derived accessor, see `symbolic-edge` below.
 (s/def ::form-resolved any?)   ; alias-resolved form. May be a qualified keyword (::foo), qualified
                                ; symbol (clojure.core/inc), or a full call form ((my.ns/fn arg1 %)).
                                ; The type depends on the node -- this spec is intentionally open.
@@ -97,19 +97,21 @@
 
 (defmethod node-spec ::quoted-var [_]
   (s/keys :req [::type ::form ::lexical-env ::id
-                ::symbolic-edge ::form-resolved ::form-short]
+                ::form-resolved ::form-short]
           :opt [::resolved-runtime-value]))
 
 (defmethod node-spec ::pull [_]
   (s/keys :req [::type ::lexical-env ::id ::metadata]))
 
-(defmethod node-spec ::fn [_]
-  (s/keys :req [::type ::form ::lexical-env ::id]
-          :opt [::resolved-runtime-value ::var ::form-resolved ::form-short]))
+(defmethod node-spec ::runtime-value [_]
+  (s/keys :req [::type ::form ::lexical-env ::id ::resolved-runtime-value]))
+
+(defmethod node-spec ::quoted-symbol [_]
+  (s/keys :req [::type ::form ::lexical-env ::id]))
 
 (defmethod node-spec ::lambda [_]
   (s/keys :req [::type ::form ::lexical-env ::id
-                ::symbolic-edge ::parameters]
+                ::parameters]
           :opt [::kind ::form-resolved ::form-short]))
 
 (defmethod node-spec ::call [_]
@@ -139,6 +141,9 @@
 (defmethod form ::quoted-var [node]
   (let [a (extract node)]
     (with-meta (list 'quote (::form a)) (::metadata a))))
+(defmethod form ::quoted-symbol [node]
+  (let [a (extract node)]
+    (with-meta (list 'quote (::form a)) (::metadata a))))
 (defmethod form ::pull [node]
   (with-meta (mapv form (unwrap node)) (::metadata (extract node))))
 (defmethod form ::traversal [node]
@@ -151,12 +156,11 @@
   Two nodes with the same type, form, and display forms will share the same id.
   Used to compare structural equality across independently constructed trees --
   e.g. two cells representing the same column in the same pull will have the
-  same id even if they belong to different rows. `::symbolic-edge` is included
-  because quoted-var and lambda have a distinct edge label from their form.
+  same id even if they belong to different rows.
   For pull and traversal nodes, `form` is computed from children (via unwrap)."
   [node]
   (let [a (extract node)]
-    (hash (assoc (select-keys a #{::type ::symbolic-edge ::form-short ::form-resolved})
+    (hash (assoc (select-keys a #{::type ::form-short ::form-resolved})
                  ::form (form node)))))
 
 (def ^:private node-defaults
@@ -231,22 +235,15 @@
               lexical-env (assoc ::lexical-env lexical-env))
             ()))
 
-(declare ->fn)
-
 (defn ->symbol
   "Construct a symbol node. Represents a bare symbol reference that resolves to a
-  value at runtime. When the value is a function, delegates to `->fn` so that
-  the node's type is `::fn` — the interpreter dispatches fn-valued symbols
-  differently (get-or-call vs getter)."
+  value at runtime. Unquoted symbols are always called (never used as map keys)."
   [form value var form-resolved form-short & {:keys [metadata lexical-env]}]
-  (if (fn? value) ; TODO looks like a wart. figure out if we can drop `::fn` and only keep `::symbol`.
-    (->fn form :metadata metadata :lexical-env lexical-env
-      :value value :var var :form-resolved form-resolved :form-short form-short)
-    (finalize (cond-> (merge metadata {::type ::symbol, ::form form
-                                        ::resolved-runtime-value value, ::var var
-                                        ::form-resolved form-resolved, ::form-short form-short})
-                lexical-env (assoc ::lexical-env lexical-env))
-              ())))
+  (finalize (cond-> (merge metadata {::type ::symbol, ::form form
+                                      ::resolved-runtime-value value, ::var var
+                                      ::form-resolved form-resolved, ::form-short form-short})
+              lexical-env (assoc ::lexical-env lexical-env))
+            ()))
 
 (defn ->var
   "Construct a var node. Represents a Clojure var reference with known parameters.
@@ -269,7 +266,7 @@
   its value is the var object itself. `symbolic-edge` is always the form itself
   (derived, not passed)."
   [form form-resolved form-short & {:keys [metadata lexical-env resolved-runtime-value]}]
-  (finalize (cond-> (merge metadata {::type ::quoted-var, ::form form, ::symbolic-edge form
+  (finalize (cond-> (merge metadata {::type ::quoted-var, ::form form
                                       ::form-resolved form-resolved, ::form-short form-short})
               resolved-runtime-value (assoc ::resolved-runtime-value resolved-runtime-value)
               lexical-env (assoc ::lexical-env lexical-env))
@@ -286,19 +283,24 @@
               lexical-env (assoc ::lexical-env lexical-env))
             children))
 
-(defn ->fn
-  "Construct an fn node. Represents a function value used as an edge. The
-  function will be applied to the value at point during traversal. Both
-  `symbolic-edge` and `node-value` are derived from the form. When called
-  from `->symbol` for a symbol that resolves to a function, the optional
-  keyword args carry the symbol's metadata (var, display forms, etc.)."
-  [form & {:keys [metadata lexical-env value var form-resolved form-short]}]
-  (finalize (cond-> (merge metadata {::type ::fn, ::form form})
-              lexical-env   (assoc ::lexical-env lexical-env)
-              value         (assoc ::resolved-runtime-value value)
-              var           (assoc ::var var)
-              form-resolved (assoc ::form-resolved form-resolved)
-              form-short    (assoc ::form-short form-short))
+(defn ->runtime-value
+  "Construct a runtime-value node. Represents a function or other runtime value
+  passed directly to `build-hfql` (not through the `hfql` macro). The value
+  will be called at runtime. `::form` and `::resolved-runtime-value` are both
+  the value itself."
+  [value & {:keys [metadata lexical-env]}]
+  (finalize (cond-> (merge metadata {::type ::runtime-value, ::form value
+                                      ::resolved-runtime-value value})
+              lexical-env (assoc ::lexical-env lexical-env))
+            ()))
+
+(defn ->quoted-symbol
+  "Construct a quoted-symbol node. Represents a quoted symbol used as a getter
+  key (map lookup). E.g. `'some-key` in `['some-key]` looks up the symbol key
+  in the map at point. `form` is the bare symbol (unquoted)."
+  [form & {:keys [metadata lexical-env]}]
+  (finalize (cond-> (merge metadata {::type ::quoted-symbol, ::form form})
+              lexical-env (assoc ::lexical-env lexical-env))
             ()))
 
 (defn ->lambda
@@ -310,11 +312,11 @@
   `node-value` is derived from the form (the lambda expression itself).
   `symbolic-edge` genuinely differs from form (it's a display summary like
   `(fn name ...)`)."
-  [form symbolic-edge parameters
+  [form parameters
    & {:keys [metadata lexical-env kind form-resolved form-short]}]
   (finalize (cond-> (merge metadata {::type ::lambda, ::form form
                                       ::resolved-runtime-value form
-                                      ::symbolic-edge symbolic-edge, ::parameters parameters})
+                                      ::parameters parameters})
               lexical-env   (assoc ::lexical-env lexical-env)
               kind          (assoc ::kind kind)
               form-resolved (assoc ::form-resolved form-resolved)
@@ -394,14 +396,19 @@
   [node] (or (::form-resolved (extract node)) (form node)))
 
 (defn symbolic-edge
-  "Return the edge label(s) for this node."
+  "Return the edge label for this node — the key under which it appears in its
+  parent pull. Fully derived, not stored."
   [node]
   (let [a (extract node)]
-    (if (contains? a ::symbolic-edge)
-      (::symbolic-edge a)
-      (case (::type a)
-        (::literal ::keyword ::string ::symbol ::var ::fn ::call ::pull) (form node)
-        nil))))
+    (case (::type a)
+      (::star ::recur ::literal ::keyword ::string ::symbol
+       ::var ::runtime-value ::call ::pull) (form node)
+      (::quoted-var ::quoted-symbol) (::form a)
+      ::lambda (if (= ::keyword-fn (::kind a))
+                 (or (::form-resolved a) (::form a))
+                 (let [[_fn ?name] (::form a)]
+                   (if (symbol? ?name) `(~'fn ~?name ~'...) '(fn anonymous ...))))
+      ::traversal (symbolic-edge (::edge a)))))
 
 (defn node-value
   "Return the runtime value of this node."
@@ -410,7 +417,7 @@
     (if (contains? a ::resolved-runtime-value)
       (::resolved-runtime-value a)
       (case (::type a)
-        (::keyword ::string ::fn ::var ::lambda ::quoted-var) (::form a)
+        (::keyword ::string ::runtime-value ::var ::lambda ::quoted-var ::quoted-symbol) (::form a)
         nil))))
 
 (defn node-var
@@ -422,7 +429,7 @@
   [node]
   (let [a (extract node)]
     (case (node-type node)
-      ::var '(%)
+      (::var ::symbol ::runtime-value) '(%)
       (::parameters a))))
 
 (defn arguments
@@ -474,7 +481,8 @@
 (defn var-node?   "True if `node` is a var reference." [node] (= ::var (node-type node)))
 (defn quoted-var? "True if `node` is a quoted var (`'#'foo`). Note the quote in front." [node] (= ::quoted-var (node-type node)))
 (defn pull?       "True if `node` is a pull."   [node] (= ::pull (node-type node)))
-(defn fn-node?    "True if `node` is a plain function value used as an edge." [node] (= ::fn (node-type node)))
+(defn runtime-value? "True if `node` is a runtime value (e.g. fn passed to build-hfql)." [node] (= ::runtime-value (node-type node)))
+(defn quoted-symbol? "True if `node` is a quoted symbol (`'foo`), used as a getter key." [node] (= ::quoted-symbol (node-type node)))
 (defn lambda?     "True if `node` is an inline lambda expression." [node] (= ::lambda (node-type node)))
 (defn call?       "True if `node` is a function call expression." [node] (= ::call (node-type node)))
 (defn traversal?  "True if `node` is a traversal." [node] (= ::traversal (node-type node)))
@@ -674,12 +682,11 @@
    ))
 
 (tests
-  "->symbol (fn value) delegates to ->fn"
+  "->symbol (fn value) stays ::symbol"
   (let [n (->symbol 'inc inc #'inc 'clojure.core/inc 'inc)]
     (valid-node? n) := true
-    (fn-node? n) := true        ; fn-valued symbols become ::fn nodes
-    (symbol-node? n) := false   ; no longer ::symbol
-    (node-type n) := ::fn
+    (symbol-node? n) := true
+    (node-type n) := ::symbol
     (node-value n) := inc
     (node-var n) := #'inc
     (form-resolved n) := 'clojure.core/inc
@@ -747,17 +754,28 @@
    ))
 
 (tests
- "->fn"
- (let [n (->fn identity)]
+ "->runtime-value"
+ (let [n (->runtime-value identity)]
    (valid-node? n) := true
-   (fn-node? n) := true
+   (runtime-value? n) := true
    (node-value n) := identity
    (partial? n) := true
    ))
 
 (tests
+ "->quoted-symbol"
+ (let [n (->quoted-symbol 'foo)]
+   (valid-node? n) := true
+   (quoted-symbol? n) := true
+   (form n) := '(quote foo)
+   (node-value n) := 'foo
+   (symbolic-edge n) := 'foo
+   (partial? n) := true
+   ))
+
+(tests
  "->lambda explicit (no kind)"
- (let [n (->lambda '(fn [%] (:db/id %)) '(fn [%] (:db/id %)) '(%))]
+ (let [n (->lambda '(fn [%] (:db/id %)) '(%))]
    (valid-node? n) := true
    (lambda? n) := true
    (node-value n) := '(fn [%] (:db/id %))
@@ -768,7 +786,7 @@
 
 (tests
  "->lambda keyword-fn"
- (let [n (->lambda '(fn [%] (:db/id %)) :db/id '(%)
+ (let [n (->lambda '(fn [%] (:db/id %)) '(%)
                    :kind ::keyword-fn :form-resolved :db/ident :form-short :ident)]
    (valid-node? n) := true
    (kind n) := ::keyword-fn
@@ -800,7 +818,7 @@
 
 (tests
  "->star-traversal"
- (let [child (->fn 'inc)
+ (let [child (->runtime-value 'inc)
        n (->star-traversal child)]
    (valid-node? n) := true
    (traversal? n) := true
@@ -881,7 +899,7 @@
 
 (tests
  "form-resolved returns ::form-resolved when present"
- (form-resolved (->symbol 'inc inc #'inc 'clojure.core/inc 'inc)) := 'clojure.core/inc)
+ (form-resolved (->symbol 'x 42 nil 'my.ns/x 'x)) := 'my.ns/x)
 
 (tests
  "form-resolved falls back to ::form"
@@ -924,7 +942,7 @@
 
 (tests
  "mark-recursive-child"
- (let [child (->fn 'inc)
+ (let [child (->runtime-value 'inc)
        n (->star-traversal child)
        n' (mark-recursive-child n)]
    (star-traversal? n) := true
@@ -960,7 +978,7 @@
 
 (tests
  "->star-traversal is always ::many"
- (let [child (->fn 'inc)]
+ (let [child (->runtime-value 'inc)]
    (multiplicity (->star-traversal child)) := ::many))
 
 (tests
