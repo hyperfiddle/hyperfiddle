@@ -149,8 +149,7 @@
       (let [[prev-args prev-ret] @!state]
         (if (every? true? (mapv identical? prev-args args)) ; perfs – could be optimized
           prev-ret
-          (do
-            #?(:clj (clojure.tools.logging/trace 'memoize-1 '≠ {:prev-args prev-args, :next-args args}))
-            (let [ret (apply f args)]
-              (vreset! !state [args ret]) ; retain BOTH args and ret AFTER computation. Ensures ret is always in sync with args under concurrency.
-              ret)))))))
+          #_(do #?(:clj (clojure.tools.logging/trace 'memoize-1 '≠ {:prev-args prev-args, :next-args args})))
+          (let [ret (apply f args)]
+            (vreset! !state [args ret]) ; retain BOTH args and ret AFTER computation. Ensures ret is always in sync with args under concurrency.
+            ret))))))
