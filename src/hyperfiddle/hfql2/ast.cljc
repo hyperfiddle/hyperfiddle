@@ -92,11 +92,13 @@
 
 (defmethod node-spec ::var [_]
   (s/keys :req [::type ::form ::lexical-env ::id
-                ::form-resolved ::form-short]))
+                ::form-resolved ::form-short]
+          :opt [::resolved-runtime-value]))
 
 (defmethod node-spec ::quoted-var [_]
   (s/keys :req [::type ::form ::lexical-env ::id
-                ::symbolic-edge ::form-resolved ::form-short]))
+                ::symbolic-edge ::form-resolved ::form-short]
+          :opt [::resolved-runtime-value]))
 
 (defmethod node-spec ::pull [_]
   (s/keys :req [::type ::lexical-env ::id ::metadata]))
@@ -255,9 +257,10 @@
   metadata (`:ns`, `:name`). This simplification is deferred to the φ-wiring
   phase, when the analyzer calls constructors directly with real var objects
   instead of symbolic `(var sym)` forms."
-  [form form-resolved form-short & {:keys [metadata lexical-env]}]
+  [form form-resolved form-short & {:keys [metadata lexical-env resolved-runtime-value]}]
   (finalize (cond-> (merge metadata {::type ::var, ::form form
                                       ::form-resolved form-resolved, ::form-short form-short})
+              resolved-runtime-value (assoc ::resolved-runtime-value resolved-runtime-value)
               lexical-env (assoc ::lexical-env lexical-env))
             ()))
 
@@ -265,9 +268,10 @@
   "Construct a quoted-var node (`#'foo`). The var is referenced but not called;
   its value is the var object itself. `symbolic-edge` is always the form itself
   (derived, not passed)."
-  [form form-resolved form-short & {:keys [metadata lexical-env]}]
+  [form form-resolved form-short & {:keys [metadata lexical-env resolved-runtime-value]}]
   (finalize (cond-> (merge metadata {::type ::quoted-var, ::form form, ::symbolic-edge form
                                       ::form-resolved form-resolved, ::form-short form-short})
+              resolved-runtime-value (assoc ::resolved-runtime-value resolved-runtime-value)
               lexical-env (assoc ::lexical-env lexical-env))
             ()))
 
@@ -417,9 +421,9 @@
   "Return the symbolic parameter list of this node."
   [node]
   (let [a (extract node)]
-    (if (contains? a ::parameters)
-      (::parameters a)
-      (when (= ::var (::type a)) '(%)))))
+    (case (node-type node)
+      ::var '(%)
+      (::parameters a))))
 
 (defn arguments
   "Return the runtime argument values provided at a call site."
@@ -685,25 +689,25 @@
 
 (tests
  "->var"
- (let [n (->var #'inc 'clojure.core/inc 'inc)]
+ (let [n (->var #'inc '(var clojure.core/inc) '(var inc) :resolved-runtime-value #'inc)]
    (valid-node? n) := true
    (var-node? n) := true
    (node-value n) := #'inc
    (parameters n) := '(%)
-   (form-resolved n) := 'clojure.core/inc
-   (form-short n) := 'inc
+   (form-resolved n) := '(var clojure.core/inc)
+   (form-short n) := '(var inc)
    (partial? n) := true
    ))
 
 (tests
  "->quoted-var"
- (let [n (->quoted-var '#'inc 'clojure.core/inc 'inc)]
+ (let [n (->quoted-var '#'inc '(var clojure.core/inc) '(var inc) :resolved-runtime-value #'inc)]
    (valid-node? n) := true
    (quoted-var? n) := true
    (symbolic-edge n) := '#'inc
-   (node-value n) := '#'inc
-   (form-resolved n) := 'clojure.core/inc
-   (form-short n) := 'inc
+   (node-value n) := #'inc
+   (form-resolved n) := '(var clojure.core/inc)
+   (form-short n) := '(var inc)
    (partial? n) := true
    ))
 

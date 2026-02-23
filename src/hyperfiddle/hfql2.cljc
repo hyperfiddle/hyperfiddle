@@ -112,7 +112,7 @@
   := (list str)
 
   "Quoted var is always looked up as a literal."
-  (values (seed {'% {'str 'str, str str, #'str #'str}} (hfql '#'str)))
+  (values (seed {'% {'str 'str, str str, #'str #'str}} (eval '(hfql '#'str)))) ; HACK eval is an RCF workaround. RCF chocked on :the-var form.
   := [#'clojure.core/str])
 
 (tests
@@ -128,7 +128,7 @@
 
 (tests
   "Var always mean “apply function”."
-  (values (seed {'% {'str 'str, str str, #'str #'str}} (hfql #'str)))
+  (values (seed {'% {'str 'str, str str, #'str #'str}} (eval '(hfql #'str)))) ; HACK eval is an RCF workaround. RCF chocked on :the-var form.
   := '("{str str, #function[clojure.core/str] #function[clojure.core/str], #'clojure.core/str #'clojure.core/str}")
   )
 
@@ -139,7 +139,7 @@
   (values (seed {'% {str str, #'str #'str}} (hfql 'str)))
   := '(nil)
 
-  (values (seed {'% {'str 'str, str str}} (hfql '#'str)))
+  (values (seed {'% {'str 'str, str str}} (eval '(hfql '#'str)))) ; HACK eval is an RCF workaround. RCF chocked on :the-var form.
   := '(nil)
   )
 

@@ -251,11 +251,13 @@
                  ::ast/symbol    (ast/->symbol form (escape-method-call form) (var-resolver env form)
                                    (resolver env form) #?(:clj (aliased-form form) :cljs form))
                  ::ast/var       (let [sym (second form)]
-                                   (ast/->var form (resolver env sym)
-                                     #?(:clj (aliased-form sym) :cljs sym)))
+                                   (ast/->var form (list 'var (resolver env sym))
+                                     #?(:clj (list 'var (aliased-form sym)) :cljs (list 'var sym))
+                                     :resolved-runtime-value #?(:clj (resolve sym) :cljs nil)))
                  ::ast/quoted-var (let [sym (second (unquote* form))]
-                                    (ast/->quoted-var (unquote* form) (resolver env sym)
-                                      #?(:clj (aliased-form sym) :cljs sym)))
+                                    (ast/->quoted-var (unquote* form) (list 'var (resolver env sym))
+                                      #?(:clj (list 'var (aliased-form sym)) :cljs (list 'var sym))
+                                      :resolved-runtime-value #?(:clj (resolve sym) :cljs nil)))
                  ::ast/fn        (ast/->fn form :value form)
                  ::ast/lambda    (let [kw (get-kw-fn-form-kw form)]
                                    (if kw
@@ -300,9 +302,10 @@
 (defmethod -escape ::ast/string [point] point)
 (defmethod -escape ::ast/symbol [point] (-> (update-existing point ::ast/symbolic-edge quote-form)
                                       (update ::ast/form-short quote-form)))
-(defmethod -escape ::ast/var [point] (-> (update point ::ast/parameters quote-form)
+(defmethod -escape ::ast/var [point] (-> (update point ::ast/form-resolved quote-form)
                                     (update ::ast/form-short quote-form)))
-(defmethod -escape ::ast/quoted-var [point] (update point ::ast/form-short quote-form))
+(defmethod -escape ::ast/quoted-var [point] (-> (update point ::ast/form-resolved quote-form)
+                                           (update ::ast/form-short quote-form)))
 (defmethod -escape ::ast/pull [point] (-> (update point ::ast/form quote-form)
                                     (update ::ast/symbolic-edges quote-form)))
 (defmethod -escape ::ast/fn [point] (update point ::ast/symbolic-edge quote-form))
@@ -364,7 +367,10 @@
 (defn marshal [w] (fmap (comp escape #(update % ::ast/form emit*)) w))
 (defn unmarshal [rt]
   (fmap (fn [attrs]
-          (cond-> (update attrs ::ast/form unquote*)
+          (cond-> (-> attrs
+                    (update ::ast/form unquote*)
+                    (update-existing ::ast/form-resolved unquote*)
+                    (update-existing ::ast/form-short unquote*))
             (::ast/edge attrs)
             (update ::ast/edge (fn [m] (rose-tree (update m ::ast/form unquote*) ())))))
     rt))
@@ -403,8 +409,10 @@
   (ast/form (hfql [:a inc]))     := '[:a inc]
   (ast/form (hfql [:a "name"]))  := [:a "name"]
   (ast/form (hfql [:a (inc %)]))  := '[:a (inc %)]
-  (ast/form (hfql [:a #'inc]))   := '[:a (var inc)]
-  (ast/form (hfql [:a '#'inc]))   := '[:a (quote (var inc))]
+  (eval '(ast/form (hfql [:a #'inc]))) ; HACK RCF workaround. RCF chokes on `#'inc` as a value in the macroexpanded form.
+  := '[:a (var inc)]
+  (eval '(ast/form (hfql [:a '#'inc]))) ; HACK RCF workaround. RCF chokes on `#'inc` as a value in the macroexpanded form.
+  := '[:a (quote (var inc))]
   )
 
 (tests
