@@ -2,8 +2,6 @@
   (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.navigator6.state :as state]
-            [hyperfiddle.hfql2.analyzer :as ana]
-            [hyperfiddle.hfql2.ast :as ast]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
@@ -34,11 +32,10 @@
 
 
 (defn select-pull-step [stepT]
-  (let [metas (hfql/metas stepT)]
-    (cond
-      (ast/pull? metas) stepT
-      (ast/traversal? metas) (some-> (unwrap stepT) first select-pull-step)
-      ;; (some-> (unwrap stepT) first select-pull-step)
-      :else (hfql/wrap-in-pull stepT) ; FIXME highly questionable
-      #_(throw (ex-info "No pull child" {:type (ast/node-type metas)})))))
+  (cond
+    (hfql/pull? stepT) stepT
+    (hfql/traversal? stepT) (some-> (unwrap stepT) first select-pull-step)
+    ;; (some-> (unwrap stepT) first select-pull-step)
+    :else (hfql/wrap-in-pull stepT) ; FIXME highly questionable
+    #_(throw (ex-info "No pull child" {:type (hfql/node-type stepT)}))))
 

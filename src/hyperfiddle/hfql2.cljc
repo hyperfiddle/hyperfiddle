@@ -57,7 +57,9 @@
 (defpointfree traversal?       (comp ast/traversal?       ::co/AST meta))
 (defpointfree star-traversal?  (comp ast/star-traversal?  ::co/AST meta))
 (defpointfree star?            (comp ast/star?            ::co/AST meta))
-(defpointfree node-type        (comp ast/node-type        ::co/AST meta))
+(defpointfree node-type         (comp ast/node-type         ::co/AST meta))
+(defpointfree recursion-point?  (comp ast/recursion-point?  ::co/AST meta))
+(defpointfree recursive-child?  (comp ast/recursive-child?  ::co/AST meta))
 (defpointfree fullfilled? (some-fn seeded? (complement partial?)))
 (defpointfree hfql? co/hfql?)
 
@@ -991,18 +993,18 @@ identifier, though it might not be serializable."
 
 (defmethod describe-formatted ::ast/symbol [hfqlT]
   (let [desc (describe hfqlT)
-        form-resolved (ast/form-resolved desc)
-        var (ast/node-var desc)]
+        form-resolved (or (::ast/form-resolved desc) (::ast/form desc))
+        var (::ast/var desc)]
     (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" form-resolved (some-> var meta :arglists) (some-> var meta :doc))))
 
-(defmethod describe-formatted ::ast/keyword [hfqlT] (ast/form (describe hfqlT)))
-(defmethod describe-formatted ::ast/string  [hfqlT] (ast/form (describe hfqlT)))
+(defmethod describe-formatted ::ast/keyword [hfqlT] (::ast/form (describe hfqlT)))
+(defmethod describe-formatted ::ast/string  [hfqlT] (::ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/lambda  [hfqlT] (symbolic-edge hfqlT))
 
 (defmethod describe-formatted ::ast/traversal [hfqlT]
   (let [desc (describe hfqlT)
         {::keys [symbolic-edge]} desc
-        var (ast/node-var desc)]
+        var (::ast/var desc)]
     (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" symbolic-edge (some-> var meta :arglists) (some-> var meta :doc))))
 
 (comment

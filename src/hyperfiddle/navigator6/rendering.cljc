@@ -8,7 +8,6 @@
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.hfql2.analyzer :as ana]
-            [hyperfiddle.hfql2.ast :as ast]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
 
@@ -240,14 +239,13 @@
 (defn- get-leafT [stepT] ; TODO questionable logic
   ;; Idea here is to display "leaf values" in the following case:
   ;; [{fs/jfile-kind name}] => "dir" instead of `::fs/dir`.
-  (let [metas (hfql/metas stepT)]
-    (or
-      (and (ast/multiplicity-many? metas)
-        stepT)
-      (and (hfql/recursion-end?! stepT) ; runs IO, but IO will run anyway as part of this rendering phase.
-        stepT)
-      (first (unwrap stepT))
-      stepT)))
+  (or
+    (and (hfql/multiplicity-many? stepT)
+      stepT)
+    (and (hfql/recursion-end?! stepT) ; runs IO, but IO will run anyway as part of this rendering phase.
+      stepT)
+    (first (unwrap stepT))
+    stepT))
 
 (e/defn Render [object edge value] (RenderCell object edge value))
 (e/defn Render* [stepT]
