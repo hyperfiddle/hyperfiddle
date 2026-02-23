@@ -25,7 +25,6 @@
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.ast :as ast]
-   [hyperfiddle.hfql2.interpreter :as coalgebra]
    [hyperfiddle.ct.either :refer [either either? right left right? left? from-right from-left]]
    [hyperfiddle.navigator6 :as-alias navigator]
    [hyperfiddle.rcf :refer [tests]]
@@ -604,8 +603,7 @@
          ;; Pull-many case
          (and (hfql/star-traversal? current-point)
            (or (first (hfql/next-steps current-point))
-             ;; Option `1.`
-             (first (hfql/next-steps (hydrate-point current-point (right '(nil))))))) ; should not run IO – not supposed to.
+             (first (hfql/static-next-steps current-point))))
          ;; Traversal case, eventually recursive.
          (and (hfql/traversal? current-point)
            (or (and (not (hfql/multiplicity-many? current-point))
@@ -615,13 +613,8 @@
              ;; Maybe traversal's implementation should change and maybe we can separate traversing from fan-out.
              (and (hfql/multiplicity-many? current-point)
                (find-selectable-point current-point
-                 (or ;; option `1.`
-                   (first (hfql/next-steps current-point))
-                   ;; FIXME Technical – call to next-steps will run the edge function, eventually causing IO!
-                   ;; Caching and laziness won't apply because we are altering the scope. Userland function WILL rerun.
-                   ;; There may be a way to bypass it. It may require modifying `hyperfiddle.hfql2.interpreter/unfoldT`
-                   ;; E.g. using a sentinel value. Such that we get a dummy child.
-                   (first (hfql/next-steps (hfql/update-scope current-point assoc ::coalgebra/BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE true))))))))
+                 (or (first (hfql/next-steps current-point))
+                   (first (hfql/static-next-steps current-point)))))))
          ;; Value case
          nil
          ))

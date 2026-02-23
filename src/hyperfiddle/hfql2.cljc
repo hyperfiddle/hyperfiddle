@@ -43,6 +43,7 @@
 (defpointfree pull* (comp extract co/pull))
 (defpointfree pull (comp force-thunk pull*))
 (defpointfree next-steps unwrap)
+(defpointfree static-next-steps (comp ::co/static-children meta)) ; unseeded children, no IO. Structural shape fallback for empty collections.
 (def ^:private from-either (either left identity))
 (defpointfree values (comp (fmap (comp #_from-either force-thunk nav)) tree-seqT))
 

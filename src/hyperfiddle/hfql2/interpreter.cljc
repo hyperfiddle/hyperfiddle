@@ -692,17 +692,14 @@ Pulling on non-maps (non associative) is perfectly fine.
                        ;; Isn't there a way here to produce a lazy-seq producing unseeded children upto multiplicity?
                        ;; It seems no because to know the children count we must run IO.
                        ;; #dbg
-                       (let [forced (if (contains? scope ::BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE) ; Used by hyperfiddle.navigator6.selection2/find-selectable-point
-                                      '(nil)
-                                      (do #?(:clj (log/trace "Running IO for * traversal." (ast/symbolic-edge (or (ast/edge ast-node) ast-node))))
-                                          (either/either
-                                            (constantly ()) ; stop navigation at first error
-                                            identity
-                                            (force-thunk value) ; ⚠ will force all effects up to the root to compute children multiplicity
-                                            )))
+                       (let [forced (do #?(:clj (log/trace "Running IO for * traversal." (ast/symbolic-edge (or (ast/edge ast-node) ast-node))))
+                                        (either/either
+                                          (constantly ()) ; stop navigation at first error
+                                          identity
+                                          (force-thunk value) ; ⚠ will force all effects up to the root to compute children multiplicity
+                                          ))
                              ;; Unfold next child once, then fan-out by seeding it multiple times in parallel, once for each value. Put each value in scope as '%.
                              childT (unfoldT coalgebra (first children)) ; There can only be one child, because fan-outs happen on traversals only and a traversal only has one continuation.
-                             scope (dissoc scope ::BYPASS-USER-IO-TO-GET-AN-UNSEEDED-COFREE-CHILD-IN-EMPTY-MULTIPLICITY-MANY-CASE)
                              ]
                          (with-meta ; carry metadata over
                            ;; Can't use `sequence` here. `sequence` produces a chunked iterator seq and we must not force any form of batching in presence of IO. The user decides upstream.
