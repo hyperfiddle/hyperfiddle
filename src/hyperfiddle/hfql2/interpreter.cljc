@@ -196,8 +196,8 @@
 (defn symbolic-edge ; FIXME uniformize
   [point & {::keys [point-free] :or {point-free true}}]
   (let [[ast-node scope] (if (hfql? point)
-                            [(::AST (meta point)) (pos (runCofreeT point))]
-                            [(::AST point) (::scope point)])]
+                            [(meta point) (pos (runCofreeT point))]
+                            [point (::scope point)])]
     (case (ast/node-type ast-node)
       ::ast/traversal (template-symbolic-edge scope ast-node point-free)
       ;; ::ast/call (template-symbolic-edge (::scope ast-node) ast-node point-free) ; TODO
@@ -550,23 +550,23 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (declare hfqlt-equals hfqlt-hash)
 
-(deftype HFQLT [metadata CofreeT]
+(deftype HFQLT [ast CofreeT]
   ICofreeT
   (-runCofreeT [_] (runCofreeT CofreeT))
   Functor
-  (-fmap [fa f] (HFQLT. metadata (fmap f CofreeT)))
+  (-fmap [fa f] (HFQLT. ast (fmap f CofreeT)))
   Comonad
   (-extract [t] (extract CofreeT))
   (-duplicate [this] (extend identity this))
   (-extend [this f]
     (let [inner-store (runCofreeT CofreeT)]
-      (HFQLT. metadata
+      (HFQLT. ast
         (->CofreeT
           (store
             (fn [env']
               (let [focused-store (seek env' inner-store)
                     cofreeF (extract focused-store)
-                    focused-hfqlt (HFQLT. metadata (->CofreeT focused-store))
+                    focused-hfqlt (HFQLT. ast (->CofreeT focused-store))
                     result (f focused-hfqlt)
                     children (tailF cofreeF)
                     extended-children (fmap #(extend f %) children)]
@@ -578,7 +578,7 @@ Pulling on non-maps (non associative) is perfectly fine.
       (unwrap CofreeT)))
 
   #?(:clj clojure.lang.IMeta)
-  #?(:clj (meta [_] metadata))
+  #?(:clj (meta [_] ast))
   #?(:clj clojure.lang.IObj)
   #?(:clj (withMeta [_ m] (HFQLT. m CofreeT)))
 
@@ -587,7 +587,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   #?(:clj (hashCode [this] (hfqlt-hash this)))
   (toString [this]
     (let [scope (runCofreeT CofreeT)
-          ast-node (::AST metadata)
+          ast-node ast
           % (get (pos scope) '%)
           seeded? (some? %)
           realized? (or (and (thunk? %) (realized? %)) seeded?)
@@ -606,7 +606,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   #?(:cljs cljs.core/IHash)
   #?(:cljs (-hash [this] (hfqlt-hash this)))
   #?(:cljs cljs.core/IMeta)
-  #?(:cljs (-meta [_] metadata))
+  #?(:cljs (-meta [_] ast))
   #?(:cljs cljs.core/IWithMeta)
   #?(:cljs (-with-meta [_ m] (HFQLT. m CofreeT)))
   )
@@ -615,18 +615,18 @@ Pulling on non-maps (non associative) is perfectly fine.
    (defmethod print-method HFQLT [v ^java.io.Writer w]
      (.write w (.toString v))))
 
-(defn ->hfqlT [metadata fwa] (->HFQLT metadata (->CofreeT fwa)))
+(defn ->hfqlT [ast fwa] (->HFQLT ast (->CofreeT fwa)))
 (defn hfql? [obj] (instance? HFQLT obj))
 
 (defn- hfqlt-equals [^HFQLT this ^HFQLT other]
   (or (identical? this other)
     (and (instance? HFQLT this) (instance? HFQLT other)
-      (= (ast/node-id (::AST (.-metadata this)))
-        (ast/node-id (::AST (.-metadata other))))
+      (= (ast/node-id (.-ast this))
+        (ast/node-id (.-ast other)))
       (= (pos (runCofreeT this))
         (pos (runCofreeT other))))))
 
-(defn- hfqlt-hash [^HFQLT hfqlt] (hash (ast/node-id (::AST (.-metadata hfqlt)))))
+(defn- hfqlt-hash [^HFQLT hfqlt] (hash (ast/node-id (.-ast hfqlt))))
 
 (defn hoistHfqlT
   "Apply f to metadata at every node in the HFQLT tree. Lazy — children are only transformed when accessed."
@@ -654,7 +654,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra ast-node]
    (let [step (coalgebra ast-node)] ; TODO should this move inside of the store's function below?
-     (->hfqlT (assoc (extract ast-node) ::AST ast-node ::static-children (map (unfoldT coalgebra) (unwrap ast-node)))
+     (->hfqlT (assoc ast-node ::static-children (map (unfoldT coalgebra) (unwrap ast-node)))
        (store
            (fn peek [scope]
              ;; IO issue: scope can change due to dynamic bindings (e.g. search
@@ -662,7 +662,7 @@ Pulling on non-maps (non associative) is perfectly fine.
              ;; built. And under * traversal IO will be forced to produce a new
              ;; list of children. FIXME, memoize the CofreeF instance and
              ;; rebuild it only if `value` or `children` did change.
-             ;; #?(:clj (log/debug "Unwrapping" (ast/symbolic-edge (or (ast/edge metas) metas))))
+             ;; #?(:clj (log/debug "Unwrapping" (ast/symbolic-edge (or (ast/edge ast-node) ast-node))))
              (let [[value children] (runReader step scope)]
                (->CofreeF value
                  (let [value (binding [thunks/*cache-strategy* ::thunks/hard] ; cache branch values, discarded when no leaves are referencing it, as per lazy-seq semantics, recursively up to the root.
@@ -825,15 +825,13 @@ Pulling on non-maps (non associative) is perfectly fine.
     x))
 
 (defn- pull-algebra [W children]
-  (let [point (meta W)
-        ast-node (::AST point)]
+  (let [ast-node (meta W)]
     (case (ast/node-type ast-node)
       ::ast/pull
       (thunk
         (into {}
           (map (fn [W value]
-                 (let [point (meta W)
-                       ast-node (::AST point)]
+                 (let [ast-node (meta W)]
                    (case (ast/node-type ast-node)
                      ::ast/traversal (force-thunk value)
                      (pair (symbolic-edge W ::point-free true) (original-object (force-thunk value))))))

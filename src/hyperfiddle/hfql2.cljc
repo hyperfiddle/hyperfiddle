@@ -50,16 +50,16 @@
 (defpointfree value-at-point (comp force-thunk '% scope))
 (defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
-(def metas meta) ; HFQLT implements IMeta — meta returns the static metadata map
-(defpointfree pull-has-star?   (comp ast/pull-has-star?   ::co/AST meta))
-(defpointfree partial?         (comp ast/partial?         ::co/AST meta))
-(defpointfree pull?            (comp ast/pull?            ::co/AST meta))
-(defpointfree traversal?       (comp ast/traversal?       ::co/AST meta))
-(defpointfree star-traversal?  (comp ast/star-traversal?  ::co/AST meta))
-(defpointfree star?            (comp ast/star?            ::co/AST meta))
-(defpointfree node-type         (comp ast/node-type         ::co/AST meta))
-(defpointfree recursion-point?  (comp ast/recursion-point?  ::co/AST meta))
-(defpointfree recursive-child?  (comp ast/recursive-child?  ::co/AST meta))
+(def ^:deprecated metas "Deprecated. Use (meta hfqlt) for RoseTree or (extract (meta hfqlt)) for attrs." (comp extract meta))
+(defpointfree pull-has-star?   (comp ast/pull-has-star?   meta))
+(defpointfree partial?         (comp ast/partial?         meta))
+(defpointfree pull?            (comp ast/pull?            meta))
+(defpointfree traversal?       (comp ast/traversal?       meta))
+(defpointfree star-traversal?  (comp ast/star-traversal?  meta))
+(defpointfree star?            (comp ast/star?            meta))
+(defpointfree node-type         (comp ast/node-type         meta))
+(defpointfree recursion-point?  (comp ast/recursion-point?  meta))
+(defpointfree recursive-child?  (comp ast/recursive-child?  meta))
 (defpointfree fullfilled? (some-fn seeded? (complement partial?)))
 (defpointfree hfql? co/hfql?)
 
@@ -320,13 +320,13 @@
 (tests
   "keyword aliases"
 
-  (ast/form-short (::co/AST (metas (hfql :test))))
+  (ast/form-short (meta (hfql :test)))
   := :test
 
-  (ast/form (::co/AST (metas (hfql ::test))))
+  (ast/form (meta (hfql ::test)))
   := :hyperfiddle.hfql2/test
 
-  (ast/form-short (::co/AST (metas (hfql ::test))))
+  (ast/form-short (meta (hfql ::test)))
   := "::test"
 
   )
@@ -336,8 +336,7 @@
   (->> (hfql {identity inc})
     (next-steps)
     (first)
-    (metas)
-    (::co/AST)
+    (meta)
     (ast/form))
    := 'inc
   )
@@ -352,8 +351,7 @@
   (->> (hfql {identity inc})
     (next-steps)
     (first)
-    (metas)
-    (::co/AST)
+    (meta)
     (ast/form))
   := 'inc
   )
@@ -376,7 +374,7 @@
 
 (defn wrap-in-pull [stepT]
   (seed (scope stepT)
-    (hfql* (ana/wrap-in-pull (::co/AST (metas stepT))))))
+    (hfql* (ana/wrap-in-pull (meta stepT)))))
 
 (tests
   (pull (seed {'% 1} (hfql inc)))
@@ -418,7 +416,7 @@
 
 (defn symbolic-edge [hfqlT]
   (when hfqlT
-    (symbolic-edge* (metas hfqlT))))
+    (symbolic-edge* (extract (meta hfqlT)))))
 
 (defn- merge-pull-children [children-A children-B]
   (let [keyf (comp symbolic-edge* extract)
@@ -442,7 +440,7 @@
        (assert (= (node-type hfqlT-a) (node-type hfqlT-b)))
        (seed (merge (scope hfqlT-a) (scope hfqlT-b))
          (unfoldT hfqlT (case (node-type hfqlT-a)
-                          ::ast/pull (combine-pull (::co/AST (metas hfqlT-a)) (::co/AST (metas hfqlT-b)))
+                          ::ast/pull (combine-pull (meta hfqlT-a) (meta hfqlT-b))
                           ::ast/traversal (throw (ex-info "TODO" {}))
                    (throw (ex-info "Can't combine." (node-type hfqlT-a)))))))))
   ([hfqlT-a hfqlT-b & hfqlTs]
@@ -455,15 +453,13 @@
         (hfql [:a :b]))
       (let [b 2]
         (hfql [:a :c])))
-    (metas)
-    (dissoc ::co/AST))
+    (meta)
+    (extract))
   := {:hyperfiddle.hfql2.ast/id _
       :hyperfiddle.hfql2.ast/type :hyperfiddle.hfql2.ast/pull,
       :hyperfiddle.hfql2.ast/form [:a :b :c],
       :hyperfiddle.hfql2.ast/lexical-env {},
       :hyperfiddle.hfql2.ast/metadata nil
-      :hyperfiddle.hfql2.interpreter/static-children _
-      :hyperfiddle.hfql2.interpreter/scope '{a 1, b 2}
       })
 
 (defn- normalize-edge [edge]
@@ -501,7 +497,7 @@
 
 (defn find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
 
-(def id (comp ast/node-id ::co/AST meta))
+(def id (comp ast/node-id meta))
 
 (defn find-cell-by-column* "Lookup a cell in a set of cells."
   ([columnT] (partial find-cell-by-column* columnT))
@@ -805,7 +801,7 @@ identifier, though it might not be serializable."
 
 (defmethod -suggest :default [object]
   (let [user-suggestion (hyperfiddle.hfql2.protocols/-suggest object)]
-    (if (or (nil? user-suggestion) (::default (metas user-suggestion)))
+    (if (or (nil? user-suggestion) (::default (extract (meta user-suggestion))))
       (cond
         (record? object) (suggest-record object)
         (multiplicity-many-value? object) (suggest-collection object)
@@ -827,11 +823,11 @@ identifier, though it might not be serializable."
 
 (declare parent set-parent)
 
-(let [children-ids (comp set (fmap id) ::co/static-children metas)]
+(let [children-ids (comp set (fmap id) ::co/static-children meta)]
   (defn augment-with-suggestions! [hfqlT]
     (when hfqlT
       (-> (if-let [suggestedT (suggest-at-point! hfqlT)]
-            (if (-> (::default (metas suggestedT))    ; default was suggested
+            (if (-> (::default (extract (meta suggestedT)))    ; default was suggested
                   (and (pull-has-star? hfqlT)) ; but static expression has a *
                   (and (> 1 (count (children-ids hfqlT))))) ; so if there's more static children than just *, skip rendering defaults
               hfqlT
@@ -842,11 +838,11 @@ identifier, though it might not be serializable."
                   (empty? suggested?) hfqlT
 
                   (= ::ast/pull hfqlT-type suggestedT-type)
-                  (hoistHfqlT (fn [metadata] ; FIXME must rewalk and tag because `combine` loses static metadata.
-                                (assoc metadata ::suggested (boolean (suggested? (ast/node-id (::co/AST metadata))))))
+                  (hoistHfqlT (fn [ast] ; FIXME must rewalk and tag because `combine` loses static metadata.
+                                (assoc ast ::suggested (boolean (suggested? (ast/node-id ast)))))
                     (combine hfqlT suggestedT)) ; FIXME loses static metadata :(
                   (and (pull? hfqlT)
-                    (= '[*] (ast/form (::co/AST (metas hfqlT)))))
+                    (= '[*] (ast/form (meta hfqlT))))
                   ;; [*] pull but suggestion isn't a pull (e.g. collection → traversal).
                   ;; Sample first item to discover per-item columns (e.g. Java methods).
                   ;; Wrapped in try-catch: sampling can fail on objects with side-effectful
@@ -859,7 +855,7 @@ identifier, though it might not be serializable."
                               (when-let [sample (first coll)]
                                 (let [s (from-right nil (suggest* sample))]
                                   (cond
-                                    (and s (= ::ana/pull (::ana/type (metas s)))) s
+                                    (and s (= ::ana/pull (::ana/type (extract (meta s))))) s
                                     (imap? sample) (build-hfql (vec (keys sample))))))
                               ;; value-at-point is already a map (e.g. {*} traversal fanned out
                               ;; a collection of maps, [*] sees one map directly)
@@ -868,7 +864,7 @@ identifier, though it might not be serializable."
                           (catch #?(:clj Throwable, :cljs :default) _ nil))]
                     (if (and item-suggestion (pull? item-suggestion))
                       (let [suggested? (set/difference (children-ids item-suggestion) (children-ids hfqlT))]
-                        (hoistHfqlT (fn [m] (assoc m ::suggested (boolean (suggested? (ast/node-id (::co/AST m))))))
+                        (hoistHfqlT (fn [ast] (assoc ast ::suggested (boolean (suggested? (ast/node-id ast)))))
                           (combine hfqlT item-suggestion)))
                       (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))))
                   (pull? hfqlT) hfqlT
@@ -969,14 +965,14 @@ identifier, though it might not be serializable."
 
 (defmulti describe describe-dispatch-fn)
 (defmethod describe :default [_] nil)
-(defmethod describe ::ast/symbol         [stepT] (metas stepT))
-(defmethod describe ::ast/quoted-symbol  [stepT] (metas stepT))
-(defmethod describe ::ast/runtime-value  [stepT] (metas stepT))
-(defmethod describe ::ast/keyword        [stepT] (metas stepT))
-(defmethod describe ::ast/string         [stepT] (metas stepT))
-(defn- describe-call [metas] (assoc metas ::symbolic-edge (symbolic-edge* metas)))
-(defmethod describe ::ast/call   [stepT] (describe-call (metas stepT)))
-(defmethod describe ::ast/traversal [stepT] (describe-call (extract (ast/edge (::co/AST (metas stepT))))))
+(defmethod describe ::ast/symbol         [stepT] (extract (meta stepT)))
+(defmethod describe ::ast/quoted-symbol  [stepT] (extract (meta stepT)))
+(defmethod describe ::ast/runtime-value  [stepT] (extract (meta stepT)))
+(defmethod describe ::ast/keyword        [stepT] (extract (meta stepT)))
+(defmethod describe ::ast/string         [stepT] (extract (meta stepT)))
+(defn- describe-call [attrs] (assoc attrs ::symbolic-edge (symbolic-edge* attrs)))
+(defmethod describe ::ast/call   [stepT] (describe-call (extract (meta stepT))))
+(defmethod describe ::ast/traversal [stepT] (describe-call (extract (ast/edge (meta stepT)))))
 
 (comment
   (describe nil)
@@ -1016,7 +1012,7 @@ identifier, though it might not be serializable."
 
 (defpointfree parent (comp ::parent meta))
 (defn set-parent [childT parentT] (vary-meta childT assoc ::parent parentT))
-(defpointfree multiplicity-many? (comp ast/multiplicity-many? ::co/AST meta))
+(defpointfree multiplicity-many? (comp ast/multiplicity-many? meta))
 
 (defn lookup
   "Given an HFQL step object, lookup for a symbolic point in the reachable HFQL scope.
@@ -1075,11 +1071,11 @@ identifier, though it might not be serializable."
    (cond
      ;; check if current step has a matching `:as` label.
      ;; `:as` has priority.
-     (= symbolic-edge (:as (metas currentT)))
+     (= symbolic-edge (:as (extract (meta currentT))))
      currentT
 
      ;; check if current step has the same symbolic-edge
-     (= symbolic-edge (keyfn (metas currentT)))
+     (= symbolic-edge (keyfn (extract (meta currentT))))
      currentT
 
      ;; IF current step hasn't been visited already
@@ -1089,7 +1085,7 @@ identifier, though it might not be serializable."
      ;; EXCLUDING previously visited step – to prevent a parent -> child -> parent loop
      (and (not= previously-visitedT currentT)
        (not (multiplicity-many? currentT))
-       ;; (not (= :map (::value-type (metas currentT)))) ; FIXME should not apply anymore. Verify FIXME looks like a wart – why do we need this special case? Maps are reshaped as a seq of kvs, and should probably be flagged as multiplicity many. But are they really?
+       ;; (not (= :map (::value-type (extract (meta currentT))))) ; FIXME should not apply anymore. Verify FIXME looks like a wart – why do we need this special case? Maps are reshaped as a seq of kvs, and should probably be flagged as multiplicity many. But are they really?
        )
      (->> (unwrap currentT) ; children
        (remove #{previously-visitedT})
@@ -1192,7 +1188,7 @@ identifier, though it might not be serializable."
   At the HFQL tree-seqing level, recuring forever on nil is allowed because `nil` is not treated as a special value.
   But we haven't found a valid use case to recur on nil in a UI."
   [hfqlT]
-  (let [rose (::co/AST (metas hfqlT))]
+  (let [rose (meta hfqlT)]
     (or (and (ast/recursion-root? rose)
           (= (right nil) (value-at-point hfqlT)))
       (and (ast/recursion-point? rose)
