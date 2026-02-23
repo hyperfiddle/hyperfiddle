@@ -167,7 +167,7 @@
 
 (def focus-arguments (comp local thunked resolve-arguments))
 
-(defn- from-either [e] (either/either identity identity e))
+(defn- unwrap-either [e] (either/either identity identity e))
 
 (defn template-symbolic-edge [env ast-node & [point-free?]]
   (let [edge (ast/edge ast-node)
@@ -179,10 +179,10 @@
                           (if (or (:symbolic (meta parameter)) (:symbolic (meta argument)))
                             parameter
                             argument))
-                     parameters (from-either (resolve-arguments edge env))))
+                     parameters (unwrap-either (resolve-arguments edge env))))
       ::ast/symbol (cond
                        point-free? form
-                       :else (list form (from-either (force-thunk (resolve '% env '%))))) ; introduce a point
+                       :else (list form (unwrap-either (force-thunk (resolve '% env '%))))) ; introduce a point
       form)))
 
 (declare hfql?)
@@ -240,20 +240,27 @@
     ::ast/quoted-var (ast/node-value ast-node)
     (ana/unquote* (ast/form ast-node))))
 
+(defn- io-operation
+  "Shared IO-wrapping skeleton for getter and call. `f` receives the resolved
+  value(s) and returns the computed result. The wrapper handles memoized reading,
+  weak caching, thunking, and Either error handling."
+  [f]
+  (mem-reader
+    (binding [thunks/*cache-strategy* ::thunks/weak]
+      (thunked
+        (=<<
+          (fn [v]
+            (try
+              (either/right (f v))
+              (catch #?(:clj Throwable, :cljs :default) err
+                (either/left err)))))))))
+
 (defn- getter [ast-node]
   (let [key (getter-lookup-key ast-node)]
-    (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
-      ;; explicit reader for clarity. Also mem-reader is optimized
-      (binding [thunks/*cache-strategy* ::thunks/weak]
-        (thunked
-          (=<<
-            (fn [%]
-              (try
-                #?(:clj (log/debug "[IO]" `getter key))
-                (either/right
-                  (fmap-original-object (fn [%] (*navigate* % key (get % key))) %))
-                (catch #?(:clj Throwable, :cljs :default) err
-                  (either/left err))))))))))
+    (io-operation
+      (fn [%]
+        #?(:clj (log/debug "[IO]" `getter key))
+        (fmap-original-object (fn [%] (*navigate* % key (get % key))) %)))))
 
 (defn- call [ast-node]
   (let [call! (if (= ::ast/keyword-fn (ast/kind ast-node))
@@ -261,17 +268,10 @@
                   #(*navigate* %1 key (get %1 key)))
                 (let [f (ast/node-value ast-node)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
                   #(apply f %&)))]
-    (mem-reader
-      (binding [thunks/*cache-strategy* ::thunks/weak]
-        (thunked
-          (=<<
-            (fn [args]
-              (try
-                #?(:clj (log/debug "[IO]" `call (ast/symbolic-edge ast-node)))
-                (either/right
-                  (fmap-original-objects (fn [args] (apply call! args)) args))
-                (catch #?(:clj Throwable, :cljs :default) err
-                  (either/left err))))))))))
+    (io-operation
+      (fn [args]
+        #?(:clj (log/debug "[IO]" `call (ast/symbolic-edge ast-node)))
+        (fmap-original-objects (fn [args] (apply call! args)) args)))))
 
 (defn- touch [object]
   (try
@@ -283,9 +283,6 @@
       (either/left err))))
 
 (def ^:private star (mem-reader (thunked (=<< touch))))
-
-(defn- left "Variadic opposite of `{}` aka discard." [a & _] a) ; almost the K combinator
-(defn- right "Variadic `{}` aka discard." [& args] (last args)) ; almost (K I)
 
 (defn- bound-fn*
   ([f] #?(:clj (clojure.core/bound-fn* f)
@@ -441,6 +438,62 @@ Pulling on non-maps (non associative) is perfectly fine.
     (when (pos? limit)
       (mapHead #(assoc % ::ast/recursion-limit (dec limit)) recursion-root))))
 
+(defn- recursion-children
+  "Check recursion limit on `limit-source` and either produce [wrapped-root] or [].
+  `wrap-fn` transforms the root before wrapping (e.g. ast/mark-recursive-child)."
+  [ast-node env limit-source wrap-fn]
+  (if-let [root (recurse-or-stop ast-node env limit-source)]
+    [(wrap-fn root)]
+    []))
+
+(defn- link-parent
+  "Annotate `child` with a parent reference to `parent-node`, snapshotting `env`."
+  [env parent-node child]
+  (mapHead #(assoc % ::parent (mapHead (fn [a] (assoc a ::env env)) parent-node)) child))
+
+(defn- resolve-pull-children
+  "Given pull's children AST nodes and the current % value, compute ordered
+  static+dynamic children and an optional recursion point. Returns
+  {:keys [ordered-kids recur-point]}.
+  Empty children default to star behavior (`[] ≅ [*]`), favoring REPL-driven
+  exploratory DX. See monoidal rules in the body comment."
+  [children percent]
+  (let [[[star?] kids] (if (empty? children)
+                         ;; `[]` defaults to `[*]` for DX — see monoidal rules:
+                         ;; `[] ≅ [*]`, `[] ≠ [*]`, `[:a] ⊗ [] = [:a] ≇ [:a *]`.
+                         [[true] ()]
+                         (group-by-pred ast/star? children))
+        star-position (if (empty? children)
+                        0
+                        (or (ffirst (filter (comp ast/star? second) (map-indexed vector children)))
+                          ##Inf))
+        dynamic-keys (when star? (star-keys (ensure-either percent)))
+        star-kids (let [static-keys (set (map symbolic-edge-static kids))
+                        remaining-star-keys (remove static-keys dynamic-keys)]
+                    (unwrap (ana/analyze {} (vec remaining-star-keys))))
+        recur-point (first (filter direct-recursion-point? (concat kids star-kids)))
+        kids (remove direct-recursion-point? kids)
+        star-kids (remove direct-recursion-point? star-kids)]
+    {:ordered-kids (insert-at star-position kids star-kids)
+     :recur-point recur-point}))
+
+(defn- traversal-continuation
+  "Given a traversal ast-node, env, and its direct child (already parent-linked),
+  compute the children vector. Handles star-unwrapping and recursion."
+  [ast-node env direct-child]
+  (if (ast/star-traversal? direct-child)
+    ;; Unwrap star children first, then handle recursion here
+    ;; (not downstream) so ::recur nodes stay invisible to pull_algebra.
+    (let [unwrapped (first (unwrap direct-child))
+          unwrapped (link-parent env ast-node unwrapped)]
+      (if (= ::ast/recur (ast/node-type unwrapped))
+        (recursion-children ast-node env unwrapped identity)
+        [unwrapped]))
+    ;; Non-star child: handle recursion at traversal level if needed.
+    (if (recursion-point? ast-node)
+      (recursion-children ast-node env direct-child identity)
+      [direct-child])))
+
 (defn hfqlT
   "A coalgebra transforming one HFQL AST node (a Cofree point) into an effect point.
   This effect point is of type (Reader Env (Pair value children)), where:
@@ -474,45 +527,18 @@ Pulling on non-maps (non associative) is perfectly fine.
           (constantly
             (mem-reader
               (fn [env]
-                (let [[[star?] kids] (if (empty? children)
-                                       ;; This conditional makes it impossible to express a pull expression that "selects nothing" aka "pulls nothing".
-                                       ;; We haven't found a use case for `[]` in UIs. It produces empty tables.
-                                       ;; We don't know if there's a use case for `[]` at the REPL.
-                                       ;; Therefore, we define `[]` to behave as `[*]` so to improve DX by favoring a
-                                       ;; REPL-like, hot-code-reload driven, exploratory workflow. Even though `[]` vs
-                                       ;; `[*]` are not defined as algebraically equivalent.
-                                       ;; Monoïdal rules are:
-                                       ;; - although `[] ≅ [*]`, `[] ≠ [*]`,
-                                       ;; - therefore `[:a] ⊗ [] = [:a] ≇ [:a *]`,
-                                       ;; - commutatively `[] ⊗ [:a] = [:a] ≇ [* :a]` – Note this would mess table column order up,
-                                       ;; - and `[] ⊗ [] = [] ≅ [*]`.
-                                       [[true] ()]
-                                       (group-by-pred ast/star? children))
-                      star-position (if (empty? children)
-                                      0
-                                      (or (ffirst (filter (comp ast/star? second) (map-indexed vector children)))
-                                        ##Inf))
-                      dynamic-keys (when star? (star-keys (ensure-either (get env '%))))
-                      star-kids (let [static-keys (set (map symbolic-edge-static kids))
-                                      remaining-star-keys (remove static-keys dynamic-keys)]
-                                  (unwrap (ana/analyze {} (vec remaining-star-keys))))
-                      recur-point (first (filter direct-recursion-point? (concat kids star-kids)))
-                      kids (remove direct-recursion-point? kids)
-                      star-kids (remove direct-recursion-point? star-kids)]
+                (let [{:keys [ordered-kids recur-point]} (resolve-pull-children children (get env '%))]
                   (pair (thunk
-                          (->> (concat kids star-kids) ; star kids cannot overwrite static kids – they are already filtered at this point
+                          (->> ordered-kids
                             (map (unfoldT hfqlT))
                             (pull-peek-at-immediate-kids! env)))
                     (->>
                       (mappend
-                        (insert-at star-position kids star-kids)
+                        ordered-kids
                         (if recur-point
-                          (if-let [root (recurse-or-stop ast-node env recur-point)]
-                            [(ast/mark-recursive-child root)] ; only used in matrix.cljc. TODO confirm use case.
-                            [])
+                          (recursion-children ast-node env recur-point ast/mark-recursive-child)
                           []))
-                      (mapv (fn [child] (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) ast-node)) child))) ; TODO extract helper for parent-aware tree walk
-                      ))))))
+                      (mapv (fn [child] (link-parent env ast-node child)))))))))
           ::ast/traversal
           (let [lexical-symbol? (and (= ::ast/symbol (ast/node-type (ast/edge ast-node)))
                                      (not (fn? (ast/node-value (ast/edge ast-node)))))
@@ -529,23 +555,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                               env)]
                     (pair (extract (seed env' edgeT))
                       (let [direct-child (first children)
-                            direct-child (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) ast-node)) direct-child)] ; TODO extract helper for parent-aware tree walk
-                        (if (ast/star-traversal? direct-child)
-                          ;; Unwrap star children first, then handle recursion here
-                          ;; (not downstream) so ::recur nodes stay invisible to pull_algebra.
-                          (let [unwrapped (first (unwrap direct-child))
-                                unwrapped (mapHead #(assoc % ::parent (mapHead (fn [%] (assoc % ::env env)) ast-node)) unwrapped)]
-                            (if (= ::ast/recur (ast/node-type unwrapped))
-                              (if-let [root (recurse-or-stop ast-node env unwrapped)]
-                                [root]
-                                [])
-                              [unwrapped]))
-                          ;; Non-star child: handle recursion at traversal level if needed.
-                          (if (recursion-point? ast-node)
-                            (if-let [root (recurse-or-stop ast-node env direct-child)]
-                              [root]
-                              [])
-                            [direct-child]))))))))))]
+                            direct-child (link-parent env ast-node direct-child)]
+                        (traversal-continuation ast-node env direct-child)))))))))]
     (inject-dynamic-bindings (transform ast-node))))
 
 (declare hfqlt-equals hfqlt-hash)
@@ -638,13 +649,6 @@ Pulling on non-maps (non associative) is perfectly fine.
                      inner-store)]
     (->HFQLT (f (meta t)) (->CofreeT store'))))
 
-(defn vary-static-meta
-  "Deprecated: use vary-meta instead."
-  [t f & args] (apply vary-meta t f args))
-
-
-(def ^:deprecated iterator? cd/iterator?)
-(def ^:deprecated enumeration? cd/enumeration?)
 
 (defn unfoldT
   "Build an HFQLT navigator from an AST (rose tree) using a coalgebra.
@@ -962,16 +966,16 @@ Pulling on non-maps (non associative) is perfectly fine.
    )
 
 (tests
-  (from-either (force-thunk (extract (seed {'% {:a 1}} (-hfql *))))) 
+  (unwrap-either (force-thunk (extract (seed {'% {:a 1}} (-hfql *))))) 
   := {:a 1}
 
-  (from-either (force-thunk (extract (seed {'% {:a 1}} (-hfql :a)))))
+  (unwrap-either (force-thunk (extract (seed {'% {:a 1}} (-hfql :a)))))
   := 1
 
-  (from-either (force-thunk (extract (seed {'% {:a 1}} (-hfql identity)))))
+  (unwrap-either (force-thunk (extract (seed {'% {:a 1}} (-hfql identity)))))
   := {:a 1}
 
-  (from-either (force-thunk (extract (seed {'% {identity 'identity}} (-hfql identity)))))
+  (unwrap-either (force-thunk (extract (seed {'% {identity 'identity}} (-hfql identity)))))
   := {identity 'identity} ; identity is called (not looked up), returns the map
   )
 
@@ -1122,7 +1126,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 (tests
   "Reseeding – seeding children while traversing"
   (let [w (seed {'% 1} (-hfql {inc {inc {inc inc}}}) )]
-    (from-either (force-thunk (extract w))) := 2
+    (unwrap-either (force-thunk (extract w))) := 2
     (let [w2 (first (unwrap w))]
       [(-values w2)
        (-values (seed {'% 10} w2))])
