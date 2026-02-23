@@ -21,7 +21,7 @@
    [hyperfiddle.ct.either :refer [either either? left right unwrap! from-right from-left]]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.ast :as ast]
-   [hyperfiddle.hfql2.interpreter :as co :refer [unfoldT hfqlT hoistHfqlT]]
+   [hyperfiddle.hfql2.interpreter :as co :refer [unfoldT hfql-coalgebra hoistHfqlT]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch
                                         Searchable -search-matches *search-max-collection-size* *search-max-str-len*]]
    [hyperfiddle.hfql2.utils :refer [has-meta? imap? original-object]]
@@ -76,12 +76,12 @@
 (defn filtered [object] (safe-vary-meta object assoc ::filtered true))
 (defn filtered? [object] (::filtered (meta object)))
 
-(defn hfql* [analyzed-hfql] (unfoldT hfqlT analyzed-hfql))
+(defn hfql* [analyzed-hfql] (unfoldT hfql-coalgebra analyzed-hfql))
 
 (defn build-hfql
   ([hfql-expression] (build-hfql {} hfql-expression))
   ([&env hfql-expression]
-   (unfoldT hfqlT (ana/analyze (or &env {}) hfql-expression))))
+   (unfoldT hfql-coalgebra (ana/analyze (or &env {}) hfql-expression))))
 
 (defmacro hfql
   ([hfql-form] `(hfql* (ana/hfql ~hfql-form)))
@@ -440,7 +440,7 @@
      (do
        (assert (= (node-type hfqlT-a) (node-type hfqlT-b)))
        (seed (merge (scope hfqlT-a) (scope hfqlT-b))
-         (unfoldT hfqlT (case (node-type hfqlT-a)
+         (unfoldT hfql-coalgebra (case (node-type hfqlT-a)
                           ::ast/pull (combine-pull (meta hfqlT-a) (meta hfqlT-b))
                           ::ast/traversal (throw (ex-info "TODO" {}))
                    (throw (ex-info "Can't combine." (node-type hfqlT-a)))))))))

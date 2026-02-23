@@ -503,7 +503,7 @@ Pulling on non-maps (non associative) is perfectly fine.
       (recursion-children ast-node env direct-child identity)
       [direct-child])))
 
-(defn hfqlT
+(defn hfql-coalgebra
   "A coalgebra transforming one HFQL AST node (a Cofree point) into an effect point.
   This effect point is of type (Reader Env (Pair value children)), where:
   - Env is the seeded environment.
@@ -512,7 +512,7 @@ Pulling on non-maps (non associative) is perfectly fine.
 
   The `unfoldT` function is in charge of:
   - running the Reader,
-  - recursively apply hfqlT onto AST child nodes,
+  - recursively apply hfql-coalgebra onto AST child nodes,
   - wrapping them into an HFQLT type.
   "
   [ast-node]
@@ -539,7 +539,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                 (let [{:keys [ordered-kids recur-point]} (resolve-pull-children children (get env '%))]
                   (pair (thunk
                           (->> ordered-kids
-                            (map (unfoldT hfqlT))
+                            (map (unfoldT hfql-coalgebra))
                             (pull-peek-at-immediate-kids! env)))
                     (->>
                       (mappend
@@ -552,7 +552,7 @@ Pulling on non-maps (non associative) is perfectly fine.
           (let [lexical-symbol? (and (= ::ast/symbol (ast/node-type (ast/edge ast-node)))
                                      (not (fn? (ast/node-value (ast/edge ast-node)))))
                 lexical-value (ast/node-value (ast/edge ast-node))
-                edgeT (unfoldT hfqlT (cond (ast/star-traversal? ast-node) (ana/hfql identity)
+                edgeT (unfoldT hfql-coalgebra (cond (ast/star-traversal? ast-node) (ana/hfql identity)
                                            lexical-symbol? (ana/hfql identity)
                                            :else (ast/edge ast-node)))]
             (constantly
@@ -721,7 +721,7 @@ Pulling on non-maps (non associative) is perfectly fine.
    (->hfqlT (assoc (meta t) ::scope env)
             (seek env (runCofreeT t)))))
 
-(defmacro -hfql [hfql] `(unfoldT hfqlT (ana/hfql ~hfql)))
+(defmacro -hfql [hfql] `(unfoldT hfql-coalgebra (ana/hfql ~hfql)))
 
 (defn- -values [T] (map (either/either identity identity) (map force-thunk (map extract (tree-seqT T)))))
 
