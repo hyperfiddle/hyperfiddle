@@ -231,8 +231,17 @@
        := obj)
      ))
 
+(defn- getter-lookup-key
+  "Return the key to use for map lookup, dispatching on AST node type.
+  For var and quoted-var nodes, returns the resolved var object.
+  For everything else, returns the unquoted form."
+  [ast-node]
+  (case (ast/node-type ast-node)
+    ::ast/quoted-var (ast/node-value ast-node)
+    (ana/unquote* (ast/form ast-node))))
+
 (defn- getter [ast-node]
-  (let [key (ana/unquote* (ast/form ast-node))]
+  (let [key (getter-lookup-key ast-node)]
     (mem-reader ;; reader is algebraically equivalent to a plain function (fn [env] ...). But we keep an
       ;; explicit reader for clarity. Also mem-reader is optimized
       (binding [thunks/*cache-strategy* ::thunks/weak]
