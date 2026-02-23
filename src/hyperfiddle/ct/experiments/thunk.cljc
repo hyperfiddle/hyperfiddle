@@ -14,9 +14,21 @@
     again.
   - ::soft : soft reference caching – same behavior as ::weak after a GC clear. Akin to a LRU cache. JVM only.
 
-  Caching level is set with:
-  (binding [*cache-strategy* ::weak]
-    (thunk ...))
+  Two-layer caching design:
+
+  Construction time — explicit parameter on thunk macro:
+  (thunk body)            ; defaults to ::none
+  (thunk ::weak body)     ; explicit strategy
+
+  Call-time override — ambient, affects all derefs in scope:
+  (binding [*cache-override* ::none]
+    (deref t1)
+    (deref t2))           ; both bypass cache
+
+  Construction is always local and known — an explicit parameter eliminates
+  lazy-seq hazards and test friction. Call-time override IS inherently ambient —
+  a dynamic var is the right tool because the override applies to whatever thunks
+  are forced in scope.
 
   A thunk t can be forced in three equivalent ways:
   - (deref t)
@@ -42,7 +54,7 @@
   #?(:clj (:import [java.lang.ref SoftReference WeakReference]))
   #?(:cljs (:require-macros [hyperfiddle.ct.experiments.thunk :refer [thunk]])))
 
-(def ^:dynamic *cache-strategy* ::none)
+(def ^:dynamic *cache-override* nil)
 
 (def CACHE-STRATEGIES
   #?(:clj
@@ -86,21 +98,24 @@
   (-bind [ma a->mb] (thunk* cache-strategy #(deref (a->mb (deref ma)))))
 
   Comonad
-  (-extract [_] (let [cache-fn (get-cache-strategy cache-strategy)
-                      compute! (fn []
-                                 (let [computed (->Identity (f))]
-                                   (aset !cache 0 (cache-fn computed))
-                                   computed))
-                      locking-compute! (fn []
-                                         (if (= ::none cache-strategy)
-                                           (compute!)
-                                           (locking !cache (compute!))))]
-                  (extract
-                    (if-let [ref (aget !cache 0)]
-                      (if-some [object (deref ref)]
-                        object
-                        (locking-compute!))
-                      (locking-compute!)))))
+  (-extract [_]
+    (if (some? *cache-override*)
+      (f) ; call-time override: bypass shared cache, always recompute
+      (let [cache-fn (get-cache-strategy cache-strategy)
+            compute! (fn []
+                       (let [computed (->Identity (f))]
+                         (aset !cache 0 (cache-fn computed))
+                         computed))
+            locking-compute! (fn []
+                               (if (= ::none cache-strategy)
+                                 (compute!)
+                                 (locking !cache (compute!))))]
+        (extract
+          (if-let [ref (aget !cache 0)]
+            (if-some [object (deref ref)]
+              object
+              (locking-compute!))
+            (locking-compute!))))))
   (-duplicate [_] (Thunk. (fn [] f) cache-strategy (object-array 1)))
   (-extend [this k] (fmap k (duplicate this)))
 
@@ -123,41 +138,83 @@
   (->Thunk f cache-strategy (object-array 1)))
 
 (defn thunk? [object] (instance? Thunk object))
-(defmacro thunk [& body] `(thunk* *cache-strategy* (fn [] ~@body)))
+(defmacro thunk [& body]
+  (let [[strategy & body] (if (keyword? (first body))
+                            body
+                            (cons ::none body))]
+    `(thunk* ~strategy (fn [] ~@body))))
 
 (defn force-thunk [object] (if (thunk? object) (extract object) object))
 
 (tests
   "Thunk as IFn - 0-arity invocation extracts value"
-  (binding [*cache-strategy* ::none]
-    (let [t (thunk 42)]
-      (t) := 42
-      @t := 42
-      (extract t) := 42))
+  (let [t (thunk 42)]
+    (t) := 42
+    @t := 42
+    (extract t) := 42)
 
   "comp vs fmap - same value, different return type (fn vs Thunk)"
-  (binding [*cache-strategy* ::none]
-    (let [t (thunk 1)
-          composed (comp inc t)
-          fmapped (fmap inc t)]
-      (fn? composed) := true
-      (composed) := 2
-      (thunk? fmapped) := true
-      @fmapped := 2))
+  (let [t (thunk 1)
+        composed (comp inc t)
+        fmapped (fmap inc t)]
+    (fn? composed) := true
+    (composed) := 2
+    (thunk? fmapped) := true
+    @fmapped := 2)
 
   "both comp and fmap are lazy — neither forces until demanded"
-  (binding [*cache-strategy* ::none]
-    (let [counter (atom 0)
-          t (thunk (swap! counter inc) 1)
-          _composed (comp inc t)
-          _fmapped (fmap inc t)]
-      @counter := 0))
+  (let [counter (atom 0)
+        t (thunk (swap! counter inc) 1)
+        _composed (comp inc t)
+        _fmapped (fmap inc t)]
+    @counter := 0)
+
+  "explicit strategy keyword"
+  (let [t (thunk ::weak 42)]
+    @t := 42)
+
+  "*cache-override* bypasses ::hard cache — forces recomputation"
+  (let [counter (atom 0)
+        t (thunk ::hard (do (swap! counter inc) 42))]
+    @t := 42
+    @counter := 1
+    @t := 42
+    @counter := 1  ; ::hard caches, body runs once
+    (binding [*cache-override* ::none]
+      @t := 42
+      @counter := 2  ; override bypasses cache, body reruns
+      @t := 42
+      @counter := 3)) ; still bypassing, reruns again
+
+  "*cache-override* is scoped — after binding ends, construction-time cache resumes"
+  (let [counter (atom 0)
+        t (thunk ::hard (do (swap! counter inc) 42))]
+    @t := 42
+    @counter := 1  ; first deref, cached
+    (binding [*cache-override* ::none]
+      @t := 42
+      @counter := 2) ; override, recomputed
+    ;; outside binding, back to ::hard cache — original cached value still there
+    @t := 42
+    @counter := 2) ; cache hit from construction-time ::hard
+
+  "*cache-override* affects all thunks in scope regardless of their strategy"
+  (let [c1 (atom 0)
+        c2 (atom 0)
+        t1 (thunk ::hard (do (swap! c1 inc) 1))
+        t2 (thunk ::weak (do (swap! c2 inc) 2))]
+    (binding [*cache-override* ::none]
+      @t1 := 1
+      @t1 := 1
+      @c1 := 2    ; both derefs recomputed
+      @t2 := 2
+      @t2 := 2
+      @c2 := 2))  ; both derefs recomputed
   )
 
 (comment
   "No caching, equivalent to plain 0-arg fn"
-  (binding [*cache-strategy* ::none]
-    (def _t (thunk (System/currentTimeMillis))))
+  (def _t (thunk (System/currentTimeMillis)))
   _t
   @_t
   @_t ; not=
@@ -165,8 +222,7 @@
 
 (comment
   "Weak caching, clears on GC"
-  (binding [*cache-strategy* ::weak]
-    (def _t (thunk (System/currentTimeMillis))))
+  (def _t (thunk ::weak (System/currentTimeMillis)))
   _t
   @_t
   @_t ; =

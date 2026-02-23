@@ -91,7 +91,7 @@
    [hyperfiddle.hfql2.ast :as ast]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.utils :refer [has-meta? original-object]]
-   [hyperfiddle.ct.experiments.thunk :as thunks :refer [thunk thunk? force-thunk]])
+   [hyperfiddle.ct.experiments.thunk :as thunks :refer [thunk thunk* thunk? force-thunk]])
   #?(:clj (:import [hyperfiddle.ct.store Store]))
   #?(:cljs (:require-macros [hyperfiddle.hfql2.interpreter :refer [-hfql]])))
 
@@ -117,16 +117,26 @@
         (catch #?(:clj Throwable, :cljs :default) _ex
           not-found))))
 
-(defn thunked "thunked :: (a -> b) -> a -> Thunk b"
-  ([f] (#?(:clj bound-fn :cljs fn) thunked-f [a] (thunked f a)))
-  ([f a] (let [f (#?(:clj clojure.core/bound-fn*, :cljs identity) f)]
-           ;; Note this is almost monadic bind for Thunks, except it accepts both thunks and non-thunks as initial value.
-           (thunk (force-thunk (f (force-thunk a)))))))
+(defn thunked "thunked :: (a -> b) -> a -> Thunk b
+  For non-::none strategies, captures the current binding frame so thunk bodies
+  see dynamic bindings that were active when thunked-f was applied (e.g. from
+  inject-dynamic-bindings)."
+  ([f] (thunked ::thunks/none f))
+  ([strategy f]
+   (fn thunked-f [a]
+     (let [f #?(:clj (if (= ::thunks/none strategy) f (clojure.core/bound-fn* f))
+                :cljs f)]
+       (thunk* strategy (fn [] (force-thunk (f (force-thunk a)))))))))
 
 (tests
 
   ;; deref ∘ thunked f = f
-  (thunked inc 1)
+  ((thunked inc) 1)
+  (thunk? *1) := true
+  (deref *2) := 2
+
+  ;; thunked with explicit strategy
+  ((thunked ::thunks/weak inc) 1)
   (thunk? *1) := true
   (deref *2) := 2
 
@@ -246,14 +256,13 @@
   weak caching, thunking, and Either error handling."
   [f]
   (mem-reader
-    (binding [thunks/*cache-strategy* ::thunks/weak]
-      (thunked
-        (=<<
-          (fn [v]
-            (try
-              (either/right (f v))
-              (catch #?(:clj Throwable, :cljs :default) err
-                (either/left err)))))))))
+    (thunked ::thunks/weak
+      (=<<
+        (fn [v]
+          (try
+            (either/right (f v))
+            (catch #?(:clj Throwable, :cljs :default) err
+              (either/left err))))))))
 
 (defn- getter [ast-node]
   (let [key (getter-lookup-key ast-node)]
@@ -669,8 +678,7 @@ Pulling on non-maps (non associative) is perfectly fine.
              ;; #?(:clj (log/debug "Unwrapping" (ast/symbolic-edge (or (ast/edge ast-node) ast-node))))
              (let [[value children] (runReader step scope)]
                (->CofreeF value
-                 (let [value (binding [thunks/*cache-strategy* ::thunks/hard] ; cache branch values, discarded when no leaves are referencing it, as per lazy-seq semantics, recursively up to the root.
-                               (thunk (extract value)))]
+                 (let [value (thunk ::thunks/hard (extract value))] ; cache branch values, discarded when no leaves are referencing it, as per lazy-seq semantics, recursively up to the root.
                    (if-not (ast/multiplicity-many? ast-node) ; if multiplicity one
                      ;; don't use fmap under here - we want to enforce lazy children.
                      (map ; for each child, unfold it and seed it with next scope.
@@ -700,12 +708,11 @@ Pulling on non-maps (non associative) is perfectly fine.
                            ;; Can't use `sequence` here. `sequence` produces a chunked iterator seq and we must not force any form of batching in presence of IO. The user decides upstream.
                            (map-indexed  ; Record item's index for eventual positional selection.
                              (fn [positional-index value_i]
-                               (let [% (binding [thunks/*cache-strategy* ::thunks/weak] ; lazy-seq spine do not hold onto navigated values. Leaves does.
-                                         (thunk
-                                           (try
-                                             (either/right (safe-ccp-nav forced nil value_i)) ; hard-wired navigate call – a fan-out is never a leaf.
-                                             (catch #?(:clj Throwable, :cljs :default) err
-                                               (either/left err)))))]
+                               (let [% (thunk ::thunks/weak ; lazy-seq spine do not hold onto navigated values. Leaves does.
+                                         (try
+                                           (either/right (safe-ccp-nav forced nil value_i)) ; hard-wired navigate call – a fan-out is never a leaf.
+                                           (catch #?(:clj Throwable, :cljs :default) err
+                                             (either/left err))))]
                                  (-> (seed (assoc scope '% %) childT) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
                                    (vary-meta assoc ::hfql/positional-index positional-index) ; note positional index isn't a stable identity in the general case.
                                    )))
