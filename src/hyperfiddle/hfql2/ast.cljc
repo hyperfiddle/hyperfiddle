@@ -506,8 +506,11 @@
 (defn recursion-point?
   "True if this node has a recur child (target of `...` recursion). The
   interpreter uses this to find where to loop back when unfolding recursive
-  structures."
-  [node] (boolean (some recur-node? (unwrap node))))
+  structures. Recurses through star-traversal children so that
+  `{edge {* ...}}` patterns are recognized."
+  [node] (boolean (or (some recur-node? (unwrap node))
+                      (when-let [child (first (unwrap node))]
+                        (and (star-traversal? child) (recursion-point? child))))))
 
 (defn bounded-recursion?
   "True if this recur node has a finite recursion limit (e.g. `... 5`)."
@@ -886,6 +889,14 @@
    (form n) := {:children 3}
    (recursion-point? n) := true
    (recursion-limit n) := 3))
+
+(tests
+ "->edge-traversal with star-traversal continuation containing recursion"
+ (let [kw-edge (->keyword :children :children)
+       r (->unbounded-recursion)
+       star (->star-traversal r)
+       n (->edge-traversal kw-edge star :multiplicity ::many)]
+   (recursion-point? n) := true))
 
 (tests
  "form-short returns ::form-short when present"

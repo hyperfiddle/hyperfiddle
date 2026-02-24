@@ -342,10 +342,7 @@
 
 (defn- recursion-point? [hfql]
   (or (ast/recur-node? hfql)
-    (ast/recursion-point? hfql)
-    (when-let [child (first (unwrap hfql))]
-      (and (ast/star-traversal? child)
-        (recursion-point? child)))))
+    (ast/recursion-point? hfql)))
 
 (defn- direct-recursion-point? [hfql]
   (and (recursion-point? hfql)
@@ -429,18 +426,18 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- insert-at [index collA collB] (concat (take index collA) collB (drop index collA)))
 
 (defn- find-recursion-point [hfql]
-  (let [ancestors (->> (iterate #(some->> % extract ::parent) hfql)
+  (let [ancestors (->> (iterate ::parent hfql)
                     (take-while some?)
-                    (take-while (fn [%] (contains? (::env (extract %)) '%))))
-        nearest-root (some #(when (::ast/recursion-root (extract %)) %) ancestors)]
+                    (take-while ast/partial?))
+        nearest-root (some #(when (ast/recursion-root? %) %) ancestors)]
     (ast/mark-recursion-root (or nearest-root (last ancestors)))))
 
 (defn- recurse-or-stop
-  "Given an hfql node, its current env, and a child node that may carry a
-  recursion limit, find the recursion root and return it with a decremented
-  limit. Returns nil if the limit is exhausted."
-  [hfql env limit-source]
-  (let [recursion-root (find-recursion-point (mapHead #(assoc % ::env env) hfql))
+  "Given an hfql node and a child node that may carry a recursion limit, find
+  the recursion root and return it with a decremented limit. Returns nil if the
+  limit is exhausted."
+  [hfql limit-source]
+  (let [recursion-root (find-recursion-point hfql)
         limit (or (ast/recursion-limit recursion-root)
                   (ast/recursion-limit limit-source)
                   0)]
@@ -450,15 +447,15 @@ Pulling on non-maps (non associative) is perfectly fine.
 (defn- recursion-children
   "Check recursion limit on `limit-source` and either produce [wrapped-root] or [].
   `wrap-fn` transforms the root before wrapping (e.g. ast/mark-recursive-child)."
-  [ast-node env limit-source wrap-fn]
-  (if-let [root (recurse-or-stop ast-node env limit-source)]
+  [ast-node limit-source wrap-fn]
+  (if-let [root (recurse-or-stop ast-node limit-source)]
     [(wrap-fn root)]
     []))
 
 (defn- link-parent
-  "Annotate `child` with a parent reference to `parent-node`, snapshotting `env`."
-  [env parent-node child]
-  (mapHead #(assoc % ::parent (mapHead (fn [a] (assoc a ::env env)) parent-node)) child))
+  "Annotate `child` with a parent reference to `parent-node`."
+  [parent-node child]
+  (assoc child ::parent parent-node))
 
 (defn- resolve-pull-children
   "Given pull's children AST nodes and the current % value, compute ordered
@@ -487,20 +484,20 @@ Pulling on non-maps (non associative) is perfectly fine.
      :recur-point recur-point}))
 
 (defn- traversal-continuation
-  "Given a traversal ast-node, env, and its direct child (already parent-linked),
+  "Given a traversal ast-node and its direct child (already parent-linked),
   compute the children vector. Handles star-unwrapping and recursion."
-  [ast-node env direct-child]
+  [ast-node direct-child]
   (if (ast/star-traversal? direct-child)
     ;; Unwrap star children first, then handle recursion here
     ;; (not downstream) so ::recur nodes stay invisible to pull_algebra.
     (let [unwrapped (first (unwrap direct-child))
-          unwrapped (link-parent env ast-node unwrapped)]
+          unwrapped (link-parent ast-node unwrapped)]
       (if (= ::ast/recur (ast/node-type unwrapped))
-        (recursion-children ast-node env unwrapped identity)
+        (recursion-children ast-node unwrapped identity)
         [unwrapped]))
     ;; Non-star child: handle recursion at traversal level if needed.
     (if (recursion-point? ast-node)
-      (recursion-children ast-node env direct-child identity)
+      (recursion-children ast-node direct-child identity)
       [direct-child])))
 
 (defn hfql-coalgebra
@@ -530,8 +527,7 @@ Pulling on non-maps (non associative) is perfectly fine.
           ::ast/call          (comp (leaf ast-node) (focus-arguments ast-node) call)
           ::ast/lambda        (comp (leaf ast-node) (focus-arguments ast-node) call)
           ::ast/star    (comp (leaf ast-node) focus-% (constantly star))
-          ::ast/recur   (constantly (mem-reader (fn [env] (pair env [(find-recursion-point (mapHead #(assoc % ::env env) ast-node)) ; TODO extract helper for parent-aware tree walk
-                                                                     ]))))
+          ::ast/recur   (constantly (mem-reader (fn [env] (pair env [(find-recursion-point ast-node)]))))
           ::ast/pull
           (constantly
             (mem-reader
@@ -545,9 +541,9 @@ Pulling on non-maps (non associative) is perfectly fine.
                       (mappend
                         ordered-kids
                         (if recur-point
-                          (recursion-children ast-node env recur-point ast/mark-recursive-child)
+                          (recursion-children ast-node recur-point ast/mark-recursive-child)
                           []))
-                      (mapv (fn [child] (link-parent env ast-node child)))))))))
+                      (mapv (fn [child] (link-parent ast-node child)))))))))
           ::ast/traversal
           (let [lexical-symbol? (and (= ::ast/symbol (ast/node-type (ast/edge ast-node)))
                                      (not (fn? (ast/node-value (ast/edge ast-node)))))
@@ -564,8 +560,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                               env)]
                     (pair (extract (seed env' edgeT))
                       (let [direct-child (first children)
-                            direct-child (link-parent env ast-node direct-child)]
-                        (traversal-continuation ast-node env direct-child)))))))))]
+                            direct-child (link-parent ast-node direct-child)]
+                        (traversal-continuation ast-node direct-child)))))))))]
     (inject-dynamic-bindings (transform ast-node))))
 
 (declare hfqlt-equals hfqlt-hash)
@@ -667,7 +663,9 @@ Pulling on non-maps (non associative) is perfectly fine.
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra ast-node]
    (let [step (coalgebra ast-node)] ; TODO should this move inside of the store's function below?
-     (->hfqlT (assoc ast-node ::static-children (map (unfoldT coalgebra) (unwrap ast-node)))
+     (->hfqlT (assoc ast-node ::static-children
+                (map (comp (unfoldT coalgebra) #(assoc % ::parent ast-node))
+                  (unwrap ast-node)))
        (store
            (fn peek [scope]
              ;; IO issue: scope can change due to dynamic bindings (e.g. search
