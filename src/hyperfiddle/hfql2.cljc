@@ -14,9 +14,9 @@
    [hyperfiddle.ct.function :refer [flip]]
    [hyperfiddle.ct.comonad :refer [extract]]
    [hyperfiddle.ct.monad :refer [bind =<<]]
-   [hyperfiddle.ct.cofree :refer [tree-seqT unwrap runCofreeT]]
-   [hyperfiddle.ct.rose-tree :refer [rose-tree]]
-   [hyperfiddle.ct.store :refer [pos peeks]]
+   [hyperfiddle.ct.cofree :refer [tree-seqT unwrap runCofreeT headF tailF ->CofreeF]]
+   [hyperfiddle.ct.rose-tree :refer [rose-tree mapHead]]
+   [hyperfiddle.ct.store :as store :refer [pos peeks]]
    [hyperfiddle.ct.experiments.thunk :refer [force-thunk]]
    [hyperfiddle.ct.either :refer [either either? left right unwrap! from-right from-left]]
    [hyperfiddle.hfql2.analyzer :as ana]
@@ -384,14 +384,14 @@
   := '{inc 2}
   )
 
-(defn- merge-pull-metas [rose-a rose-b]
+(defn- merge-pull-head-attrs [rose-a rose-b]
   (let [form-a (ana/unquote* (ast/form rose-a))
         merged-form (vec (distinct (into (vec form-a) (ana/unquote* (ast/form rose-b)))))]
     (assoc (extract rose-a)
       ::ast/lexical-env {} ::ast/form merged-form)))
 
 (tests
-  (merge-pull-metas
+  (merge-pull-head-attrs
     (ana/analyze {'% 1} [:a :b])
     (ana/analyze {'% 2} [:a :c]))
   := {:hyperfiddle.hfql2.ast/id _
@@ -419,37 +419,83 @@
   (when hfqlT
     (symbolic-edge* (extract (meta hfqlT)))))
 
+(defn- merge-hfqlt-children
+  "Merge two sequences of HFQLT children by symbolic-edge. Left-biased."
+  [children-a children-b]
+  (let [a-edges (into #{} (map symbolic-edge) children-a)]
+    (into (vec children-a)
+          (remove (comp a-edges symbolic-edge))
+          children-b)))
+
 (defn- merge-pull-children [children-A children-B]
   (let [keyf (comp symbolic-edge* extract)
         a-edges (into #{} (map keyf children-A))]
     (into children-A (remove (comp a-edges keyf) children-B))))
 
 (defn- combine-pull [rose-a rose-b]
-  (let [metas (merge-pull-metas rose-a rose-b)]
+  (let [metas (merge-pull-head-attrs rose-a rose-b)]
     (fmap (fn [kv] (assoc kv ::ast/lexical-env (::ast/lexical-env metas)))
       (rose-tree
         metas
         (merge-pull-children
           (unwrap rose-a) (unwrap rose-b))))))
 
-(defn combine ; TODO replace with `union`
+(defn- union-pull
+  "Merge two pull HFQLT instances at the CofreeT level, preserving interpreter
+  metadata (::static-children, ::scope, etc.) and cached Store computations."
+  [a b]
+  (let [rose-a        (meta a)
+        rose-b        (meta b)
+        merged-attrs  (merge-pull-head-attrs rose-a rose-b)
+        merged-ast-children (merge-pull-children (unwrap rose-a) (unwrap rose-b))
+        merged-static (merge-hfqlt-children
+                        (or (::co/static-children rose-a) [])
+                        (or (::co/static-children rose-b) []))
+        ;; TODO ::ast/id should become a pure accessor instead of a stored value —
+        ;; it's a pure function of node content. See also ast/compute-node-id and ast/node-id.
+        merged-rose   (let [rt (rose-tree merged-attrs merged-ast-children)]
+                        (assoc (mapHead #(assoc % ::ast/id (ast/compute-node-id
+                                                             (rose-tree % merged-ast-children))) rt)
+                               ::co/static-children merged-static))
+        store-a       (runCofreeT a)
+        store-b       (runCofreeT b)
+        merged-scope  (merge (pos store-b) (pos store-a))  ; left-biased
+        merged-store  (store/store
+                        (fn [scope]
+                          (let [cf-a (store/peek scope store-a)
+                                cf-b (store/peek scope store-b)]
+                            (->CofreeF (headF cf-a)
+                                       (merge-hfqlt-children
+                                         (tailF cf-a) (tailF cf-b)))))
+                        merged-scope)]
+    (co/->hfqlT (assoc merged-rose ::co/scope merged-scope)
+                merged-store)))
+
+(defn union
+  "Monoidal union of HFQL expressions at the CofreeT level.
+  Merges children by symbolic-edge (left-biased).
+  Preserves all interpreter metadata and cached Store computations."
   ([hfqlT] hfqlT)
   ([hfqlT-a hfqlT-b]
-   (if (nil? hfqlT-b)
-     hfqlT-a
-     (do
-       (assert (= (node-type hfqlT-a) (node-type hfqlT-b)))
-       (seed (merge (scope hfqlT-a) (scope hfqlT-b))
-         (unfoldT hfql-coalgebra (case (node-type hfqlT-a)
-                          ::ast/pull (combine-pull (meta hfqlT-a) (meta hfqlT-b))
-                          ::ast/traversal (throw (ex-info "TODO" {}))
-                   (throw (ex-info "Can't combine." (node-type hfqlT-a)))))))))
+   (cond
+     (nil? hfqlT-b) hfqlT-a
+     (nil? hfqlT-a) hfqlT-b
+     :else
+     (let [type-a (node-type hfqlT-a)]
+       (assert (= type-a (node-type hfqlT-b)))
+       (case type-a
+         ::ast/pull (union-pull hfqlT-a hfqlT-b)
+         (throw (ex-info (str "Union not supported for " type-a) {:type type-a}))))))
   ([hfqlT-a hfqlT-b & hfqlTs]
-   (reduce combine (combine hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
+   (reduce union (union hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
+
+(def ^:deprecated combine
+  "Deprecated. Use `union` instead."
+  union)
 
 (tests
   (->
-    (combine
+    (union
       (let [a 1]
         (hfql [:a :b]))
       (let [b 2]
@@ -462,6 +508,19 @@
       :hyperfiddle.hfql2.ast/lexical-env {},
       :hyperfiddle.hfql2.ast/metadata nil
       })
+
+(tests
+  "union preserves static-children"
+  (let [u (union (seed {'% {:a 1 :b 2}} (hfql [:a :b]))
+                 (seed {'% {:a 1 :c 3}} (hfql [:a :c])))]
+    (count (::co/static-children (meta u))))
+  := 3
+
+  "union produces correct values"
+  (pull (seed {'% {:a 1 :b 2 :c 3}}
+    (union (hfql [:a :b]) (hfql [:a :c]))))
+  := {:a 1 :b 2 :c 3}
+  )
 
 (defn- normalize-edge [edge]
   (cond (ident? edge) `(~edge ~'%)
@@ -839,9 +898,9 @@ identifier, though it might not be serializable."
                   (empty? suggested?) hfqlT
 
                   (= ::ast/pull hfqlT-type suggestedT-type)
-                  (hoistHfqlT (fn [ast] ; FIXME must rewalk and tag because `combine` loses static metadata.
+                  (hoistHfqlT (fn [ast]
                                 (assoc ast ::suggested (boolean (suggested? (ast/node-id ast)))))
-                    (combine hfqlT suggestedT)) ; FIXME loses static metadata :(
+                    (union hfqlT suggestedT))
                   (and (pull? hfqlT)
                     (= '[*] (ast/form (meta hfqlT))))
                   ;; [*] pull but suggestion isn't a pull (e.g. collection → traversal).
@@ -866,14 +925,13 @@ identifier, though it might not be serializable."
                     (if (and item-suggestion (pull? item-suggestion))
                       (let [suggested? (set/difference (children-ids item-suggestion) (children-ids hfqlT))]
                         (hoistHfqlT (fn [ast] (assoc ast ::suggested (boolean (suggested? (ast/node-id ast)))))
-                          (combine hfqlT item-suggestion)))
+                          (union hfqlT item-suggestion)))
                       (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))))
                   (pull? hfqlT) hfqlT
                   (pull? suggestedT) (update-scope suggestedT (constantly (scope hfqlT)))
                   :else hfqlT
                   )))
             hfqlT)
-        (vary-meta #(merge (meta hfqlT) %)) ; FIXME don't lose static metadata
         (set-parent (parent hfqlT))))))
 
 (comment
