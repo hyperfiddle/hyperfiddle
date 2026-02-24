@@ -142,7 +142,7 @@
 
 ;; (e/defn RenderMeta [stepT]
 ;;   (e/server
-;;     (when-some [m ((glitch-guard hfql/metas) stepT)]
+;;     (when-some [m ((glitch-guard (comp extract meta)) stepT)]
 ;;       (dom/details
 ;;         (dom/props {:open true})
 ;;         (dom/summary (dom/text "Meta"))

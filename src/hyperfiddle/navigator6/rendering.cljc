@@ -10,6 +10,7 @@
             [hyperfiddle.hfql2.analyzer :as ana]
             [hyperfiddle.ct.functor :refer [fmap]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
+            [hyperfiddle.ct.comonad :refer [extract]]
 
             [hyperfiddle.ct.either :refer [either either? left? from-left from-right right left]]
             [hyperfiddle.hfql2 :as hfql]
@@ -185,8 +186,8 @@
 (e/declare *rowT)
 
 (e/defn RenderTooltip [tooltip-kind-ident object edgeT value]
-  (RenderTooltip* (get ((glitch-guard hfql/metas) edgeT) tooltip-kind-ident
-                    (get ((glitch-guard hfql/metas) *rowT) tooltip-kind-ident
+  (RenderTooltip* (get ((glitch-guard (comp extract meta)) edgeT) tooltip-kind-ident
+                    (get ((glitch-guard (comp extract meta)) *rowT) tooltip-kind-ident
                       tooltip-kind-ident))
     object edgeT value))
 
@@ -203,7 +204,7 @@
         (get denv symbolic-link symbolic-link)))))
 
 (defn- link-href [object edgeT value]
-  (when-let [symbolic-link-href (ana/unquote* (::hfql/link ((glitch-guard hfql/metas) edgeT)))]
+  (when-let [symbolic-link-href (ana/unquote* (::hfql/link ((glitch-guard (comp extract meta)) edgeT)))]
     (let [denv {'% (hfql/identify object), (hfql/symbolic-edge edgeT) (hfql/identify value), '%v (or (hfql/identify value) value)}]
       (template-link denv symbolic-link-href))))
 
@@ -229,7 +230,7 @@
 (e/defn RenderCell [either-object edgeT either-value]
   (binding [Render DefaultCellRenderer
             *error* (from-left nil either-value)]
-    (e/Reconcile (e/call (Resolve (ana/unquote* (::hfql/Render ((glitch-guard hfql/metas) edgeT))) ; FIXME syntax wart
+    (e/Reconcile (e/call (Resolve (ana/unquote* (::hfql/Render ((glitch-guard (comp extract meta)) edgeT))) ; FIXME syntax wart
                            Render)
                    ((glitch-guard some? either identity identity) either-object)
                    edgeT

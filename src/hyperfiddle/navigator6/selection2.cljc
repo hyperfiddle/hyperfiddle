@@ -21,6 +21,7 @@
   "
   (:require
    [hyperfiddle.ct.pair :refer [pair? pair fst snd]]
+   [hyperfiddle.ct.comonad :refer [extract]]
    [hyperfiddle.hfql2 :as hfql :refer [hfql?]]
    [hyperfiddle.hfql2.protocols :refer [Identifiable -hfql-resolve]]
    [hyperfiddle.hfql2.analyzer :as ana]
@@ -323,7 +324,7 @@
 (defn- find-value-at-point [selection-point]
   {:pre [(selection-point? selection-point)]}
   ;; special case ; TODO document
-  (or (and (= ::hfql/map-entry (::hfql/value-type (hfql/metas selection-point)))
+  (or (and (= ::hfql/map-entry (::hfql/value-type (extract (meta selection-point))))
         (hfql/value-at-point (hfql/parent selection-point)))
     (hfql/value-at-point selection-point)))
 
@@ -598,7 +599,7 @@
          (and (row? current-point)
            current-point)
          ;; Special reshaped map case ; TODO document
-         ;; (and (= ::hfql/map (::hfql/value-type (hfql/metas current-point)))
+         ;; (and (= ::hfql/map (::hfql/value-type (extract (meta current-point))))
          ;;   current-point)
          ;; Pull-many case
          (and (hfql/star-traversal? current-point)
@@ -766,8 +767,8 @@
   (or
     (and selected-point
       (let [navigator-select-command (normalize-navigator-select-command
-                                       (or (::navigator/select (hfql/metas selected-point))
-                                         (::hfql/select (hfql/metas selected-point)) ; TODO legacy, remove
+                                       (or (::navigator/select (extract (meta selected-point)))
+                                         (::hfql/select (extract (meta selected-point))) ; TODO legacy, remove
                                          ))]
         (or
           ;; Navigation happens on the selected point:
@@ -882,10 +883,10 @@
              (hfql/identifiable? (from-right nil (hfql/value-at-point current-point)))
              (= (hfql/identify (from-right nil (hfql/value-at-point selected-point)))
                (hfql/identify (from-right nil (hfql/value-at-point current-point)))))
-           (and (some? (::hfql/positional-index (hfql/metas selected-point)))
-             (some? (::hfql/positional-index (hfql/metas current-point)))
-             (= (::hfql/positional-index (hfql/metas selected-point))
-               (::hfql/positional-index (hfql/metas current-point))))))
+           (and (some? (::hfql/positional-index (extract (meta selected-point))))
+             (some? (::hfql/positional-index (extract (meta current-point))))
+             (= (::hfql/positional-index (extract (meta selected-point)))
+               (::hfql/positional-index (extract (meta current-point)))))))
      false))
   )
 
@@ -942,10 +943,10 @@
                  ;; Case where the current point isn't identifiable but we can match by positional index.
                  (and
                    ;; (some? selected-identity) ; TODO is this check necessary? why?
-                   (some? (some-> selected-point hfql/parent hfql/metas ::hfql/positional-index))
-                   (some? (some-> current-point hfql/parent hfql/metas ::hfql/positional-index))
-                   (= (some-> selected-point hfql/parent hfql/metas ::hfql/positional-index)
-                     (some-> current-point hfql/parent hfql/metas ::hfql/positional-index))))))
+                   (some? (some-> selected-point hfql/parent meta extract ::hfql/positional-index))
+                   (some? (some-> current-point hfql/parent meta extract ::hfql/positional-index))
+                   (= (some-> selected-point hfql/parent meta extract ::hfql/positional-index)
+                     (some-> current-point hfql/parent meta extract ::hfql/positional-index))))))
            ;; 2026-01-08 Edge case: traversal with a pull continuation inside of a pull.
            ;; See comments for `step-over-eventual_traversal-with-pull-continuation_in-pull`.
            ;; In this case the selected-point is one extra step ahead of current-point. So we want to match against its parent – the actual cell.
@@ -1040,7 +1041,7 @@
                    (positional-index-name parent-selection-coordinates))
                  ;; Case where we render a navigation (selection) error. E.g. when resolving fails.
                  ;; The title is the one of the expected navigation, not the one of the error object.
-                 (and (::hfql/error (hfql/metas current-point)) ; error flag
+                 (and (::hfql/error (extract (meta current-point))) ; error flag
                    (or (and (some? parent-selection-coordinates)
                          (or (and (some? (first parent-selection-coordinates)) ; col × row
                                (pr-str (list* parent-selection-coordinates)))
@@ -1048,7 +1049,7 @@
                      ;; We don't know the current point's corrdinates because there's no parent. (e.g. top-level navigation failed)
                      ;; The best title we can produce is the one of the error itself.
                      ;; It's better than nothing.
-                     (str (type (::hfql/error (hfql/metas current-point))))))))
+                     (str (type (::hfql/error (extract (meta current-point)))))))))
            ;; Case where we have:
            ;; - no error
            ;; - no selected column

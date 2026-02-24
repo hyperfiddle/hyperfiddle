@@ -9,6 +9,7 @@
    [hyperfiddle.electric3 :as e]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.ct.cofree :refer [unwrap]]
+   [hyperfiddle.ct.comonad :refer [extract]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.either :refer [either from-right]]
    [hyperfiddle.hfql2 :as hfql]
@@ -113,7 +114,7 @@
   parent collection (e.g., 1 if we drilled into the second row). The metadata index is
   the correct one for generating selection coordinates."
   [cellT]
-  (::hfql/positional-index (hfql/metas (hfql/parent cellT))))
+  (::hfql/positional-index (extract (meta (hfql/parent cellT)))))
 
 (e/defn MatrixCell [cell-index cellT]
   (e/client
@@ -248,8 +249,8 @@
       (let [stepT+ (hfql/augment-with-suggestions! pull-step)
             childrenT (remove (every-pred hfql/recursion-point? hfql/recursive-child?) ((glitch-guard unwrap) stepT+)) ; TODO what is this line doing? Why?
             childrenT-order (zipmap childrenT (range))
-            static-columns (remove (comp ::hfql/suggested hfql/metas) childrenT)
-            suggested-columns (e/Snapshot (filter (comp ::hfql/suggested hfql/metas) childrenT))
+            static-columns (remove (comp ::hfql/suggested extract meta) childrenT)
+            suggested-columns (e/Snapshot (filter (comp ::hfql/suggested extract meta) childrenT))
             pre-checked (#(or ((glitch-guard hfql/pull-has-star?) stepT+) (empty? static-columns)))
             shorten (name-shortener (map hfql/symbolic-edge childrenT))
             from-spec (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge static-columns)]
@@ -281,7 +282,7 @@
 
 (e/defn RenderMatrix [stepT & {:keys [transpose? single?]}]
   (dom/fieldset
-    (dom/props {:class [({true "error"} (e/server (some? (::hfql/error ((glitch-guard hfql/metas) stepT)))))]})
+    (dom/props {:class [({true "error"} (e/server (some? (::hfql/error ((glitch-guard (comp extract meta)) stepT)))))]})
     (let [... (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) (reshape-maps transpose? single? stepT)) {:label 'run-query}))
           is-map? (e/server (nth ... 0))
           transpose? (e/server (nth ... 1)) ; workaround sited destructuring

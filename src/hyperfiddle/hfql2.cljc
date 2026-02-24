@@ -51,7 +51,6 @@
 (defpointfree value-at-point (comp force-thunk '% scope))
 (defpointfree seeded? (comp (flip contains? '%) scope))
 (defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
-(def ^:deprecated metas "Deprecated. Use (meta hfqlt) for RoseTree or (extract (meta hfqlt)) for attrs." (comp extract meta))
 (defpointfree pull-has-star?   (comp ast/pull-has-star?   meta))
 (defpointfree partial?         (comp ast/partial?         meta))
 (defpointfree pull?            (comp ast/pull?            meta))
