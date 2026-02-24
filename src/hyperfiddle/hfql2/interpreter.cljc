@@ -856,6 +856,31 @@ Pulling on non-maps (non associative) is perfectly fine.
             {key val})))
       (fmap extract-right-value-or-keep-left-error (extract W)))))
 
+;; Compare with cofree/fold-postorder which recurses with plain `map`:
+;;   (defn fold-postorder [φ w]
+;;     (φ (extract w) (map (fold-postorder φ) (unwrap w))))
+;; The plain version creates lazy seqs with no binding capture — safe when
+;; consumed synchronously, but dynamic bindings are lost when the result
+;; is iterated later outside the original `binding` context.
+(defn- fold-postorder-bound
+  "Like cofree/fold-postorder but captures the JVM thread binding frame at each
+   level, so lazy child sequences restore it when iterated. Prevents dynamic
+   binding loss when pull's lazy results are consumed outside the original
+   binding context. On CLJS, falls back to plain recursion."
+  ([φ] (partial fold-postorder-bound φ))
+  ([φ w]
+   (let [recurse #?(:clj (clojure.core/bound-fn* (fold-postorder-bound φ))
+                    :cljs (fold-postorder-bound φ))]
+     (φ (extract w) (map recurse (unwrap w))))))
+
+(defn- synthesize-bound
+  "Like cofree/synthesize but uses fold-postorder-bound to capture the JVM thread
+   binding frame. This ensures dynamic bindings active at synthesis time are
+   preserved when lazy children in the result are iterated later, outside the
+   original binding context."
+  ([φ] (partial synthesize-bound φ))
+  ([φ w] (extend (fold-postorder-bound φ) w)))
+
 (defn pull "Equivalent of `datomic.api/pull`. Reshape an HFQL tree `W` into a post-order version of the same tree.
   Lazy in theory, eager in practice.
   `(pull W)` is O(1) and its result can be navigated just like `W`. The type is
@@ -872,7 +897,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   ;; interpreter "zipping" values up the tree. The sole purpose of `pull-algebra` is to re-attach
   ;; keys onto projected values, producing a result of the same shape as the original symbolic
   ;; query.
-  ((synthesize pull-algebra) (duplicate W)))
+  ((synthesize-bound pull-algebra) (duplicate W)))
 
 
 (tests
