@@ -30,7 +30,7 @@
 
 (defrecord Store [raw-accessor cached-accessor value]
   Functor
-  (-fmap [fa f] (let [accessor (comp f cached-accessor)]
+  (-fmap [fa f] (let [accessor (comp f raw-accessor)]
                   (Store. accessor (run-once accessor) value)))
   Comonad
   (-extract [_wa] (cached-accessor value))
