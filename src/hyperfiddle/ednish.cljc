@@ -60,6 +60,7 @@
 (def ^:private EDNISH-RESERVED-DELIMITERS (-> (set/union RFC-3986-GEN-DELIMITERS EDNISH-RFC-3986-RESERVED-DELIMITERS)))
 (def ^:private EDNISH-UNRESERVED-STRING-CHARS (-> (set/difference EDNISH-DELIMITERS EDNISH-RESERVED-DELIMITERS)
                                                 (conj \:) ; Violates RFC-3986, but safe in URL path in practice.
+                                                (disj \!) ; reserved: ! is the escape prefix for Jetty-unsafe %XX sequences (!2F for /)
                                                 ))
 
 (declare encode -encode percent-encode unescape-string)
@@ -142,7 +143,8 @@
 (defn- percent-encode* [str]
   #?(:clj (java.net.URLEncoder/encode ^String str "UTF-8")
      :cljs (-> (js/encodeURIComponent str)
-             (.replace #"\'" "%27")))) ;; encodeURIComponent encodes all but RFC-3986 unreserved chars
+             (.replace #"\'" "%27")
+             (.replace #"!" "%21")))) ;; encodeURIComponent doesn't encode ! or ' (RFC-3986 unreserved)
 
 (defn- percent-decode* [string]
   #?(:clj (java.net.URLDecoder/decode string "UTF-8")
@@ -158,10 +160,15 @@
   (reduce (fn [str char] (str/replace str (percent-encode* char) char)) decoded-string (map str chars)))
 
 (defn- percent-encode [string]
-  (double-encode #{\'} ; ensure browser's don't decode %27 to ' and break string delimiters (at least FF does it)
-    (percent-encode* (str string))))
+  (-> (percent-encode* (str string))
+    (->> (double-encode #{\'}) ) ; ensure browsers don't decode %27 to ' and break string delimiters (at least FF does it)
+    (str/replace "%2F" "!2F"))) ; Jetty 12 rejects %2F in URI paths (AMBIGUOUS_PATH_SEPARATOR). !XX scheme: ! is always %21 after percent-encode*, so !XX is unambiguous.
 
-(defn- percent-decode [string] (double-decode #{\'} (percent-decode* (str string))))
+(defn- percent-decode [string]
+  (-> (str string)
+    (str/replace "!2F" "%2F") ; reverse !-escape before decoding
+    percent-decode*
+    (->> (double-decode #{\'}) )))
 
 (defn- unescape-string [chars string]
   (->> chars
@@ -181,7 +188,7 @@
   (serialize 'foo) := "foo"
   (serialize :foo/bar) := ":foo$bar"
   (serialize 'foo/bar) := "foo$bar"
-  ;; (serialize 'foo/bar/baz) := "foo$bar%2Fbaz" ; work at the REPL but cljs analyzer fail to read it
+  ;; (serialize 'foo/bar/baz) := "foo$bar!2Fbaz" ; work at the REPL but cljs analyzer fail to read it
   (serialize :foo/bar$baz) := ":foo$bar%24baz"
   (serialize 'foo/bar$baz) := "foo$bar%24baz"
 
@@ -418,8 +425,8 @@
   #?(:clj (some? (java.net.URI. (encode-uri-path (list 'user/hello, #inst "2025", "http://user:pass@[v6-ip.example.com]:8080//path?query#fragment" {:a :b})))) := true)
 
   "non-ascii characters"
-  (encode-uri-path '(foo "!$&'[]()*+,;=|")) := "/foo/'!$&%2527%5B%5D%28%29*%2B%2C;=%7C'"
-  (decode-uri-path "/foo/'!$&%2527%5B%5D%28%29*%2B%2C;=%7C'") := '(foo "!$&'[]()*+,;=|")
+  (encode-uri-path '(foo "!$&'[]()*+,;=|")) := "/foo/'%21$&%2527%5B%5D%28%29*%2B%2C;=%7C'"
+  (decode-uri-path "/foo/'%21$&%2527%5B%5D%28%29*%2B%2C;=%7C'") := '(foo "!$&'[]()*+,;=|")
 
   "composite parameters"
   (encode-uri-path `(hyperfiddle.blog/post [:user/sub "google-oauth2|1234"] #{"events" "news"}))
