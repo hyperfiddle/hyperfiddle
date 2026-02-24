@@ -49,7 +49,15 @@
 
 (defn- render-type [hfqlT]
   (or (and (hfql/multiplicity-many? hfqlT)
-        ::star)
+        ;; `recursion-end?!` is checked in two places:
+        ;; 1. Here, inside the `multiplicity-many?` branch — because `multiplicity-many?`
+        ;;    would otherwise short-circuit to `::star`, masking the recursion-end condition.
+        ;;    This happens with `{* ...}` star traversals: they are both multiplicity-many
+        ;;    AND recursion points. Without this guard, `{* ...}` renders an empty table
+        ;;    when its parent value is nil (e.g. File/.listFiles on a non-directory).
+        ;; 2. Below, standalone — for non-multiplicity-many recursive nodes (e.g. edge
+        ;;    traversals like `{listFiles ...}`), which skip this branch entirely.
+        (if (hfql/recursion-end?! hfqlT) ::recursion-end ::star))
     (and (hfql/recursion-end?! hfqlT) ; will run IO
       ::recursion-end)
     (cond
