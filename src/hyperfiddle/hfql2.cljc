@@ -418,18 +418,37 @@
   (when hfqlT
     (symbolic-edge* (extract (meta hfqlT)))))
 
+(defn- resolved-symbolic-edge*
+  "Like symbolic-edge* but uses form-resolved for symbol/var/call nodes.
+  Takes a RoseTree AST node. Used for union deduplication so that
+  jar-filename and dustingetz.nav-jar/jar-filename merge as one column."
+  [node]
+  (let [attrs (extract node)]
+    (case (::ast/type attrs)
+      (::ast/symbol ::ast/var ::ast/call)
+      (let [fr (::ast/form-resolved attrs)]
+        (if (or (symbol? fr) (nil? fr))
+          (or fr (::ast/form attrs))
+          (::ast/form attrs))) ; form-resolved is not a symbol (e.g. fn from stale cache) — fall back
+      (symbolic-edge* attrs))))
+
+(defn- resolved-symbolic-edge
+  "HFQLT-level resolved-symbolic-edge — mirrors symbolic-edge but resolves."
+  [hfqlT]
+  (when hfqlT
+    (resolved-symbolic-edge* (meta hfqlT))))
+
 (defn- merge-hfqlt-children
-  "Merge two sequences of HFQLT children by symbolic-edge. Left-biased."
+  "Merge two sequences of HFQLT children by resolved-symbolic-edge. Left-biased."
   [children-a children-b]
-  (let [a-edges (into #{} (map symbolic-edge) children-a)]
+  (let [a-edges (into #{} (map resolved-symbolic-edge) children-a)]
     (into (vec children-a)
-          (remove (comp a-edges symbolic-edge))
+          (remove (comp a-edges resolved-symbolic-edge))
           children-b)))
 
 (defn- merge-pull-children [children-A children-B]
-  (let [keyf (comp symbolic-edge* extract)
-        a-edges (into #{} (map keyf children-A))]
-    (into children-A (remove (comp a-edges keyf) children-B))))
+  (let [a-edges (into #{} (map resolved-symbolic-edge* children-A))]
+    (into children-A (remove (comp a-edges resolved-symbolic-edge*) children-B))))
 
 (defn- combine-pull [rose-a rose-b]
   (let [metas (merge-pull-head-attrs rose-a rose-b)]

@@ -11,7 +11,7 @@
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.ct.rose-tree :refer [rose-tree coiter]]
             [clojure.string :as str])
-  #?(:cljs (:require-macros [hyperfiddle.hfql2.analyzer :refer [hfql resolve-direct-method]])))
+  #?(:cljs (:require-macros [hyperfiddle.hfql2.analyzer :refer [hfql resolve-direct-method resolve-static-method]])))
 
 (defn- var-form? [form]
   (and (seq? form)
@@ -166,6 +166,18 @@
     (direct-method-call? sym)
     (static-method-call? sym)))
 
+(defn- java-class-reference?
+  "True if `sym` is a qualified symbol whose namespace refers to a Java class.
+  `Math/abs` → true (auto-imported), `java.io.File/separator` → true (FQCN),
+  `dustingetz.nav-jar/jar-filename` → false (Clojure ns)."
+  [sym]
+  #?(:clj  (when-let [ns-str (namespace sym)]
+             (let [ns-sym (symbol ns-str)]
+               (boolean
+                 (or (try (Class/forName ns-str) (catch ClassNotFoundException _ nil))
+                     (get (ns-imports *ns*) ns-sym)))))
+     :cljs false))
+
 (defn- supports-direct-method-syntax? []
   #?(:clj (>= 1.12 (parse-double (re-find #"^[0-9]+\.[0-9]+" (clojure-version))))
      :cljs false ; TODO I actually don't know. Maybe cljs does support it. Yes, cljs 1.12+ does support it.
@@ -182,23 +194,39 @@
 
 (defn- var-resolver [env form]
   (cond
-    (lexical? env form)          nil
-    (method-call? form)          nil
-    (symbol? form)               `(var ~form)
-    :else                        nil))
+    (lexical? env form)            nil
+    (indirect-method-call? form)   nil
+    (direct-method-call? form)     nil
+    (java-class-reference? form)   nil   ;; Java static — no var
+    (symbol? form)                 `(var ~form) ;; unqualified OR qualified Clojure var
+    :else                          nil))
 
 (defmacro resolve-direct-method [sym] ; No call to cc/resolve, respects ②
   {:pre [(direct-method-call? sym)]}
   `(symbol (.getName ~(symbol (namespace sym))) ~(name sym)))
 
+(defmacro resolve-static-method
+  "Resolve a qualified non-dot symbol to its FQN symbol. Emitted by `resolver`
+  for forms matching `static-method-call?`. At macro expansion time we check
+  whether the namespace part refers to a Java class. If so → synthesize the FQN
+  symbol from the class name (like `resolve-direct-method`). Otherwise → Clojure
+  var, resolved by the compiler (handles aliases)."
+  [sym]
+  {:pre [(static-method-call? sym)]}
+  (if (and (not (:js-globals &env)) (java-class-reference? sym))
+    ;; CLJ + Java class — resolve like resolve-direct-method
+    `(symbol (.getName ~(symbol (namespace sym))) ~(name sym))
+    ;; Clojure var (or CLJS) — compiler resolves FQN including aliases
+    `(symbol (var ~sym))))
+
 (defn- resolver [env form]
   (cond
-    (lexical? env form)          form
-    (indirect-method-call? form) nil
-    (direct-method-call? form)   `(resolve-direct-method ~form)
-    (static-method-call? form)   form
-    (symbol? form)               `(symbol (var ~form))
-    :else                        nil))
+    (lexical? env form)            form
+    (indirect-method-call? form)   nil
+    (direct-method-call? form)     `(resolve-direct-method ~form)
+    (static-method-call? form)     `(resolve-static-method ~form)
+    (symbol? form)                 `(symbol (var ~form))
+    :else                          nil))
 
 (defn- lexical-bindings-map [lexical-env]
   (zipmap (map #(quote-form %) (keys lexical-env)) (keys lexical-env)))
