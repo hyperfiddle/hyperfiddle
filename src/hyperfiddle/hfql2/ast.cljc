@@ -3,10 +3,12 @@
   for AST nodes. Consumers should access nodes through this API rather than raw
   keyword lookup, so that the map representation remains an implementation detail."
   (:require [clojure.spec.alpha :as s]
+            [clojure.set :as set]
             #?(:clj  [hyperfiddle.ct.rose-tree :as rt :refer [rose-tree mapHead]]
                :cljs [hyperfiddle.ct.rose-tree :as rt :refer [rose-tree mapHead RoseTree]])
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
+            [hyperfiddle.hfql2.utils :refer [has-meta?]]
             [hyperfiddle.rcf :refer [tests]])
   #?(:clj (:import [hyperfiddle.ct.rose_tree RoseTree])))
 
@@ -30,7 +32,8 @@
 (s/def ::parameters sequential?) ; symbolic parameter list (symbols like ['db '%])
 (s/def ::arguments sequential?)  ; runtime argument values provided at a call site
 ;; ::children removed — tree structure lives in RoseTree. Use `unwrap` to access children.
-(s/def ::metadata (s/nilable map?))  ; metadata from the original source form, restored by the `form` accessor
+(s/def ::metadata (s/nilable set?))  ; set of keys from reader ^{...} metadata (values in top-level attrs)
+(s/def ::options (s/nilable set?))   ; set of keys that came from options syntax (values in top-level attrs)
 (s/def ::recursion-limit (s/or :bounded nat-int? :unbounded #{##Inf})) ; remaining recursion depth
 (s/def ::multiplicity #{::one ::many}) ; cardinality of the node's result: ::one for single values, ::many for collections
 (s/def ::kind #{::star ::keyword-fn}) ; syntactic origin of this node. Refines ::type: where ::type says WHAT a node
@@ -123,33 +126,48 @@
   (s/keys :req [::type ::lexical-env ::id ::multiplicity ::metadata]
           :opt [::kind ::edge]))
 
-(defmulti form
-  "Return the source form of `node` (a RoseTree). Some node types derive their
-  form from stored fields, others from tree structure (pull/traversal via unwrap).
-  When `::metadata` is present the metadata is restored onto the result so that
-  `form ∘ analyze == id`."
+(declare form)
+
+(defmulti ^:private -form
+  "Internal: return the raw source form of a node. Use `form` instead."
   (fn [node] (::type (extract node))))
 
-(defmethod form :default [node] (::form (extract node)))
-(defmethod form ::star [node] (with-meta '* (::metadata (extract node))))
-(defmethod form ::recur [node]
+(defmethod -form :default [node] (::form (extract node)))
+(defmethod -form ::star [_node] '*)
+(defmethod -form ::recur [node]
   (let [a (extract node), limit (::recursion-limit a)]
-    (if (= ##Inf limit)
-      (with-meta '... (::metadata a))
-      limit)))
-(defmethod form ::literal [node] (::resolved-runtime-value (extract node)))
-(defmethod form ::quoted-var [node]
+    (if (= ##Inf limit) '... limit)))
+(defmethod -form ::literal [node] (::resolved-runtime-value (extract node)))
+(defmethod -form ::quoted-var [node]
+  (list 'quote (::form (extract node))))
+(defmethod -form ::quoted-symbol [node]
+  (list 'quote (::form (extract node))))
+(defmethod -form ::pull [node]
+  (mapv form (unwrap node)))
+(defmethod -form ::traversal [node]
   (let [a (extract node)]
-    (with-meta (list 'quote (::form a)) (::metadata a))))
-(defmethod form ::quoted-symbol [node]
-  (let [a (extract node)]
-    (with-meta (list 'quote (::form a)) (::metadata a))))
-(defmethod form ::pull [node]
-  (with-meta (mapv form (unwrap node)) (::metadata (extract node))))
-(defmethod form ::traversal [node]
-  (let [a (extract node)
-        child-form (form (first (unwrap node)))]
-    (with-meta {(form (::edge a)) child-form} (::metadata a))))
+    {(form (::edge a)) (form (first (unwrap node)))}))
+
+(defn form
+  "Return the source form of `node`. Restores reader metadata via with-meta and
+  wraps in options vector syntax when options are present."
+  [node]
+  (let [a         (extract node)
+        base-form (-form node)
+        opts-keys (::options a)
+        meta-keys (::metadata a)]
+    (if (seq opts-keys)
+      ;; Has options: wrap in [form :k1 v1 :k2 v2 ...], reader meta on form
+      (let [reader-keys (when meta-keys
+                          (not-empty (set/difference meta-keys opts-keys)))
+            form-with-meta (if (and reader-keys (has-meta? base-form))
+                             (with-meta base-form (select-keys a reader-keys))
+                             base-form)]
+        (into [form-with-meta] (mapcat (fn [k] [k (get a k)])) opts-keys))
+      ;; No options: just reader meta (existing behavior)
+      (if (and (seq meta-keys) (has-meta? base-form))
+        (with-meta base-form (select-keys a meta-keys))
+        base-form))))
 
 (defn compute-node-id
   "Derive a stable identity hash from a RoseTree node's semantic content.
@@ -161,12 +179,12 @@
   [node]
   (let [a (extract node)]
     (hash (assoc (select-keys a #{::type ::form-short ::form-resolved})
-                 ::form (form node)))))
+                 ::form (-form node)))))
 
 (def ^:private node-defaults
   "Default values merged with lowest precedence by `finalize`. Any key
   explicitly set by a constructor (or via metadata) takes priority."
-  {::lexical-env {}})
+  {::lexical-env {}, ::metadata nil})
 
 (defn- finalize
   "Build a RoseTree node from attrs and children, compute ::id, and validate.
@@ -189,11 +207,11 @@
   "Construct a star (`*`) wildcard node. Signals \"include all suggested edges\"
   inside a pull expression. Form is always `'*` (derived)."
   [& {:keys [metadata]}]
-  (finalize (merge metadata {::type ::star, ::metadata metadata}) ()))
+  (finalize (merge metadata {::type ::star, ::metadata (some-> metadata keys set)}) ()))
 
 (defn- ->recur [recursion-limit & {:keys [metadata]}]
   (finalize (merge metadata {::type ::recur, ::recursion-limit recursion-limit
-                              ::metadata metadata}) ()))
+                              ::metadata (some-> metadata keys set)}) ()))
 
 (defn ->bounded-recursion
   "Construct a bounded recur node (`... 5`). `limit` is the maximum recursion
@@ -212,7 +230,7 @@
   derived from the value — they are the same thing for self-evaluating forms."
   [value & {:keys [metadata lexical-env]}]
   (finalize (cond-> (merge metadata {::type ::literal, ::resolved-runtime-value value,
-                                      ::metadata metadata})
+                                      ::metadata (some-> metadata keys set)})
               lexical-env (assoc ::lexical-env lexical-env))
             ()))
 
@@ -277,7 +295,7 @@
   `recursion-point?`, and `recursion-limit` are all derived from children
   via `unwrap` — not passed."
   [children & {:keys [metadata lexical-env]}]
-  (finalize (cond-> (merge metadata {::type ::pull, ::metadata metadata})
+  (finalize (cond-> (merge metadata {::type ::pull, ::metadata (some-> metadata keys set)})
               lexical-env (assoc ::lexical-env lexical-env))
             children))
 
@@ -342,7 +360,7 @@
   [child & {:keys [metadata lexical-env kind multiplicity edge]}]
   (finalize (cond-> (merge metadata {::type ::traversal
                                       ::multiplicity (or multiplicity ::one)
-                                      ::metadata metadata})
+                                      ::metadata (some-> metadata keys set)})
               lexical-env (assoc ::lexical-env lexical-env)
               kind (assoc ::kind kind)
               edge (assoc ::edge edge))
@@ -384,24 +402,25 @@
   "Return the type of `node`."
   [node] (::type (extract node)))
 
-;; `form` is defined as a defmulti in the Internal helpers section above.
+;; `form` is defined as a wrapper function above. `-form` is the internal defmulti.
 
 (defn form-short
   "Return the shortest unambiguous form for display."
-  [node] (or (::form-short (extract node)) (form node)))
+  [node] (or (::form-short (extract node)) (-form node)))
 
 (defn form-resolved
   "Return the alias-resolved form."
-  [node] (or (::form-resolved (extract node)) (form node)))
+  [node] (or (::form-resolved (extract node)) (-form node)))
 
 (defn symbolic-edge
   "Return the edge label for this node — the key under which it appears in its
-  parent pull. Fully derived, not stored."
+  parent pull. Fully derived, not stored. Uses -form (raw form without options
+  wrapping) so that options never affect the edge label."
   [node]
   (let [a (extract node)]
     (case (::type a)
       (::star ::recur ::literal ::keyword ::string ::symbol
-       ::var ::runtime-value ::call) (form node)
+       ::var ::runtime-value ::call) (-form node)
       ::pull nil ; pull is a container, not an edge
       (::quoted-var ::quoted-symbol) (::form a)
       ::lambda (if (= ::keyword-fn (::kind a))
@@ -572,10 +591,23 @@
 
 (defn set-metadata
   "Set the metadata on a node. Metadata keys (e.g. :line, :column) are merged
-  underneath existing attrs so they never shadow core AST keys. ::metadata is
-  set to the original map for `form` to restore via `with-meta`."
+  underneath existing attrs so they never shadow core AST keys. ::metadata
+  stores the key set (values live in top-level attrs)."
   [node metadata]
-  (mapHead #(merge metadata % {::metadata metadata}) node))
+  (mapHead #(merge metadata % {::metadata (some-> metadata keys set)}) node))
+
+(defn set-options
+  "Record options-syntax key-value pairs on a node. Values are merged underneath
+  existing attrs. ::options records which keys came from options syntax (for form
+  reconstruction). Option keys are also added to ::metadata's key set."
+  [node options]
+  (if (seq options)
+    (mapHead (fn [a]
+               (merge options a
+                 {::metadata (into (or (::metadata a) #{}) (keys options))
+                  ::options  (set (keys options))}))
+             node)
+    node))
 
 (defn set-lexical-env
   "Set the lexical environment on a node."

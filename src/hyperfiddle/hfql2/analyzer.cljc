@@ -285,16 +285,18 @@
    (if (instance? OptionsFormWrap form)
      ;; Options form: [attr k v ...].
      ;; Analyze inner attr via full unfold (supports traversal attrs),
-     ;; merge options as metadata.
-     (let [inner-vec (.-inner ^OptionsFormWrap form)
-           _         (when (even? (count inner-vec))
-                       (throw (ex-info "Options form [attr k v ...]: needs odd element count"
-                               {:form inner-vec})))
-           attr      (first inner-vec)
-           opts-map  (apply hash-map (rest inner-vec))
-           metadata  (not-empty (merge opts-map (meta inner-vec)))
-           inner-node (unfold (φ env) ψ attr)]
-       (ast/set-metadata inner-node metadata))
+     ;; split reader meta from options for provenance tracking.
+     (let [inner-vec  (.-inner ^OptionsFormWrap form)
+           _          (when (even? (count inner-vec))
+                        (throw (ex-info "Options form [attr k v ...]: needs odd element count"
+                                {:form inner-vec})))
+           attr        (first inner-vec)
+           opts-map    (not-empty (apply hash-map (rest inner-vec)))
+           reader-meta (meta inner-vec)
+           inner-node  (unfold (φ env) ψ attr)]
+       (-> inner-node
+         (ast/set-metadata reader-meta)   ; reader ^{...} on the inner vec
+         (ast/set-options opts-map)))      ; options :k v pairs
      ;; Normal dispatch:
      (let [ftype (form-type form)
            node  (case ftype
@@ -524,32 +526,56 @@
           inner-pull (val (first traversal-form))]
       (:inner (meta inner-pull)) := true)))
 
-;; ─── Options syntax tests ───────────────────────────────────────────────────
+;; ─── Options syntax roundtrip tests ──────────────────────────────────────────
 
 (tests
-  "options form — keyword with options"
+  "options form — keyword roundtrips as options vector"
   (let [node (first (unwrap (hfql [[:a :b :c]])))]
     (ast/keyword-node? node) := true
+    (ast/form node) := [:a :b :c]
+    ;; Values accessible as top-level attrs on the node:
+    (:b (extract node)) := :c
+    ;; ::options records which keys came from options syntax:
+    (::ast/options (extract node)) := #{:b}))
+
+(tests
+  "options form — pull with keyword options roundtrips"
+  (ast/form (hfql [:user/name [:user/email :default "none"]]))
+  := [:user/name [:user/email :default "none"]])
+
+(tests
+  "options form — traversal options roundtrip as vector"
+  (let [f (ast/form (hfql [[{:a [:b]} :c :d]]))]
+    (first f) := [{:a [:b]} :c :d]))
+
+(tests
+  "options form — single-element inner vector [:a], no opts"
+  (let [node (first (unwrap (hfql [[:a]])))]
     (ast/form node) := :a
-    (:b (::ast/metadata (extract node))) := :c))
+    (::ast/metadata (extract node)) := nil
+    (::ast/options (extract node)) := nil))
+
+;; ─── Options syntax attrs access tests ──────────────────────────────────────
 
 (tests
-  "options form — keyword with named option"
+  "options form — option values are top-level attrs"
   (let [email (second (unwrap (hfql [:user/name [:user/email :default "redacted"]])))]
-    (ast/form email) := :user/email
-    (:default (::ast/metadata (extract email))) := "redacted"))
+    (:default (extract email)) := "redacted"))
 
 (tests
-  "options form — multiple options"
+  "options form — multiple options as top-level attrs"
   (let [node (first (unwrap (hfql [[:user/email :default "none" :as :email]])))]
-    (:default (::ast/metadata (extract node))) := "none"
-    (:as (::ast/metadata (extract node))) := :email))
+    (:default (extract node)) := "none"
+    (:as (extract node)) := :email
+    (::ast/options (extract node)) := #{:default :as}))
 
 (tests
-  "options form — traversal attr gets options"
+  "options form — traversal attr gets options as attrs"
   (let [node (first (unwrap (hfql [[{:a [:b]} :c :d]])))]
     (ast/traversal? node) := true
-    (:c (::ast/metadata (extract node))) := :d))
+    (:c (extract node)) := :d))
+
+;; ─── Options syntax structure tests ─────────────────────────────────────────
 
 (tests
   "options form — correct edge count on outer pull"
@@ -559,21 +585,12 @@
   "plain pull [:a :b :c] is unaffected — no inner vector"
   (count (unwrap (hfql [:a :b :c]))) := 3)
 
-(tests
-  "options form — form normalizes (options vector not preserved)"
-  (ast/form (hfql [:user/name [:user/email :default "none"]]))
-  := [:user/name :user/email])
+;; ─── Options syntax: symbolic-edge not affected ─────────────────────────────
 
 (tests
-  "options form — traversal form carries options as metadata"
-  (let [f (first (ast/form (hfql [[{:a [:b]} :c :d]])))]
-    (:c (meta f)) := :d))
-
-(tests
-  "options form — single-element inner vector [:a] is valid, no opts"
-  (let [node (first (unwrap (hfql [[:a]])))]
-    (ast/form node) := :a
-    (::ast/metadata (extract node)) := nil))
+  "options form — symbolic-edge returns raw keyword, not options vector"
+  (let [node (first (unwrap (hfql [[:user/email :default "none"]])))]
+    (ast/symbolic-edge node) := :user/email))
 
 (defn- traverse-two [f W1 W2]
   (rose-tree (f W1 W2)
