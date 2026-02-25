@@ -1262,13 +1262,15 @@ identifier, though it might not be serializable."
 
 
 (defn recursion-end?! ; ! because this runs IO
-  "State if the given point is a recursion point and if recursion should stop. Recursion stops on nil values.
+  "State if the given point is a recursion point and if recursion should stop.
+  Recursion stops when the recursion limit is exhausted or on nil values.
   At the HFQL tree-seqing level, recuring forever on nil is allowed because `nil` is not treated as a special value.
   But we haven't found a valid use case to recur on nil in a UI."
   [hfqlT]
   (let [rose (meta hfqlT)]
-    (or (and (ast/recursion-root? rose)
-          (= (right nil) (value-at-point hfqlT)))
+    (or (and (ast/recursion-point? rose) (empty? (next-steps hfqlT))) ; limit exhausted — interpreter produced no children (pure, no IO)
+      (and (ast/recursion-root? rose)
+        (= (right nil) (value-at-point hfqlT)))
       (and (ast/recursion-point? rose)
         (= (right nil) (nav* hfqlT))))))
 
