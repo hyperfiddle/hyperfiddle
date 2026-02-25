@@ -311,7 +311,9 @@
                                      (ast/->star-traversal cont-node)
                                      (let [edge-node (φ env edge-form ())
                                            mult (when (ast/star-traversal? cont-node) ::ast/many)]
-                                       (ast/->edge-traversal edge-node cont-node :multiplicity mult)))))
+                                       (ast/->edge-traversal edge-node cont-node :multiplicity mult
+                                         :lexical-env (or (not-empty (ast/lexical-env edge-node))
+                                                        (lexical-bindings-map env)))))))
          lenv  (lexical-bindings-map env)
          lenv  (if (= ::ast/call ftype)
                  (let [[_f & params] form
@@ -320,7 +322,7 @@
                                  (filter symbol? ps))))
                  lenv)]
      (cond-> (ast/set-metadata node (meta form))
-       (not= ::ast/traversal ftype) (ast/set-lexical-env lenv)))))
+       (not (#{::ast/traversal ::ast/keyword ::ast/string} ftype)) (ast/set-lexical-env lenv)))))
 
 (declare -escape)
 (defn escape [point] (-escape (update point ::ast/form quote-form)))

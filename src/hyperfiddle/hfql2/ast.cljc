@@ -222,17 +222,15 @@
   auto-resolve at read time, so `form-resolved` and `symbolic-edge` are always
   the form itself -- accessors derive them. Only `form-short` (display alias)
   can genuinely differ."
-  [form form-short & {:keys [metadata lexical-env]}]
-  (finalize (cond-> (merge metadata {::type ::keyword, ::form form, ::form-short form-short})
-              lexical-env (assoc ::lexical-env lexical-env))
+  [form form-short & {:keys [metadata]}]
+  (finalize (merge metadata {::type ::keyword, ::form form, ::form-short form-short, ::lexical-env {}})
             ()))
 
 (defn ->string
   "Construct a string edge node. Strings name edges in map-like structures
   where keys are strings (e.g. JSON-shaped data)."
-  [form & {:keys [metadata lexical-env]}]
-  (finalize (cond-> (merge metadata {::type ::string, ::form form})
-              lexical-env (assoc ::lexical-env lexical-env))
+  [form & {:keys [metadata]}]
+  (finalize (merge metadata {::type ::string, ::form form, ::lexical-env {}})
             ()))
 
 (defn ->symbol
@@ -369,11 +367,12 @@
   to a child value through a specific edge (keyword, symbol, call, etc.). The
   `edge` argument is the inner AST node (a RoseTree) describing the edge
   function -- e.g. a ::keyword node for `:user/name`, a ::call node for
-  `(all-users)`. `lexical-env` is inherited from the edge. `child` is the
-  single continuation AST node (a RoseTree). `form` is derived from edge and
-  child. `partial?` is derived from edge."
-  [edge child & {:keys [metadata multiplicity]}]
-  (->traversal child :metadata metadata :lexical-env (::lexical-env (extract edge))
+  `(all-users)`. `lexical-env` should be passed explicitly by the caller;
+  falls back to reading from the edge for backward compatibility. `child` is
+  the single continuation AST node (a RoseTree). `form` is derived from edge
+  and child. `partial?` is derived from edge."
+  [edge child & {:keys [metadata multiplicity lexical-env]}]
+  (->traversal child :metadata metadata :lexical-env (or lexical-env (::lexical-env (extract edge)))
     :edge edge :multiplicity multiplicity))
 
 ;;;; Accessors
@@ -730,7 +729,7 @@
    (valid-node? n) := true
    (pull? n) := true
    (form n) := [:a :b]
-   (symbolic-edge n) := [:a :b]
+   (symbolic-edge n) := nil
    (unwrap n) := (list a b)
    (leaf? n) := false
    (node-value n) := nil
