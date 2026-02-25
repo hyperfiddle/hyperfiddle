@@ -26,6 +26,7 @@ table.matrix {
         height: calc(var(--row-count) * var(--row-height));
     }
     thead {
+        contain: style; /* override base 'size style' — size containment collapses painted height to 0, breaking opaque background on sticky headers */
         grid-column: 1 / -1;
         grid-row: 1 /* from top row */
                   / calc( /* to */
@@ -34,6 +35,7 @@ table.matrix {
         )
         ;
         tr {
+            contain: style; /* same reason as thead above */
             grid-column: 1 / -1;
         }
     }
@@ -48,6 +50,7 @@ table.matrix {
             )
         ;
         tr {
+
             grid-row: calc(var(--row-index) + 2); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
             grid-column: 1 / -1;
             td{
@@ -61,7 +64,10 @@ table.matrix {
 table.matrix{
     thead{
         top:0;
+
         z-index: 2; /* Rows scrolls underneath header */
+
+
 
 
 
@@ -101,7 +107,7 @@ table.matrix .matrix__diagonal {
     grid-column: 1;
 }
 
-table.matrix.single{
+table.matrix.associative{
 
     thead > tr > th{
         contain: layout;

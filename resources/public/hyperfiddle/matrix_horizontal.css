@@ -26,6 +26,7 @@ table.matrix.transposed {
         height: 1px;
     }
     thead {
+        contain: style; /* override base 'size style' — size containment collapses height to 0, breaking sticky on children */
         grid-row: 1 / -1;
         grid-column: 1 /* from top row */
                      / calc( /* to */
@@ -34,6 +35,7 @@ table.matrix.transposed {
         )
         ;
         tr {
+            contain: style; /* same reason as thead above */
             grid-row: 1 / -1;
         }
     }
@@ -48,6 +50,7 @@ table.matrix.transposed {
             )
         ;
         tr {
+            contain: style; /* override base 'size style' — size containment collapses height to 0, breaking sticky on children */
             grid-column: calc(var(--row-index) + 2); /* because CSS grid is 1-indexed – deemed cheaper to compute here than in electric */
             grid-row: 1 / -1;
             td{
@@ -61,12 +64,15 @@ table.matrix.transposed {
 table.matrix.transposed{
     thead{
         left:0;
+        top: auto; /* cancel vertical layout's top:0 — in transposed, thead is a column, not a row */
         z-index: 2; /* Rows scrolls underneath header */
         .transpose-affordance{
             position: sticky;
             top:0;
+            z-index: 3; /* above header th cells when sticky */
             background: var(--diagonal), var(--background-pattern);
             background-size: 100% 100%, var(--background-size);
+            background-color: var(--row-color-light); /* solid fallback under image layers */
         }
         th{
             justify-self: stretch;
@@ -101,11 +107,11 @@ table.matrix.transposed .matrix__diagonal {
     grid-column: 1 / -1;
 }
 
-table.matrix.single.transposed {
+table.matrix.associative.transposed {
     grid-template-columns: minmax(auto, max-content) 1fr;
-
-
-
+    tbody > tr > th[scope="row"] {
+        display: block; /* override vertical layout's display:none — needed as sticky cover for scrolling content */
+    }
 
 
 
