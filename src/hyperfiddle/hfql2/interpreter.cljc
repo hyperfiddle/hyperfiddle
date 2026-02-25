@@ -501,17 +501,19 @@ Pulling on non-maps (non associative) is perfectly fine.
       [direct-child])))
 
 (defn hfql-coalgebra
-  "A coalgebra transforming one HFQL AST node (a Cofree point) into an effect point.
-  This effect point is of type (Reader Env (Pair value children)), where:
-  - Env is the seeded environment.
-  - value is the value computed from Env when Reader is run.
-  - children are the next AST nodes. There may be none.
+  "A coalgebra transforming one HFQL AST node (a RoseTree) into an effectful Reader.
+  When run, this Reader yields (Pair value children), where:
+  - value is the computed result for this node (often a thunk).
+  - children are the AST nodes to unfold next. There may be none (leaf nodes).
 
   The `unfoldT` function is in charge of:
-  - running the Reader,
-  - recursively apply hfql-coalgebra onto AST child nodes,
-  - wrapping them into an HFQLT type.
-  "
+  - running the Reader with a seeded environment (scope),
+  - recursively applying hfql-coalgebra onto returned child nodes,
+  - wrapping the result into an HFQLT (CofreeT-backed navigator).
+
+  Note: pull and traversal branches pre-unfold some children internally
+  (e.g. peek-at-immediate-kids, edge traversals) before returning them
+  alongside the remaining AST children for unfoldT to process."
   [ast-node]
   (let [children (unwrap ast-node)
         transform
