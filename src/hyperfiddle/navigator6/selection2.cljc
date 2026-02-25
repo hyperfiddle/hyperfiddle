@@ -323,8 +323,8 @@
 
 (defn- find-value-at-point [selection-point]
   {:pre [(selection-point? selection-point)]}
-  ;; special case ; TODO document
-  (or (and (= ::hfql/map-entry (::hfql/value-type (extract (meta selection-point))))
+  ;; special case: map entries — navigate on the parent map's value, not the entry itself
+  (or (and (map-entry? (from-right nil (hfql/value-at-point selection-point)))
         (hfql/value-at-point (hfql/parent selection-point)))
     (hfql/value-at-point selection-point)))
 
@@ -598,9 +598,6 @@
          ;; Object case
          (and (row? current-point)
            current-point)
-         ;; Special reshaped map case ; TODO document
-         ;; (and (= ::hfql/map (::hfql/value-type (extract (meta current-point))))
-         ;;   current-point)
          ;; Pull-many case
          (and (hfql/star-traversal? current-point)
            (or (first (hfql/next-steps current-point))

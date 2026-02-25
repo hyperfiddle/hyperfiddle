@@ -261,7 +261,7 @@ table.matrix[role=radiogroup]{
 
 }
 
-table.matrix.single{
+table.matrix.associative{
     thead tr th{
         .sort-handle{
             display: none;
@@ -330,7 +330,7 @@ fieldset:has(table.matrix) legend > * {
 }
 
 
-fieldset:has(table.matrix.map) legend > :has(input + label){
+fieldset:has(table.matrix.associative) legend > :has(input + label){
     display:none;
 }
 
@@ -339,6 +339,6 @@ fieldset:has(table.matrix){
     padding: 0;
 }
 
-fieldset:has(table.matrix.single) legend .count {
+fieldset:has(table.matrix.associative) legend .count {
     display: none;
 }

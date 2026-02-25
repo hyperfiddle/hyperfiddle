@@ -11,7 +11,7 @@
    [hyperfiddle.ct.cofree :refer [unwrap]]
    [hyperfiddle.ct.comonad :refer [extract]]
    [hyperfiddle.ct.monoid :refer [mappend]]
-   [hyperfiddle.ct.either :refer [either from-right]]
+   [hyperfiddle.ct.either :refer [either]]
    [hyperfiddle.hfql2 :as hfql]
    [hyperfiddle.navigator6.rendering :as rendering]
    [hyperfiddle.navigator6.search :as search]
@@ -19,7 +19,7 @@
    [hyperfiddle.navigator6.selection2 :as selection2]
    [hyperfiddle.navigator6.sorting :as sort]
    [hyperfiddle.navigator6.utils :as utils :refer [in glitch-guard]]
-   [hyperfiddle.hfql2.utils :refer [imap?]]
+   #_[hyperfiddle.hfql2.utils :refer [imap?]]
    [dustingetz.loader :refer [Offload]]
    [missionary.core :as m]))
 
@@ -214,15 +214,15 @@
      (set! (.-scrollLeft table-node) 0)
      (swap! !transpose not)))
 
-(e/defn Matrix [columnTs rowTs-count rowTs & {:keys [transpose? single? is-map? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
+(e/defn Matrix [columnTs rowTs-count rowTs & {:keys [associative? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
       (let [!transpose (atom true)
             transpose (e/watch !transpose)
             columnTs-count (e/server (count columnTs))]
-        (reset! !transpose (boolean transpose?))
-        (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "single"} single?) ({true "map"} is-map?)]
+        (reset! !transpose (boolean associative?))
+        (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "associative"} associative?)]
                     :style {:--row-height (str row-height "px")
                             :--column-width (str column-width "px")
                             :--row-count rowTs-count
@@ -232,7 +232,7 @@
           (e/amb
             (MatrixHeader columnTs)
             (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
-                  itemTs-count (#(if single? columnTs-count rowTs-count))
+                  itemTs-count (#(if associative? columnTs-count rowTs-count))
                   scroll-window (Scroll-window 24 itemTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))})
                   [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)]
               (MatrixBody columnTs rowTs
@@ -273,21 +273,10 @@
 
 
 
-(defn- reshape-maps [transpose? single? stepT]
-  (when stepT
-    (let [value (from-right nil (hfql/value-at-point stepT))]
-      (if (and (imap? value) (not (record? value)))
-        [true false false (-> (hfql/hfql {* [key val]} (seq value) #_(map #(zipmap [:key :val] %) (seq value))) (hfql/set-parent stepT))]
-        [false transpose? single? stepT]))))
-
-(e/defn RenderMatrix [stepT & {:keys [transpose? single?]}]
+(e/defn RenderMatrix [stepT & {:keys [associative?]}]
   (dom/fieldset
     (dom/props {:class [({true "error"} (e/server (some? (::hfql/error ((glitch-guard (comp extract meta)) stepT)))))]})
-    (let [... (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) (reshape-maps transpose? single? stepT)) {:label 'run-query}))
-          is-map? (e/server (nth ... 0))
-          transpose? (e/server (nth ... 1)) ; workaround sited destructuring
-          single? (e/server (nth ... 2))
-          stepT (e/server (nth ... 3))
+    (let [_ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
           [legend top-left] (dom/legend
                               [dom/node (dom/span (dom/props {:style {:float :inline-start, :display :flex, :flex-wrap :wrap}})
                                                   (rendering/Step-Title stepT)
@@ -310,7 +299,7 @@
             (in top-left
               (dom/span (dom/props {:style {:order -1}
                                     :class "count"})
-                        (dom/text (#(if is-map?
+                        (dom/text (#(if associative?
                                       (rendering/format-map-entries-count rowsT-count COLLECTION-LIMIT)
                                       (rendering/format-collection-count rowsT-count COLLECTION-LIMIT))))))
             (e/amb
@@ -319,7 +308,4 @@
               (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
-                    (Matrix columnsT rowsT-count rowsT :transpose? transpose?, :single? single? :is-map? is-map?)))))))))))
-
-(e/defn RenderObject [stepT] (RenderMatrix stepT :transpose? true, :single? true))
-(e/defn RenderCollection [stepsT] (RenderMatrix stepsT))
+                    (Matrix columnsT rowsT-count rowsT :associative? associative?)))))))))))

@@ -12,16 +12,17 @@
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
             [hyperfiddle.navigator6.selection2 :as selection2]
-            [hyperfiddle.navigator6.matrix :refer [RenderObject RenderCollection]]
+            [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
             [hyperfiddle.navigator6.utils :refer [rebooting freezing glitch-guard]]
             [contrib.css :as cssx]
             [contrib.data :refer [#?(:clj array?)]]
+            [hyperfiddle.hfql2.utils :refer [imap?]]
             [dustingetz.str :as strx]
             [clojure.pprint]
             [dustingetz.loader :as loader]
             [hyperfiddle.ct.function :refer [flip]]
             [hyperfiddle.ct.maybe :refer [just nothing from-maybe]]
-            [hyperfiddle.ct.either :refer [either right]]
+            [hyperfiddle.ct.either :refer [either right from-right]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.hfql2.analyzer :as ana]
@@ -47,51 +48,57 @@
     (ident? router-query) (list router-query)
     :else router-query))
 
-(defn- render-type [hfqlT]
-  (or (and (hfql/multiplicity-many? hfqlT)
-        ;; `recursion-end?!` is checked in two places:
-        ;; 1. Here, inside the `multiplicity-many?` branch — because `multiplicity-many?`
-        ;;    would otherwise short-circuit to `::star`, masking the recursion-end condition.
-        ;;    This happens with `{* ...}` star traversals: they are both multiplicity-many
-        ;;    AND recursion points. Without this guard, `{* ...}` renders an empty table
-        ;;    when its parent value is nil (e.g. File/.listFiles on a non-directory).
-        ;; 2. Below, standalone — for non-multiplicity-many recursive nodes (e.g. edge
-        ;;    traversals like `{listFiles ...}`), which skip this branch entirely.
-        (if (hfql/recursion-end?! hfqlT) ::recursion-end ::star))
-    (and (hfql/recursion-end?! hfqlT) ; will run IO
-      ::recursion-end)
-    (cond
-      (hfql/star? hfqlT) ::star
-      (hfql/pull? hfqlT) ::pull
-      (hfql/traversal? hfqlT) (render-type (first (hfql/next-steps hfqlT)))
-      :else ::unknown)))
+(defn- recursion-end? [hfqlT]
+  (or (and (hfql/multiplicity-many? hfqlT) (hfql/recursion-end?! hfqlT))
+      (hfql/recursion-end?! hfqlT)))
+
+(defn- effective-render-type
+  "Recurse through traversals to find the effective render type.
+   Returns ::pull, ::star, or nil (leaf)."
+  [hfqlT]
+  (cond
+    (hfql/star? hfqlT) ::star
+    (hfql/pull? hfqlT) ::pull
+    (hfql/traversal? hfqlT) (if (hfql/multiplicity-many? hfqlT)
+                              ::star ; collection traversal → render as collection
+                              (effective-render-type (first (hfql/next-steps hfqlT))))
+    :else nil))
+
+(defn- associative-value?
+  "True when the raw value at point is associative (record or map, not a collection)."
+  [v]
+  (or (record? v) (and (imap? v) (not (record? v)))
+      #?@(:clj [(and (some? v) (not (instance? clojure.lang.IObj v)))]))) ; java object
 
 (e/defn ResolveRenderer [hfqlT]
   (e/server
-    (get {::pull RenderObject
-          ::star RenderCollection}
-      (e/Offload #((glitch-guard render-type) hfqlT))
-      (e/fn [& _]))))
-
-(e/defn ReshapeNavigationStep [hfqlT]
-  (e/server
-    (e/Reconcile
-      (case (e/Offload #((glitch-guard render-type) hfqlT))
-        (::pull ::star) hfqlT
-        ::recursion-end hfqlT
+    (e/Offload #(when ((glitch-guard recursion-end?) hfqlT) ::recursion-end))
+    (case (e/Offload #((glitch-guard effective-render-type) hfqlT))
+      ;; Structured node (pull or star) — the outer step (possibly a traversal wrapper) is
+      ;; passed to RenderMatrix. hfql/nav inside RenderMatrix executes any traversal IO.
+      ;; pull → associative (single object, transposed), star → not associative (collection).
+      ::pull (e/fn [stepT] (RenderMatrix stepT :associative? true))
+      ::star (e/fn [stepT] (RenderMatrix stepT :associative? false))
+      ;; Leaf (traversal with no structured child) → nav, suggest, render directly.
+      ;; Compute step as plain data (either callbacks must not contain e/fn).
+      (e/Reconcile
         (let [either-value ((glitch-guard hfql/nav*) hfqlT) ; runs IO
-              value (either identity identity either-value)]
-          (either
-            (fn [suggestion-err]
-              (-> (hfql/hfql [*] (right suggestion-err))
-                ((glitch-guard hfql/set-parent) hfqlT)))
-            (fn [suggestedT]
-              (if (and (some? suggestedT) (not= hfqlT suggestedT))
-                (-> suggestedT
-                  ((glitch-guard (flip hfql/seed)) (assoc ((glitch-guard hfql/scope) hfqlT) (symbol "%") (right value)))
-                  ((glitch-guard hfql/set-parent) hfqlT))
-                hfqlT))
-            (hfql/suggest* value)))))))
+              value (either identity identity either-value)
+              associative? (associative-value? value)
+              stepT (either
+                      (fn [suggestion-err]
+                        (-> (hfql/hfql [*] (right suggestion-err))
+                          ((glitch-guard hfql/set-parent) hfqlT)))
+                      (fn [suggestedT]
+                        (when (and (some? suggestedT) (not= hfqlT suggestedT))
+                          (-> suggestedT
+                            ((glitch-guard (flip hfql/seed))
+                             (assoc ((glitch-guard hfql/scope) hfqlT) (symbol "%") (right value)))
+                            ((glitch-guard hfql/set-parent) hfqlT))))
+                      (hfql/suggest* value))]
+          (if (some? stepT)
+            (e/fn [_] (RenderMatrix stepT :associative? associative?))
+            (e/fn [& _])))))))
 
 (defn inject-dynamic-bindings [e-bindings stepT]
   (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))
@@ -125,8 +132,7 @@
                 (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
                   (with-local-state ::state/route ; injects *local-state and interpret state write commands
                     (with-local-search ::search   ; injects *local-search and interpret search commands
-                      (let [stepT (e/server (ReshapeNavigationStep stepT))]
-                        (with-local-selection ::selection ; injects *local-selection and interpret selection commands
+                      (with-local-selection ::selection ; injects *local-selection and interpret selection commands
                             (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
                           (e/amb
                             (e/call (ResolveRenderer stepT) ; call renderer for current point
@@ -138,7 +144,7 @@
                                     (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
                                               selection/*parent-selection selection/*local-selection]
                                       (Navigate* sitemap next-childT)))))
-                              (e/amb))))))))))))))))
+                              (e/amb)))))))))))))))
 
 ;; (e/defn RenderMeta [stepT]
 ;;   (e/server
