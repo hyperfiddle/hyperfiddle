@@ -880,10 +880,10 @@
              (hfql/identifiable? (from-right nil (hfql/value-at-point current-point)))
              (= (hfql/identify (from-right nil (hfql/value-at-point selected-point)))
                (hfql/identify (from-right nil (hfql/value-at-point current-point)))))
-           (and (some? (::hfql/positional-index (extract (meta selected-point))))
-             (some? (::hfql/positional-index (extract (meta current-point))))
-             (= (::hfql/positional-index (extract (meta selected-point)))
-               (::hfql/positional-index (extract (meta current-point)))))))
+           (and (some? (::hfql/positional-index (meta selected-point)))
+             (some? (::hfql/positional-index (meta current-point)))
+             (= (::hfql/positional-index (meta selected-point))
+               (::hfql/positional-index (meta current-point))))))
      false))
   )
 
@@ -940,10 +940,10 @@
                  ;; Case where the current point isn't identifiable but we can match by positional index.
                  (and
                    ;; (some? selected-identity) ; TODO is this check necessary? why?
-                   (some? (some-> selected-point hfql/parent meta extract ::hfql/positional-index))
-                   (some? (some-> current-point hfql/parent meta extract ::hfql/positional-index))
-                   (= (some-> selected-point hfql/parent meta extract ::hfql/positional-index)
-                     (some-> current-point hfql/parent meta extract ::hfql/positional-index))))))
+                   (some? (some-> selected-point hfql/parent meta ::hfql/positional-index))
+                   (some? (some-> current-point hfql/parent meta ::hfql/positional-index))
+                   (= (some-> selected-point hfql/parent meta ::hfql/positional-index)
+                     (some-> current-point hfql/parent meta ::hfql/positional-index))))))
            ;; 2026-01-08 Edge case: traversal with a pull continuation inside of a pull.
            ;; See comments for `step-over-eventual_traversal-with-pull-continuation_in-pull`.
            ;; In this case the selected-point is one extra step ahead of current-point. So we want to match against its parent – the actual cell.
@@ -1038,7 +1038,7 @@
                    (positional-index-name parent-selection-coordinates))
                  ;; Case where we render a navigation (selection) error. E.g. when resolving fails.
                  ;; The title is the one of the expected navigation, not the one of the error object.
-                 (and (::hfql/error (extract (meta current-point))) ; error flag
+                 (and (::hfql/error (meta current-point)) ; error flag
                    (or (and (some? parent-selection-coordinates)
                          (or (and (some? (first parent-selection-coordinates)) ; col × row
                                (pr-str (list* parent-selection-coordinates)))
@@ -1046,7 +1046,7 @@
                      ;; We don't know the current point's corrdinates because there's no parent. (e.g. top-level navigation failed)
                      ;; The best title we can produce is the one of the error itself.
                      ;; It's better than nothing.
-                     (str (type (::hfql/error (extract (meta current-point)))))))))
+                     (str (type (::hfql/error (meta current-point))))))))
            ;; Case where we have:
            ;; - no error
            ;; - no selected column
