@@ -290,22 +290,34 @@
                                   #_{:label 'count-rows})) ; 𝓞(n)
           disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection)) ; Use case: allow positional selection on unidentifiable rows.
           ]
-      (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
+      (search/Filtered (e/server (if associative? (search/no-row-filter) (search/eager-search-BIG-O-N-SQUARE)))
         rowsT-count
         (e/server rowsT)
         (e/server columnsT)
         (e/fn [rowsT]
-          (let [rowsT-count (e/server (bounded-count rowsT-count rowsT))]
+          (let [columnsT (e/server
+                           (e/Reconcile
+                             (if associative?
+                               (Offload #(search/filter-columns-by-search
+                                           rendering/*server-pretty
+                                           (first rowsT)
+                                           columnsT
+                                           search/*local-search)
+                                         {:label 'in-memory-column-search})
+                               columnsT)))
+                entries-count (e/server (#(if associative?
+                                            (count columnsT)
+                                            (bounded-count rowsT-count rowsT))))]
             (in top-left
               (dom/span (dom/props {:style {:order -1}
                                     :class "count"})
                         (dom/text (#(if associative?
-                                      (rendering/format-map-entries-count rowsT-count COLLECTION-LIMIT)
-                                      (rendering/format-collection-count rowsT-count COLLECTION-LIMIT))))))
+                                      (rendering/format-map-entries-count entries-count COLLECTION-LIMIT)
+                                      (rendering/format-collection-count entries-count COLLECTION-LIMIT))))))
             (e/amb
               (in top-left (dom/span (dom/props {:style {:order -2}})
                                      (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
               (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
-                    (Matrix columnsT rowsT-count rowsT :associative? associative?)))))))))))
+                    (Matrix columnsT entries-count rowsT :associative? associative?)))))))))))

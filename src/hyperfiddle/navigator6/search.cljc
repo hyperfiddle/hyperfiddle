@@ -136,6 +136,32 @@
         (m/eduction cat (resequence) (filter #(nth % 1)) (map #(nth % 2)))))))
 
 #?(:clj
+   (defn no-row-filter []
+     (fn [_pretty-print-map rowTs _columnTs _needle] rowTs)))
+
+#?(:clj
+   (defn filter-columns-by-search
+     "Filter columns (key-value pairs) for associative views.
+     Matches on header name (symbolic-edge) or cell value — same logic as row search, but transposed."
+     [pretty-print-map rowT columnTs needle]
+     (if (str/blank? needle)
+       columnTs
+       (let [rowT+ (hfql/augment-with-suggestions! rowT)
+             cellsT (unwrap rowT+)]
+         (filterv
+           (fn [columnT]
+             (when-not (.isInterrupted (Thread/currentThread))
+               (or
+                 (search-matches (hfql/symbolic-edge columnT) needle pretty-print-map)
+                 (when-let [cellT (hfql/find-cell-by-column* columnT cellsT)]
+                   (let [either-value (hfql/nav* cellT)]
+                     (either
+                       (fn [err] (search-matches err needle pretty-print-map))
+                       (fn [val] (search-matches (original-object val) needle pretty-print-map))
+                       either-value))))))
+           columnTs)))))
+
+#?(:clj
    (defn eager-search-BIG-O-N-SQUARE< [pretty-print-map rowTs columnTs needle]
      (pfilter
        (fn [rowT]
