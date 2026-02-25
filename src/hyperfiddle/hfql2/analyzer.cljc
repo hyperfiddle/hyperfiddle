@@ -13,6 +13,8 @@
             [clojure.string :as str])
   #?(:cljs (:require-macros [hyperfiddle.hfql2.analyzer :refer [hfql resolve-direct-method resolve-static-method]])))
 
+(deftype OptionsFormWrap [inner])
+
 (defn- var-form? [form]
   (and (seq? form)
     (= 'var (first form))
@@ -101,6 +103,7 @@
 
 (defn form-type [form]
   (cond
+    (instance? OptionsFormWrap form) ::ast/options-form
     (= '* form)           ::ast/star
     (or (= '... form)
       (nat-int? form))    ::ast/recur
@@ -130,6 +133,7 @@
     ::ast/literal (reduced (reduced hfql))
     ::ast/quoted-var (reduced (reduced hfql))
     ::ast/quoted-symbol (reduced (reduced hfql))
+    ::ast/options-form (reduced (reduced hfql))
     (::ast/pull ::ast/traversals ::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/runtime-value ::ast/var)
     hfql))
 
@@ -137,14 +141,18 @@
   (if (reduced? hfql)
     (unreduced hfql)
     (case (form-type hfql)
-      ::ast/pull (into [] (mapcat (fn [hfql] (if (and (vector? hfql) (not (pair? hfql))) hfql [hfql])) hfql))
+      ::ast/pull (into [] (mapcat (fn [hfql]
+                                    (if (and (vector? hfql) (not (pair? hfql)))
+                                      [(OptionsFormWrap. hfql)]
+                                      [hfql]))
+                           hfql))
       ::ast/traversals (if (= 1 (count hfql))
                      (if-let [metas (meta hfql)]
                        (vary-meta (apply pair (first hfql)) merge metas)
                        (first hfql))
                      (with-meta (into [] hfql) (meta hfql)))
       (::ast/call ::ast/lambda ::ast/literal ::ast/quoted-var ::ast/quoted-symbol) (throw (ex-info "Encountered invalid AST node." {:value hfql}))
-      (::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/runtime-value ::ast/var)
+      (::ast/traversal ::ast/star ::ast/recur ::ast/symbol ::ast/keyword ::ast/string ::ast/runtime-value ::ast/var ::ast/options-form)
       hfql)))
 
 (defn- lexical? [env sym] (contains? env sym))
@@ -265,6 +273,8 @@
   (aliased-form (ns-name *ns*) 'hyperfiddle.hfql2.analyzer/asdf) := 'asdf
   )
 
+(declare unfold ψ)
+
 (defn- φ ; phi
   "An algebra constructing AST nodes from an HFQL expression and its processed children.
   Leaf nodes ignore `children` (always `()`). Pull passes `children` directly to `->pull`.
@@ -272,57 +282,71 @@
   Metadata and lexical-env are set uniformly at the end via mutators."
   ([env] (partial φ env))
   ([env form children]
-   (let [ftype (form-type form)
-         node  (case ftype
-                 ::ast/star      (ast/->star)
-                 ::ast/recur     (if (nat-int? form)
-                                   (ast/->bounded-recursion form)
-                                   (ast/->unbounded-recursion))
-                 ::ast/literal   (ast/->literal form)
-                 ::ast/keyword   (ast/->keyword form #?(:clj (aliased-form form) :cljs form))
-                 ::ast/string    (ast/->string form)
-                 ::ast/symbol    (ast/->symbol form (escape-method-call form) (var-resolver env form)
-                                   (resolver env form) #?(:clj (aliased-form form) :cljs form))
-                 ::ast/var       (let [sym (second form)]
-                                   (ast/->var form (list 'var (resolver env sym))
-                                     #?(:clj (list 'var (aliased-form sym)) :cljs (list 'var sym))
-                                     :resolved-runtime-value #?(:clj (resolve sym) :cljs nil)))
-                 ::ast/quoted-var (let [sym (second (unquote* form))]
-                                    (ast/->quoted-var (unquote* form) (list 'var (resolver env sym))
-                                      #?(:clj (list 'var (aliased-form sym)) :cljs (list 'var sym))
-                                      :resolved-runtime-value #?(:clj (resolve sym) :cljs nil)))
-                 ::ast/runtime-value (ast/->runtime-value form)
-                 ::ast/quoted-symbol (ast/->quoted-symbol (second form))
-                 ::ast/lambda    (let [kw (get-kw-fn-form-kw form)]
-                                   (if kw
-                                     (let [kw-node (φ env kw ())]
-                                       (ast/->lambda form '(%)
-                                         :kind ::ast/keyword-fn
-                                         :form-resolved (ast/form-resolved kw-node)
-                                         :form-short (ast/form-short kw-node)))
-                                     (ast/->lambda form '(%))))
-                 ::ast/call      (let [[f & params] form]
-                                   (ast/->call form f (var-resolver env f) params
-                                     (replace {'% ''%} params) (resolver env f)))
-                 ::ast/pull      (ast/->pull children)
-                 ::ast/traversal (let [edge-form (fst form)
-                                       cont-node (first children)]
-                                   (if (= '* edge-form)
-                                     (ast/->star-traversal cont-node)
-                                     (let [edge-node (φ env edge-form ())
-                                           mult (when (ast/star-traversal? cont-node) ::ast/many)]
-                                       (ast/->edge-traversal edge-node cont-node :multiplicity mult
-                                         :lexical-env (or (not-empty (ast/lexical-env edge-node))
-                                                        (lexical-bindings-map env)))))))
-         lenv  (lexical-bindings-map env)
-         lenv  (if (= ::ast/call ftype)
-                 (let [[_f & params] form
-                       ps (remove #{'%} params)]
-                   (merge lenv (zipmap (map quote-form (filter symbol? ps))
-                                 (filter symbol? ps))))
-                 lenv)]
-     (cond-> (ast/set-metadata node (meta form))
-       (not (#{::ast/traversal ::ast/keyword ::ast/string} ftype)) (ast/set-lexical-env lenv)))))
+   (if (instance? OptionsFormWrap form)
+     ;; Options form: [attr k v ...].
+     ;; Analyze inner attr via full unfold (supports traversal attrs),
+     ;; merge options as metadata.
+     (let [inner-vec (.-inner ^OptionsFormWrap form)
+           _         (when (even? (count inner-vec))
+                       (throw (ex-info "Options form [attr k v ...]: needs odd element count"
+                               {:form inner-vec})))
+           attr      (first inner-vec)
+           opts-map  (apply hash-map (rest inner-vec))
+           metadata  (not-empty (merge opts-map (meta inner-vec)))
+           inner-node (unfold (φ env) ψ attr)]
+       (ast/set-metadata inner-node metadata))
+     ;; Normal dispatch:
+     (let [ftype (form-type form)
+           node  (case ftype
+                   ::ast/star      (ast/->star)
+                   ::ast/recur     (if (nat-int? form)
+                                     (ast/->bounded-recursion form)
+                                     (ast/->unbounded-recursion))
+                   ::ast/literal   (ast/->literal form)
+                   ::ast/keyword   (ast/->keyword form #?(:clj (aliased-form form) :cljs form))
+                   ::ast/string    (ast/->string form)
+                   ::ast/symbol    (ast/->symbol form (escape-method-call form) (var-resolver env form)
+                                     (resolver env form) #?(:clj (aliased-form form) :cljs form))
+                   ::ast/var       (let [sym (second form)]
+                                     (ast/->var form (list 'var (resolver env sym))
+                                       #?(:clj (list 'var (aliased-form sym)) :cljs (list 'var sym))
+                                       :resolved-runtime-value #?(:clj (resolve sym) :cljs nil)))
+                   ::ast/quoted-var (let [sym (second (unquote* form))]
+                                      (ast/->quoted-var (unquote* form) (list 'var (resolver env sym))
+                                        #?(:clj (list 'var (aliased-form sym)) :cljs (list 'var sym))
+                                        :resolved-runtime-value #?(:clj (resolve sym) :cljs nil)))
+                   ::ast/runtime-value (ast/->runtime-value form)
+                   ::ast/quoted-symbol (ast/->quoted-symbol (second form))
+                   ::ast/lambda    (let [kw (get-kw-fn-form-kw form)]
+                                     (if kw
+                                       (let [kw-node (φ env kw ())]
+                                         (ast/->lambda form '(%)
+                                           :kind ::ast/keyword-fn
+                                           :form-resolved (ast/form-resolved kw-node)
+                                           :form-short (ast/form-short kw-node)))
+                                       (ast/->lambda form '(%))))
+                   ::ast/call      (let [[f & params] form]
+                                     (ast/->call form f (var-resolver env f) params
+                                       (replace {'% ''%} params) (resolver env f)))
+                   ::ast/pull      (ast/->pull children)
+                   ::ast/traversal (let [edge-form (fst form)
+                                         cont-node (first children)]
+                                     (if (= '* edge-form)
+                                       (ast/->star-traversal cont-node)
+                                       (let [edge-node (φ env edge-form ())
+                                             mult (when (ast/star-traversal? cont-node) ::ast/many)]
+                                         (ast/->edge-traversal edge-node cont-node :multiplicity mult
+                                           :lexical-env (or (not-empty (ast/lexical-env edge-node))
+                                                          (lexical-bindings-map env)))))))
+           lenv  (lexical-bindings-map env)
+           lenv  (if (= ::ast/call ftype)
+                   (let [[_f & params] form
+                         ps (remove #{'%} params)]
+                     (merge lenv (zipmap (map quote-form (filter symbol? ps))
+                                   (filter symbol? ps))))
+                   lenv)]
+       (cond-> (ast/set-metadata node (meta form))
+         (not (#{::ast/traversal ::ast/keyword ::ast/string} ftype)) (ast/set-lexical-env lenv))))))
 
 (declare -escape)
 (defn escape [point] (-escape (update point ::ast/form quote-form)))
@@ -356,6 +380,7 @@
   (case (form-type hfql)
     ::ast/pull      hfql
     ::ast/traversal [(snd hfql)]
+    ::ast/options-form () ; opaque leaf — φ handles inner analysis via unfold
     (::ast/star ::ast/keyword ::ast/symbol ::ast/var ::ast/string ::ast/runtime-value ::ast/quoted-symbol ::ast/call ::ast/lambda ::ast/literal ::ast/quoted-var)
     ()
     ::ast/recur ; we don't produce an infinite AST to ease debugging.
@@ -498,6 +523,57 @@
     (let [traversal-form (second form)         ; {:b [:c :d]}
           inner-pull (val (first traversal-form))]
       (:inner (meta inner-pull)) := true)))
+
+;; ─── Options syntax tests ───────────────────────────────────────────────────
+
+(tests
+  "options form — keyword with options"
+  (let [node (first (unwrap (hfql [[:a :b :c]])))]
+    (ast/keyword-node? node) := true
+    (ast/form node) := :a
+    (:b (::ast/metadata (extract node))) := :c))
+
+(tests
+  "options form — keyword with named option"
+  (let [email (second (unwrap (hfql [:user/name [:user/email :default "redacted"]])))]
+    (ast/form email) := :user/email
+    (:default (::ast/metadata (extract email))) := "redacted"))
+
+(tests
+  "options form — multiple options"
+  (let [node (first (unwrap (hfql [[:user/email :default "none" :as :email]])))]
+    (:default (::ast/metadata (extract node))) := "none"
+    (:as (::ast/metadata (extract node))) := :email))
+
+(tests
+  "options form — traversal attr gets options"
+  (let [node (first (unwrap (hfql [[{:a [:b]} :c :d]])))]
+    (ast/traversal? node) := true
+    (:c (::ast/metadata (extract node))) := :d))
+
+(tests
+  "options form — correct edge count on outer pull"
+  (count (unwrap (hfql [:user/name [:user/email :default "none"]]))) := 2)
+
+(tests
+  "plain pull [:a :b :c] is unaffected — no inner vector"
+  (count (unwrap (hfql [:a :b :c]))) := 3)
+
+(tests
+  "options form — form normalizes (options vector not preserved)"
+  (ast/form (hfql [:user/name [:user/email :default "none"]]))
+  := [:user/name :user/email])
+
+(tests
+  "options form — traversal form carries options as metadata"
+  (let [f (first (ast/form (hfql [[{:a [:b]} :c :d]])))]
+    (:c (meta f)) := :d))
+
+(tests
+  "options form — single-element inner vector [:a] is valid, no opts"
+  (let [node (first (unwrap (hfql [[:a]])))]
+    (ast/form node) := :a
+    (::ast/metadata (extract node)) := nil))
 
 (defn- traverse-two [f W1 W2]
   (rose-tree (f W1 W2)
