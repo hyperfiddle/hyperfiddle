@@ -54,13 +54,13 @@
 
 (defn- effective-render-type
   "Recurse through traversals to find the effective render type.
-   Returns ::pull, ::star, or nil (leaf)."
+   Returns ::pull, ::star, ::recursion-end, or nil (leaf)."
   [hfqlT]
   (cond
     (hfql/star? hfqlT) ::star
     (hfql/pull? hfqlT) ::pull
     (hfql/traversal? hfqlT) (if (hfql/multiplicity-many? hfqlT)
-                              ::star ; collection traversal → render as collection
+                              (if (recursion-end? hfqlT) ::recursion-end ::star)
                               (effective-render-type (first (hfql/next-steps hfqlT))))
     :else nil))
 
@@ -72,13 +72,13 @@
 
 (e/defn ResolveRenderer [hfqlT]
   (e/server
-    (e/Offload #(when ((glitch-guard recursion-end?) hfqlT) ::recursion-end))
     (case (e/Offload #((glitch-guard effective-render-type) hfqlT))
       ;; Structured node (pull or star) — the outer step (possibly a traversal wrapper) is
       ;; passed to RenderMatrix. hfql/nav inside RenderMatrix executes any traversal IO.
       ;; pull → associative (single object, transposed), star → not associative (collection).
       ::pull (e/fn [stepT] (RenderMatrix stepT :associative? true))
       ::star (e/fn [stepT] (RenderMatrix stepT :associative? false))
+      ::recursion-end (e/fn [& _])
       ;; Leaf (traversal with no structured child) → nav, suggest, render directly.
       ;; Compute step as plain data (either callbacks must not contain e/fn).
       (e/Reconcile
