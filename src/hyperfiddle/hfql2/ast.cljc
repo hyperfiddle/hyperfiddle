@@ -402,7 +402,8 @@
   (let [a (extract node)]
     (case (::type a)
       (::star ::recur ::literal ::keyword ::string ::symbol
-       ::var ::runtime-value ::call ::pull) (form node)
+       ::var ::runtime-value ::call) (form node)
+      ::pull nil ; pull is a container, not an edge
       (::quoted-var ::quoted-symbol) (::form a)
       ::lambda (if (= ::keyword-fn (::kind a))
                  (or (::form-resolved a) (::form a))
