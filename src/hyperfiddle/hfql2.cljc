@@ -38,6 +38,7 @@
   `(defn ~name [point#] (~f point#)))
 
 (def ^:dynamic *limit* nil)   ; Collection size limit for fan-out. Bound by options syntax `:limit`.
+(def ^:dynamic *default* nil) ; Default value for absent keys. Bound by options syntax `:default`.
 
 (def seed co/seed)
 (defpointfree nav* (comp force-thunk extract))

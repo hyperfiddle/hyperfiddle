@@ -103,7 +103,8 @@
 
 ;; Deferred var ref for hfql2 dynvar — hfql2 loads interpreter (not vice-versa),
 ;; so this var exists by the time the delay is forced at runtime.
-#?(:clj (def ^:private limit-var (delay (find-var 'hyperfiddle.hfql2/*limit*))))
+#?(:clj (def ^:private limit-var   (delay (find-var 'hyperfiddle.hfql2/*limit*))))
+#?(:clj (def ^:private default-var (delay (find-var 'hyperfiddle.hfql2/*default*))))
 
 (defn- meta [object]
   (when (has-meta? object)
@@ -272,12 +273,15 @@
                (either/left err)))))))))
 
 (defn- getter [ast-node]
-  (let [key   (getter-lookup-key ast-node)
-        xform (or (:xform (extract ast-node)) identity)]
+  (let [key         (getter-lookup-key ast-node)
+        xform       (or (:xform (extract ast-node)) identity)
+        default-val (:default (extract ast-node))]
     (io-operation
       (fn [%]
         #?(:clj (log/debug "[IO]" `getter key))
-        (fmap-original-object (fn [%] (*navigate* % key (get % key))) %))
+        (fmap-original-object
+          (fn [%] (*navigate* % key (get % key default-val)))
+          %))
       xform)))
 
 (defn- call [ast-node]
@@ -429,8 +433,8 @@ Pulling on non-maps (non associative) is perfectly fine.
   `hyperfiddle.hfql2/*bindings*` in `env` is installed in dynamic scope. The `*bindings*` value is
   expected to be compatible with `clojure.core/with-bindings*`. I.e. a map of
   `{#'var value, ...}`.
-  When `ast-node` has `:limit` option, its value is bound to `hfql2/*limit*`
-  so all downstream code can read it."
+  When `ast-node` has options (:limit, :default), their values are bound to
+  the corresponding hfql2 dynvars so all downstream code can read them."
   [ast-node Ra]
   (mem-reader ; no need to memoize/delay here, all possible IO is in `Ra`, let Ra deal with it.
     (fn [env]
@@ -438,7 +442,9 @@ Pulling on non-maps (non associative) is perfectly fine.
             #?@(:clj [opts     (::ast/options (extract ast-node))
                        bindings (cond-> bindings
                                   (contains? opts :limit)
-                                  (assoc @limit-var (:limit (extract ast-node))))])]
+                                  (assoc @limit-var (:limit (extract ast-node)))
+                                  (contains? opts :default)
+                                  (assoc @default-var (:default (extract ast-node))))])]
         ((bound-fn* bindings (runReader Ra)) env)))))
 
 (defn- insert-at [index collA collB] (concat (take index collA) collB (drop index collA)))
@@ -1252,3 +1258,20 @@ Pulling on non-maps (non associative) is perfectly fine.
   (let [T (seed {'% {:a "not-a-number"}} (-hfql [[:a :xform inc]]))]
     (either/left? (force-thunk (extract (first (unwrap T))))))
   := true)
+
+;; ── :default option runtime tests ────────────────────────────────────────────
+
+(tests
+  ":default — substitutes when key absent"
+  (-values (seed {'% {:a 1}} (-hfql [[:b :default 42]])))
+  := '({:b 42} 42))
+
+(tests
+  ":default — present nil is NOT substituted"
+  (-values (seed {'% {:b nil}} (-hfql [[:b :default 42]])))
+  := '({:b nil} nil))
+
+(tests
+  ":default — present value is NOT substituted"
+  (-values (seed {'% {:b 7}} (-hfql [[:b :default 42]])))
+  := '({:b 7} 7))
