@@ -419,7 +419,8 @@
   [node]
   (let [a (extract node)]
     (case (::type a)
-      (::star ::recur ::literal ::keyword ::string ::symbol
+      ::star nil ; star is syntax, not a named edge
+      (::recur ::literal ::keyword ::string ::symbol
        ::var ::runtime-value ::call) (-form node)
       ::pull nil ; pull is a container, not an edge
       (::quoted-var ::quoted-symbol) (::form a)

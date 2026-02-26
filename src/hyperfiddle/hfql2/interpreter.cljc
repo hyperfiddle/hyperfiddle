@@ -184,6 +184,7 @@
         form (ast/form edge)
         parameters (ast/parameters edge)]
     (case (ast/node-type edge)
+      ::ast/star nil ; star is syntax, not a named edge
       ::ast/call (cons (first form)
                    (map (fn [parameter argument]
                           (if (or (:symbolic (meta parameter)) (:symbolic (meta argument)))
