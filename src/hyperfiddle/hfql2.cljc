@@ -406,8 +406,10 @@
             edge (::ast/edge attrs)]
         (case type
           ::ast/traversal (ast/symbolic-edge edge)
-          (::ast/star ::ast/recur ::ast/literal ::ast/keyword ::ast/string ::ast/symbol
+          ::ast/star nil ; star is syntax, not a named edge
+          (::ast/recur ::ast/keyword ::ast/string ::ast/symbol
            ::ast/var ::ast/runtime-value ::ast/call) (::ast/form attrs)
+          ::ast/literal (::ast/resolved-runtime-value attrs)
           ::ast/pull nil
           (::ast/quoted-var ::ast/quoted-symbol) (::ast/form attrs)
           ::ast/lambda (if (= ::ast/keyword-fn (::ast/kind attrs))
@@ -760,7 +762,7 @@ identifier, though it might not be serializable."
 (defn suggest-map [object]
   ;; TODO render the type in UI if the map-like object is of an interesting type (e.g. IRecords)
   ;; See edge case in `suggest-record` for records with no static fields.
-  (hfql {* [key val]} (seq object)))
+  (hfql [*] object))
 
 (defn- suggest-record [record]
   (let [basis #?(:clj

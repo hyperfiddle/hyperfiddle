@@ -134,10 +134,12 @@
 
 (defn lambda? [form]
   {:post [(boolean? %)]}
-  (let [lambda (parse-lambda form)]
-    (and
-      (#{'fn `fn 'fn*} (::fn-sym lambda))
-      (not (zero? (count (arities lambda)))))))
+  (if-not (seq? form)
+    false
+    (let [lambda (parse-lambda form)]
+      (and
+        (#{'fn `fn 'fn*} (::fn-sym lambda))
+        (not (zero? (count (arities lambda))))))))
 
 (tests
   (lambda? '(fn []))
