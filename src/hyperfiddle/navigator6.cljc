@@ -255,7 +255,7 @@
 
 
 (def table-block-css
-"
+  "
 .hyperfiddle-navigator6__block table { display: grid; grid-template-columns: auto repeat(var(--column-count), 1fr);  grid-template-rows: var(--row-height);}
 
 .hyperfiddle-navigator6__block table thead { display: contents; }
@@ -264,8 +264,7 @@
 
 .hyperfiddle-navigator6__block .hyperfiddle-electric-forms5__table-picker { grid-column: 1 / -1; grid-template-columns: subgrid; contain: size;}
 .hyperfiddle-navigator6__block thead + .hyperfiddle-electric-forms5__table-picker { grid-row: 2; grid-column: 1 / -1; grid-template-columns: subgrid; contain: size; }
-"
-  )
+")
 
 (def css
   (str

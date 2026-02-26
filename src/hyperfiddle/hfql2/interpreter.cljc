@@ -529,7 +529,16 @@ Pulling on non-maps (non associative) is perfectly fine.
           ::ast/call          (comp (leaf ast-node) (focus-arguments ast-node) call)
           ::ast/lambda        (comp (leaf ast-node) (focus-arguments ast-node) call)
           ::ast/star    (comp (leaf ast-node) focus-% (constantly star))
-          ::ast/recur   (constantly (mem-reader (fn [env] (pair env [(find-recursion-point ast-node)]))))
+          ;; Resolve % from scope and wrap in Thunk(Either), matching the contract
+          ;; of every other node type. Previously stored raw `env` here, which broke
+          ;; nav*'s invariant that it must always return an Either.
+          ::ast/recur   (constantly
+                          (mem-reader
+                            (fn [env]
+                              (pair (thunk (try (ensure-either (resolve '% env))
+                                               (catch #?(:clj Throwable :cljs :default) err
+                                                 (either/left err))))
+                                    [(find-recursion-point ast-node)]))))
           ::ast/pull
           (constantly
             (mem-reader
