@@ -18,7 +18,8 @@
 
 (defn prep [& args]
   (apply clean args)
-  (apply import-demos! args))
+  (apply import-demos! args)
+  (.mkdirs (io/file "target/classes")))
 
 (defn build
   ([opts] (build (build/create-basis :aliases [:release]) opts))
