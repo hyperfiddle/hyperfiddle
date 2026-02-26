@@ -257,34 +257,41 @@
 (defn- io-operation
   "Shared IO-wrapping skeleton for getter and call. `f` receives the resolved
   value(s) and returns the computed result. The wrapper handles memoized reading,
-  weak caching, thunking, and Either error handling."
-  [f]
-  (mem-reader
-    (thunked ::thunks/weak
-      (=<<
-        (fn [v]
-          (try
-            (either/right (f v))
-            (catch #?(:clj Throwable, :cljs :default) err
-              (either/left err))))))))
+  weak caching, thunking, and Either error handling.
+  `xform` (any -> any) is applied to the result after `f`, inside the try-catch
+  (exceptions become Left). Defaults to `identity`."
+  ([f] (io-operation f identity))
+  ([f xform]
+   (mem-reader
+     (thunked ::thunks/weak
+       (=<<
+         (fn [v]
+           (try
+             (either/right (xform (f v)))
+             (catch #?(:clj Throwable, :cljs :default) err
+               (either/left err)))))))))
 
 (defn- getter [ast-node]
-  (let [key (getter-lookup-key ast-node)]
+  (let [key   (getter-lookup-key ast-node)
+        xform (or (:xform (extract ast-node)) identity)]
     (io-operation
       (fn [%]
         #?(:clj (log/debug "[IO]" `getter key))
-        (fmap-original-object (fn [%] (*navigate* % key (get % key))) %)))))
+        (fmap-original-object (fn [%] (*navigate* % key (get % key))) %))
+      xform)))
 
 (defn- call [ast-node]
   (let [call! (if (= ::ast/keyword-fn (ast/kind ast-node))
                 (let [key (ast/form-resolved ast-node)]
                   #(*navigate* %1 key (get %1 key)))
                 (let [f (ast/node-value ast-node)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
-                  #(apply f %&)))]
+                  #(apply f %&)))
+        xform (or (:xform (extract ast-node)) identity)]
     (io-operation
       (fn [args]
         #?(:clj (log/debug "[IO]" `call (ast/symbolic-edge ast-node)))
-        (fmap-original-objects (fn [args] (apply call! args)) args)))))
+        (fmap-original-objects (fn [args] (apply call! args)) args))
+      xform)))
 
 (defn- touch [object]
   (try
@@ -1232,3 +1239,16 @@ Pulling on non-maps (non associative) is perfectly fine.
         limit (:limit (extract (meta traversalT)))
         children (unwrap traversalT)]
     (count children) := 3))
+
+;; ── :xform option runtime tests ──────────────────────────────────────────────
+
+(tests
+  ":xform — transforms leaf value"
+  (-values (seed {'% {:a 1}} (-hfql [[:a :xform inc]])))
+  := '({:a 2} 2))
+
+(tests
+  ":xform — exception in xform becomes Left"
+  (let [T (seed {'% {:a "not-a-number"}} (-hfql [[:a :xform inc]]))]
+    (either/left? (force-thunk (extract (first (unwrap T))))))
+  := true)
