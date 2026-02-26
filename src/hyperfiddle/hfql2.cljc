@@ -37,6 +37,8 @@
   [name f]
   `(defn ~name [point#] (~f point#)))
 
+(def ^:dynamic *limit* nil)   ; Collection size limit for fan-out. Bound by options syntax `:limit`.
+
 (def seed co/seed)
 (defpointfree nav* (comp force-thunk extract))
 (defpointfree nav (comp original-object unwrap! nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate

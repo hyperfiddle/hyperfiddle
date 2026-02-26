@@ -101,6 +101,10 @@
 
 (def ^:dynamic *navigate* safe-ccp-nav) ; default is to navigate objects, except in UIs where, at leaves, where we want to see the symbolic values
 
+;; Deferred var ref for hfql2 dynvar — hfql2 loads interpreter (not vice-versa),
+;; so this var exists by the time the delay is forced at runtime.
+#?(:clj (def ^:private limit-var (delay (find-var 'hyperfiddle.hfql2/*limit*))))
+
 (defn- meta [object]
   (when (has-meta? object)
     (clojure.core/meta object)))
@@ -244,12 +248,11 @@
 
 (defn- getter-lookup-key
   "Return the key to use for map lookup, dispatching on AST node type.
-  For var and quoted-var nodes, returns the resolved var object.
-  For everything else, returns the unquoted form."
+  Uses `node-value` which returns the raw runtime value without options wrapping."
   [ast-node]
   (case (ast/node-type ast-node)
     ::ast/quoted-var (ast/node-value ast-node)
-    (ana/unquote* (ast/form ast-node))))
+    (ana/unquote* (ast/node-value ast-node))))
 
 (defn- io-operation
   "Shared IO-wrapping skeleton for getter and call. `f` receives the resolved
@@ -418,11 +421,18 @@ Pulling on non-maps (non associative) is perfectly fine.
   "Transform a Reader (env -> a) such that when run, the value associated to
   `hyperfiddle.hfql2/*bindings*` in `env` is installed in dynamic scope. The `*bindings*` value is
   expected to be compatible with `clojure.core/with-bindings*`. I.e. a map of
-  `{#'var value, ...}`."
-  [Ra]
+  `{#'var value, ...}`.
+  When `ast-node` has `:limit` option, its value is bound to `hfql2/*limit*`
+  so all downstream code can read it."
+  [ast-node Ra]
   (mem-reader ; no need to memoize/delay here, all possible IO is in `Ra`, let Ra deal with it.
     (fn [env]
-      ((bound-fn* (get env `hfql/*bindings* {}) (runReader Ra)) env))))
+      (let [bindings (get env `hfql/*bindings* {})
+            #?@(:clj [opts     (::ast/options (extract ast-node))
+                       bindings (cond-> bindings
+                                  (contains? opts :limit)
+                                  (assoc @limit-var (:limit (extract ast-node))))])]
+        ((bound-fn* bindings (runReader Ra)) env)))))
 
 (defn- insert-at [index collA collB] (concat (take index collA) collB (drop index collA)))
 
@@ -561,8 +571,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                                      (not (fn? (ast/node-value (ast/edge ast-node)))))
                 lexical-value (ast/node-value (ast/edge ast-node))
                 edgeT (unfoldT hfql-coalgebra (cond (ast/star-traversal? ast-node) (ana/hfql identity)
-                                           lexical-symbol? (ana/hfql identity)
-                                           :else (ast/edge ast-node)))]
+                                                    lexical-symbol? (ana/hfql identity)
+                                                    :else (ast/edge ast-node)))]
             (constantly
               (mem-reader
                 (fn [env]
@@ -574,7 +584,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                       (let [direct-child (first children)
                             direct-child (link-parent ast-node direct-child)]
                         (traversal-continuation ast-node direct-child)))))))))]
-    (inject-dynamic-bindings (transform ast-node))))
+    (inject-dynamic-bindings ast-node (transform ast-node))))
 
 (declare hfqlt-equals hfqlt-hash)
 
@@ -667,6 +677,15 @@ Pulling on non-maps (non associative) is perfectly fine.
     (->HFQLT (f (meta t)) (->CofreeT store'))))
 
 
+(defn- limit-collection
+  "Truncate coll to at most limit items, preserving metadata.
+  When limit is ##Inf, returns the seqed collection as-is."
+  [limit coll]
+  (let [s (cd/to-seq coll)]
+    (if (infinite? limit)
+      s
+      (with-meta (take limit s) (clojure.core/meta coll)))))
+
 (defn unfoldT
   "Build an HFQLT navigator from an AST (rose tree) using a coalgebra.
   The coalgebra transforms each AST node into a Reader Env (Pair value children).
@@ -707,21 +726,19 @@ Pulling on non-maps (non associative) is perfectly fine.
                                               (constantly ()) ; stop navigation at first error
                                               identity
                                               (force-thunk value) ; forces effects up to the root to compute children multiplicity
-                                              ))]
-                             (with-meta ; carry metadata over
-                               ;; Can't use `sequence` here. `sequence` produces a chunked iterator seq and we must not force any form of batching in presence of IO. The user decides upstream.
-                               (map-indexed  ; Record item's index for eventual positional selection.
-                                 (fn [positional-index value_i]
-                                   (let [% (thunk ::thunks/weak ; lazy-seq spine do not hold onto navigated values. Leaves does.
-                                             (try
-                                               (either/right (safe-ccp-nav forced nil value_i)) ; hard-wired navigate call – a fan-out is never a leaf.
-                                               (catch #?(:clj Throwable, :cljs :default) err
-                                                 (either/left err))))]
-                                     (-> (seed (assoc scope '% %) childT) ; no need to check if current point is "pull" or not. A pull cannot be multiplicity many.
-                                       (vary-meta assoc ::hfql/positional-index positional-index) ; note positional index isn't a stable identity in the general case.
-                                       )))
-                                 (cd/to-seq forced))
-                               (meta forced)))))))))))
+                                              ))
+                                 limit  (:limit (extract ast-node) ##Inf)
+                                 forced (limit-collection limit forced)]
+                             (map-indexed
+                               (fn [positional-index value_i]
+                                 (let [% (thunk ::thunks/weak
+                                           (try
+                                             (either/right (safe-ccp-nav forced nil value_i))
+                                             (catch #?(:clj Throwable, :cljs :default) err
+                                               (either/left err))))]
+                                   (-> (seed (assoc scope '% %) childT)
+                                     (vary-meta assoc ::hfql/positional-index positional-index))))
+                               (cd/to-seq forced)))))))))))
            (ast/lexical-env ast-node))))))
 
 (defn seed
@@ -1185,3 +1202,33 @@ Pulling on non-maps (non associative) is perfectly fine.
                '% 2}
           (-hfql (_plus-x %))))))
   := '(10))
+
+;; ── :limit option runtime tests ──────────────────────────────────────────────
+
+(tests
+  ":limit — truncates collection"
+  (let [T (seed {'% (range 100)} (-hfql [[{* identity} :limit 3]]))]
+    (count (unwrap (first (unwrap T)))) := 3))
+
+(tests
+  ":limit — limit is available on traversal HFQLT metadata"
+  (let [T (seed {'% (range 100)} (-hfql [[{* identity} :limit 3]]))
+        traversalT (first (unwrap T))]
+    (:limit (extract (meta traversalT))) := 3))
+
+(tests
+  ":limit — truncation derivable: bounded-count > limit when truncated"
+  (let [T (seed {'% (range 100)} (-hfql [[{* identity} :limit 3]]))
+        traversalT (first (unwrap T))
+        limit (:limit (extract (meta traversalT)))
+        children (unwrap traversalT)]
+    (> (bounded-count (inc limit) children) limit) := false ; limit-collection already truncated, so bounded-count = limit
+    (count children) := 3))
+
+(tests
+  ":limit — exact count: not truncated"
+  (let [T (seed {'% (range 3)} (-hfql [[{* identity} :limit 3]]))
+        traversalT (first (unwrap T))
+        limit (:limit (extract (meta traversalT)))
+        children (unwrap traversalT)]
+    (count children) := 3))

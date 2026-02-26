@@ -9,6 +9,7 @@
    [hyperfiddle.electric3 :as e]
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.ct.cofree :refer [unwrap]]
+   [hyperfiddle.ct.comonad :refer [extract]]
 
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.either :refer [either]]
@@ -283,10 +284,11 @@
                                                   dom/node)])
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
+          limit (e/server (:limit (extract (meta stepT)) COLLECTION-LIMIT))
           rowsT (e/server (#(if ((glitch-guard hfql/pull?) stepT) ; FIXME smell
                               [stepT]
                               ((glitch-guard unwrap) stepT))))
-          rowsT-count (e/server (e/Offload #(bounded-count COLLECTION-LIMIT rowsT)
+          rowsT-count (e/server (e/Offload #(bounded-count limit rowsT)
                                   #_{:label 'count-rows})) ; 𝓞(n)
           disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection)) ; Use case: allow positional selection on unidentifiable rows.
           ]
@@ -312,8 +314,8 @@
               (dom/span (dom/props {:style {:order -1}
                                     :class "count"})
                         (dom/text (#(if associative?
-                                      (rendering/format-map-entries-count entries-count COLLECTION-LIMIT)
-                                      (rendering/format-collection-count entries-count COLLECTION-LIMIT))))))
+                                      (rendering/format-map-entries-count entries-count limit)
+                                      (rendering/format-collection-count entries-count limit))))))
             (e/amb
               (in top-left (dom/span (dom/props {:style {:order -2}})
                                      (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
