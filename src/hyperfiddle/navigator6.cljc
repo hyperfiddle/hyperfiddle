@@ -155,7 +155,13 @@
                             (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
                           (e/amb
                             (e/call (ResolveRenderer stepT) ; call renderer for current point
-                              (e/server ((glitch-guard (flip inject-dynamic-bindings)) stepT e/*bindings*)))
+                              ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
+                              ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
+                              ;; See plans/associative-search-cell-recomputation.md for full analysis.
+                              (e/server (let [bindings (if (= ::pull ((glitch-guard effective-render-type) stepT))
+                                                         (dissoc e/*bindings* (find-var `search/*local-search))
+                                                         e/*bindings*)]
+                                          ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))
                             (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritizes recursive children over regular children at point
                               (e/Reconcile
                                 (when (e/server (some? next-childT))
