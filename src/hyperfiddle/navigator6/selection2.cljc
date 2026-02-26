@@ -995,10 +995,9 @@
                  ;; So we look at the parent, if any, to infer selection in the context of the parent.
                  (and (nil? symbolic-column)
                    (some? symbolic-constructor-form)
-                   (let [parent-edge (and (hfql/parent current-point) ; there's a parent.
-                                       (symbolize-form (hfql/parent current-point)))
-                         parent-symbolic-value (and (hfql/parent current-point)
-                                                 (symbolize-value (hfql/parent current-point)))]
+                   (let [parent (hfql/parent current-point)
+                         parent-edge (and parent (symbolize-form parent))
+                         parent-symbolic-value (and parent (symbolize-value parent))]
                      (or
                        ;; Edge case: both parent and the current selected *cell* are Identifiable
                        ;; We want to favor `(column parent-row)` over just `cell`'s symbolic identity
@@ -1006,8 +1005,11 @@
                        ;; Real-world case: jgit's GitRepository/.getRepository return a FileRepository. Both are Identifiable.
                        ;; As of 2026-01-06 the UI produced `(.getRepository FileRepository)` which is wrong.
                        ;; The correct form is `(.getRepository GitRepository)`.
+                       ;; Guard: only for multiplicity-one parents (e.g. .getRepository → single object).
+                       ;; For multiplicity-many parents, the title would describe the collection, not the selected row.
                        (and (some? parent-edge)
                          (some? parent-symbolic-value)
+                         (not (hfql/multiplicity-many? parent))
                          (pr-str (list parent-edge parent-symbolic-value)))
                        ;; Edge case: the parent is a cell selection on a non-identifiable value AND the selected cell is identifiable.
                        ;; We know the parent's column but not the parent's row. We also know the current point's symbolic value.
