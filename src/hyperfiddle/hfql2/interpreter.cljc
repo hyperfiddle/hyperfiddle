@@ -297,16 +297,8 @@
         (fmap-original-objects (fn [args] (apply call! args)) args))
       xform)))
 
-(defn- touch [object]
-  (try
-    (either/right
-      (if (seqable? object)
-        (doall object)
-        object))
-    (catch #?(:clj Throwable, :cljs :default) err
-      (either/left err))))
-
-(def ^:private star (mem-reader (thunked (=<< touch))))
+;; star-keys handles error detection via type guard, so touch is just either/right.
+(def ^:private star (mem-reader (thunked (=<< either/right))))
 
 (defn- bound-fn*
   ([f] #?(:clj (clojure.core/bound-fn* f)
@@ -377,10 +369,10 @@ Pulling on non-maps (non associative) is perfectly fine.
       (constantly ())
       (fn [associative]
         (try
+          (key (first associative)) ; type guard: fail fast if not map entries
           (->> associative
             (map key) ; do not use `keys` here. `doall` doesn't work as expected on it. See following RCF.
-            (map disambiguate-nums-from-recursion)
-            (doall))
+            (map disambiguate-nums-from-recursion))
           (catch #?(:clj Throwable, :cljs :default) _ ()))))))
 
 (tests
@@ -500,7 +492,9 @@ Pulling on non-maps (non associative) is perfectly fine.
         dynamic-keys (when star? (star-keys (ensure-either percent)))
         star-kids (let [static-keys (set (map symbolic-edge-static kids))
                         remaining-star-keys (remove static-keys dynamic-keys)]
-                    (unwrap (ana/analyze {} (vec remaining-star-keys))))
+                    ;; Analyze each key individually instead of as a pull vector.
+                    ;; Preserves laziness — no vec, no pull wrapping/unwrapping.
+                    (map (ana/analyze {}) remaining-star-keys))
         recur-point (first (filter direct-recursion-point? (concat kids star-kids)))
         kids (remove direct-recursion-point? kids)
         star-kids (remove direct-recursion-point? star-kids)]
@@ -578,7 +572,8 @@ Pulling on non-maps (non associative) is perfectly fine.
                         (if recur-point
                           (recursion-children ast-node recur-point ast/mark-recursive-child)
                           []))
-                      (mapv (fn [child] (link-parent ast-node child)))))))))
+                      ;; map (not mapv) — lazy children for large pull-star collections
+                      (map (fn [child] (link-parent ast-node child)))))))))
           ::ast/traversal
           (let [lexical-symbol? (and (= ::ast/symbol (ast/node-type (ast/edge ast-node)))
                                      (not (fn? (ast/node-value (ast/edge ast-node)))))
