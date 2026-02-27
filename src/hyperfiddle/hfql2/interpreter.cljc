@@ -433,18 +433,18 @@ Pulling on non-maps (non associative) is perfectly fine.
   `hyperfiddle.hfql2/*bindings*` in `env` is installed in dynamic scope. The `*bindings*` value is
   expected to be compatible with `clojure.core/with-bindings*`. I.e. a map of
   `{#'var value, ...}`.
-  When `ast-node` has options (:limit, :default), their values are bound to
-  the corresponding hfql2 dynvars so all downstream code can read them."
+  When `ast-node` has :limit or :default (from options syntax or metadata),
+  their values are bound to the corresponding hfql2 dynvars."
   [ast-node Ra]
   (mem-reader ; no need to memoize/delay here, all possible IO is in `Ra`, let Ra deal with it.
     (fn [env]
       (let [bindings (get env `hfql/*bindings* {})
-            #?@(:clj [opts     (::ast/options (extract ast-node))
+            #?@(:clj [a        (extract ast-node)
                        bindings (cond-> bindings
-                                  (contains? opts :limit)
-                                  (assoc @limit-var (:limit (extract ast-node)))
-                                  (contains? opts :default)
-                                  (assoc @default-var (:default (extract ast-node))))])]
+                                  (:limit a)
+                                  (assoc @limit-var (:limit a))
+                                  (:default a)
+                                  (assoc @default-var (:default a)))])]
         ((bound-fn* bindings (runReader Ra)) env)))))
 
 (defn- insert-at [index collA collB] (concat (take index collA) collB (drop index collA)))

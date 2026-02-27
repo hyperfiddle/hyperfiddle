@@ -404,7 +404,7 @@
   )
 
 (defn symbolic-edge* [attrs]
-  (or (when (contains? (::ast/options attrs) :as) (:as attrs)) ; user-explicit from options syntax
+  (or (:as attrs) ; user-explicit from options syntax or metadata
       (::label attrs) ; auto-generated labels (Java methods)
       (let [type (::ast/type attrs)
             edge (::ast/edge attrs)]
