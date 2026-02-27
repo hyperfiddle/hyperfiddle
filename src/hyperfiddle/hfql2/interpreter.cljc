@@ -274,8 +274,8 @@
 
 (defn- getter [ast-node]
   (let [key         (getter-lookup-key ast-node)
-        xform       (or (:xform (extract ast-node)) identity)
-        default-val (:default (extract ast-node))]
+        xform       (or (::hfql/xform (extract ast-node)) identity)
+        default-val (::hfql/default (extract ast-node))]
     (io-operation
       (fn [%]
         #?(:clj (log/debug "[IO]" `getter key))
@@ -290,7 +290,7 @@
                   #(*navigate* %1 key (get %1 key)))
                 (let [f (ast/node-value ast-node)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
                   #(apply f %&)))
-        xform (or (:xform (extract ast-node)) identity)]
+        xform (or (::hfql/xform (extract ast-node)) identity)]
     (io-operation
       (fn [args]
         #?(:clj (log/debug "[IO]" `call (ast/symbolic-edge ast-node)))
@@ -441,10 +441,10 @@ Pulling on non-maps (non associative) is perfectly fine.
       (let [bindings (get env `hfql/*bindings* {})
             #?@(:clj [a        (extract ast-node)
                        bindings (cond-> bindings
-                                  (:limit a)
-                                  (assoc @limit-var (:limit a))
-                                  (:default a)
-                                  (assoc @default-var (:default a)))])]
+                                  (:hyperfiddle.hfql2/limit a)
+                                  (assoc @limit-var (:hyperfiddle.hfql2/limit a))
+                                  (:hyperfiddle.hfql2/default a)
+                                  (assoc @default-var (:hyperfiddle.hfql2/default a)))])]
         ((bound-fn* bindings (runReader Ra)) env)))))
 
 (defn- insert-at [index collA collB] (concat (take index collA) collB (drop index collA)))
@@ -740,7 +740,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                               identity
                                               (force-thunk value) ; forces effects up to the root to compute children multiplicity
                                               ))
-                                 limit  (:limit (extract ast-node) ##Inf)
+                                 limit  (::hfql/limit (extract ast-node) ##Inf)
                                  forced (limit-collection limit forced)]
                              (map-indexed
                                (fn [positional-index value_i]
@@ -1220,29 +1220,29 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   ":limit — truncates collection"
-  (let [T (seed {'% (range 100)} (-hfql [[{* identity} :limit 3]]))]
+  (let [T (seed {'% (range 100)} (-hfql [[{* identity} ::hfql/limit 3]]))]
     (count (unwrap (first (unwrap T)))) := 3))
 
 (tests
   ":limit — limit is available on traversal HFQLT metadata"
-  (let [T (seed {'% (range 100)} (-hfql [[{* identity} :limit 3]]))
+  (let [T (seed {'% (range 100)} (-hfql [[{* identity} ::hfql/limit 3]]))
         traversalT (first (unwrap T))]
-    (:limit (extract (meta traversalT))) := 3))
+    (::hfql/limit (extract (meta traversalT))) := 3))
 
 (tests
   ":limit — truncation derivable: bounded-count > limit when truncated"
-  (let [T (seed {'% (range 100)} (-hfql [[{* identity} :limit 3]]))
+  (let [T (seed {'% (range 100)} (-hfql [[{* identity} ::hfql/limit 3]]))
         traversalT (first (unwrap T))
-        limit (:limit (extract (meta traversalT)))
+        limit (::hfql/limit (extract (meta traversalT)))
         children (unwrap traversalT)]
     (> (bounded-count (inc limit) children) limit) := false ; limit-collection already truncated, so bounded-count = limit
     (count children) := 3))
 
 (tests
   ":limit — exact count: not truncated"
-  (let [T (seed {'% (range 3)} (-hfql [[{* identity} :limit 3]]))
+  (let [T (seed {'% (range 3)} (-hfql [[{* identity} ::hfql/limit 3]]))
         traversalT (first (unwrap T))
-        limit (:limit (extract (meta traversalT)))
+        limit (::hfql/limit (extract (meta traversalT)))
         children (unwrap traversalT)]
     (count children) := 3))
 
@@ -1250,12 +1250,12 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   ":xform — transforms leaf value"
-  (-values (seed {'% {:a 1}} (-hfql [[:a :xform inc]])))
+  (-values (seed {'% {:a 1}} (-hfql [[:a ::hfql/xform inc]])))
   := '({:a 2} 2))
 
 (tests
   ":xform — exception in xform becomes Left"
-  (let [T (seed {'% {:a "not-a-number"}} (-hfql [[:a :xform inc]]))]
+  (let [T (seed {'% {:a "not-a-number"}} (-hfql [[:a ::hfql/xform inc]]))]
     (either/left? (force-thunk (extract (first (unwrap T))))))
   := true)
 
@@ -1263,15 +1263,15 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (tests
   ":default — substitutes when key absent"
-  (-values (seed {'% {:a 1}} (-hfql [[:b :default 42]])))
+  (-values (seed {'% {:a 1}} (-hfql [[:b ::hfql/default 42]])))
   := '({:b 42} 42))
 
 (tests
   ":default — present nil is NOT substituted"
-  (-values (seed {'% {:b nil}} (-hfql [[:b :default 42]])))
+  (-values (seed {'% {:b nil}} (-hfql [[:b ::hfql/default 42]])))
   := '({:b nil} nil))
 
 (tests
   ":default — present value is NOT substituted"
-  (-values (seed {'% {:b 7}} (-hfql [[:b :default 42]])))
+  (-values (seed {'% {:b 7}} (-hfql [[:b ::hfql/default 42]])))
   := '({:b 7} 7))

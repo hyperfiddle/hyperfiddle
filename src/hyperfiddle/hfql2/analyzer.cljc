@@ -3,6 +3,7 @@
             [contrib.data :refer [realize update-existing]]
             [contrib.walk :refer [prewalk postwalk]]
             [hyperfiddle.hfql2.analyzer.lambda :refer [lambda?]]
+            [hyperfiddle.hfql2 :as-alias hfql]
             [hyperfiddle.hfql2.ast :as ast]
             [hyperfiddle.rcf :refer [tests]]
             [hyperfiddle.ct.functor :refer [fmap]]
@@ -540,8 +541,8 @@
 
 (tests
   "options form — pull with keyword options roundtrips"
-  (ast/form (hfql [:user/name [:user/email :default "none"]]))
-  := [:user/name [:user/email :default "none"]])
+  (ast/form (hfql [:user/name [:user/email ::hfql/default "none"]]))
+  := [:user/name [:user/email ::hfql/default "none"]])
 
 (tests
   "options form — traversal options roundtrip as vector"
@@ -559,15 +560,15 @@
 
 (tests
   "options form — option values are top-level attrs"
-  (let [email (second (unwrap (hfql [:user/name [:user/email :default "redacted"]])))]
-    (:default (extract email)) := "redacted"))
+  (let [email (second (unwrap (hfql [:user/name [:user/email ::hfql/default "redacted"]])))]
+    (::hfql/default (extract email)) := "redacted"))
 
 (tests
   "options form — multiple options as top-level attrs"
-  (let [node (first (unwrap (hfql [[:user/email :default "none" :as :email]])))]
-    (:default (extract node)) := "none"
-    (:as (extract node)) := :email
-    (::ast/options (extract node)) := #{:default :as}))
+  (let [node (first (unwrap (hfql [[:user/email ::hfql/default "none" ::hfql/as :email]])))]
+    (::hfql/default (extract node)) := "none"
+    (::hfql/as (extract node)) := :email
+    (::ast/options (extract node)) := #{::hfql/default ::hfql/as}))
 
 (tests
   "options form — traversal attr gets options as attrs"
@@ -579,7 +580,7 @@
 
 (tests
   "options form — correct edge count on outer pull"
-  (count (unwrap (hfql [:user/name [:user/email :default "none"]]))) := 2)
+  (count (unwrap (hfql [:user/name [:user/email ::hfql/default "none"]]))) := 2)
 
 (tests
   "plain pull [:a :b :c] is unaffected — no inner vector"
@@ -589,7 +590,7 @@
 
 (tests
   "options form — symbolic-edge returns raw keyword, not options vector"
-  (let [node (first (unwrap (hfql [[:user/email :default "none"]])))]
+  (let [node (first (unwrap (hfql [[:user/email ::hfql/default "none"]])))]
     (ast/symbolic-edge node) := :user/email))
 
 (defn- traverse-two [f W1 W2]

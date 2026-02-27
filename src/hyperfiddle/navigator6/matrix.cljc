@@ -284,7 +284,7 @@
                                                   dom/node)])
           columnsT (e/server (in legend (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
-          limit (e/server (:limit (extract (meta stepT)) COLLECTION-LIMIT))
+          limit (e/server (::hfql/limit (extract (meta stepT)) COLLECTION-LIMIT))
           rowsT (e/server (#(if ((glitch-guard hfql/pull?) stepT) ; FIXME smell
                               [stepT]
                               ((glitch-guard unwrap) stepT))))

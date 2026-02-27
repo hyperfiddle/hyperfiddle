@@ -37,8 +37,8 @@
   [name f]
   `(defn ~name [point#] (~f point#)))
 
-(def ^:dynamic *limit* nil)   ; Collection size limit for fan-out. Bound by options syntax `:limit`.
-(def ^:dynamic *default* nil) ; Default value for absent keys. Bound by options syntax `:default`.
+(def ^:dynamic *limit* nil)   ; Collection size limit for fan-out. Bound by ::limit option.
+(def ^:dynamic *default* nil) ; Default value for absent keys. Bound by ::default option.
 
 (def seed co/seed)
 (defpointfree nav* (comp force-thunk extract))
@@ -404,7 +404,7 @@
   )
 
 (defn symbolic-edge* [attrs]
-  (or (:as attrs) ; user-explicit from options syntax or metadata
+  (or (::as attrs) ; user-explicit from options syntax or metadata
       (::label attrs) ; auto-generated labels (Java methods)
       (let [type (::ast/type attrs)
             edge (::ast/edge attrs)]
@@ -1109,7 +1109,7 @@ identifier, though it might not be serializable."
   ```
   {(shirt-orders) {* [:person/email
                       {[:person/shirt-size ::hfql/options (shirt-sizes :person/gender)] [:db/ident]}
-                      {:person/gender [[:db/ident :as 'gender-ident]]}]}}
+                      {:person/gender [[:db/ident ::as 'gender-ident]]}]}}
   ```
   - `(shirt-sizes ...)` can refer to `:person/gender`, but only under the same multiplicity branch.
   - Refering to `:db/ident` from `:person/shirt-size` would unambiguously resolve to the `:db/ident`
@@ -1155,7 +1155,7 @@ identifier, though it might not be serializable."
    (cond
      ;; check if current step has a matching `:as` label.
      ;; `:as` has priority.
-     (= symbolic-edge (:as (extract (meta currentT))))
+     (= symbolic-edge (::as (extract (meta currentT))))
      currentT
 
      ;; check if current step has the same symbolic-edge
@@ -1215,6 +1215,26 @@ identifier, though it might not be serializable."
   (get-in *1 ['john :person/first-name])
   := "John"
   )
+
+
+;; ── ::as option tests ─────────────────────────────────────────────────────────
+
+(tests
+  "::as option overrides symbolic-edge"
+  (defn _as-f [x] x)
+  (def _as-hfql (hfql {_as-f [:a [:b ::as 'aliased]]} {:a 1, :b 2}))
+  (def _as-a (-> _as-hfql unwrap first unwrap first))
+  (def _as-b (-> _as-hfql unwrap first unwrap second))
+  (symbolic-edge _as-a) := :a
+  (symbolic-edge _as-b) := 'aliased)
+
+(tests
+  "::as option — lookup finds by alias"
+  (defn _as-g [x] x)
+  (def _as-hfql2 (hfql {_as-g [:a [:b ::as 'renamed]]} {:a 1, :b 2}))
+  (def _as-a2 (-> _as-hfql2 unwrap first unwrap first))
+  (def _as-b2 (-> _as-hfql2 unwrap first unwrap second))
+  (lookup _as-a2 'renamed) := _as-b2)
 
 ;;; Misc
 
