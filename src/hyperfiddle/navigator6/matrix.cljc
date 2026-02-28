@@ -168,7 +168,7 @@
             (e/for [col-index (IndexRing limitH offsetH)]
               (MatrixCell col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
 
-(e/defn AssociativeRow [row-group-id row-index rowT]
+(e/defn AssociativeRow [row-group-id row-index short-name rowT]
   ;; Each row is a pull child (HFQLT entry). Key cell = property name, val cell = rendered value.
   ;; Selection: pull children are "cells" (not "rows") in the selection system because
   ;; row? = pull? and keywords aren't pulls. So we use cell-selected? + aria-selected
@@ -194,7 +194,9 @@
       ;; minus sort handle, plus right-alignment via CSS.
       (dom/th (dom/props {:scope :row})
               (dom/span (dom/props {:class "column-name"})
-                (dom/text (e/server (str (hfql/symbolic-edge rowT))))
+                ;; short-name is precomputed by MatrixBody using the same name-shortener
+                ;; as MatrixHeader, so key names stay consistent with column headers.
+                (dom/text short-name)
                 (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil rowT nil))))
       ;; Value cell — carries aria-selected for CSS row highlighting
       (dom/td (dom/props {:class "entry-val"
@@ -208,9 +210,14 @@
         ;; Branch outside e/for — associative? is stable for view lifetime, no per-row cost
         (e/Reconcile
           (if associative?
-            (e/for [index (IndexRing limitV offsetV)]
-              (AssociativeRow row-group-id index
-                (e/server (e/Offload #(nth rowsT index nil)))))
+            ;; Shorten key names the same way MatrixHeader shortens column names —
+            ;; strip namespace when unambiguous across all properties.
+            (let [shorten (e/server (name-shortener (map hfql/symbolic-edge rowsT)))]
+              (e/for [index (IndexRing limitV offsetV)]
+                (let [rowT (e/server (e/Offload #(nth rowsT index nil)))
+                      ;; Precompute shortened name server-side — functions can't cross the wire.
+                      short-name (e/server (str (shorten (hfql/symbolic-edge rowT))))]
+                  (AssociativeRow row-group-id index short-name rowT))))
             ;; e/for on client = ultra smooth row positioning but glitchy row content
             (e/for [index (IndexRing limitV offsetV)]
               (MatrixRow row-group-id columnsT
