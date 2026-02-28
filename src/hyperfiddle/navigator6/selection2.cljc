@@ -76,7 +76,11 @@
   {:post [(boolean? %)]}
   (or (ident? value)
     (string? value)
-    (symbolic-constructor-form? value)))
+    (symbolic-constructor-form? value)
+    ;; Lambda edge forms: (fn name ...) — produced by AST symbolic-edge for ::lambda nodes.
+    ;; `fn` is unqualified so it fails symbolic-constructor-form?, but the form is
+    ;; perfectly URL-serializable and roundtrips through find-cell-by-symbolic-column.
+    (and (seq? value) (= 'fn (first value)))))
 
 (tests
   (symbolic-column? nil)
@@ -107,6 +111,10 @@
   := false
   (symbolic-column? [:db/ident :artist/name])
   := false
+  (symbolic-column? '(fn namespace-usages ...)) ; lambda edge form — unqualified fn is OK
+  := true
+  (symbolic-column? '(fn anonymous ...))
+  := true
 
   )
 
