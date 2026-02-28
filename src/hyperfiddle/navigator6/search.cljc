@@ -166,21 +166,30 @@
      (pfilter
        (fn [rowT]
          (when-not (.isInterrupted (Thread/currentThread))
-           (let [rowT+ (hfql/augment-with-suggestions! rowT)
-                 cellTs (unwrap rowT+)]
-             (loop [columnTs columnTs]
-               (if (seq columnTs)
-                 (if-let [cellT (hfql/find-cell-by-column* (first columnTs) cellTs)]
-                   (when-not (.isInterrupted (Thread/currentThread))
-                     (let [either-value (hfql/nav* cellT)]
-                       (if (either
-                             (fn [err] (search-matches err needle pretty-print-map))
-                             (fn [val] (search-matches (original-object val) needle pretty-print-map))
-                             either-value)
-                         true
-                         (recur (rest columnTs)))))
-                   (recur (rest columnTs)))
-                 false)))))
+           (if (empty? columnTs)
+             ;; Associative view: row IS the entry — check edge name + navigated value
+             (or (strx/includes-str? (str (hfql/symbolic-edge rowT)) needle)
+                 (let [either-value (hfql/nav* rowT)]
+                   (either
+                     (fn [err] (search-matches err needle pretty-print-map))
+                     (fn [val] (search-matches (original-object val) needle pretty-print-map))
+                     either-value)))
+             ;; Sequential view: iterate columns as before
+             (let [rowT+ (hfql/augment-with-suggestions! rowT)
+                   cellTs (unwrap rowT+)]
+               (loop [columnTs columnTs]
+                 (if (seq columnTs)
+                   (if-let [cellT (hfql/find-cell-by-column* (first columnTs) cellTs)]
+                     (when-not (.isInterrupted (Thread/currentThread))
+                       (let [either-value (hfql/nav* cellT)]
+                         (if (either
+                               (fn [err] (search-matches err needle pretty-print-map))
+                               (fn [val] (search-matches (original-object val) needle pretty-print-map))
+                               either-value)
+                           true
+                           (recur (rest columnTs)))))
+                     (recur (rest columnTs)))
+                   false))))))
        (m/seed rowTs))))
 
 #?(:clj
@@ -188,7 +197,6 @@
      (fn [pretty-print-map rowTs columnTs needle]
        (cond
          (str/blank? needle) rowTs
-         (empty? columnTs) ()
          :else
          (m/? (m/reduce conj [] (eager-search-BIG-O-N-SQUARE< pretty-print-map rowTs columnTs needle)))))))
 

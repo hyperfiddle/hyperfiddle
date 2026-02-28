@@ -168,29 +168,55 @@
             (e/for [col-index (IndexRing limitH offsetH)]
               (MatrixCell col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
 
-(e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
+(e/defn AssociativeRow [row-group-id row-index rowT]
+  ;; Each row is a pull child (HFQLT entry). Key cell = property name, val cell = rendered value.
+  ;; Selection: pull children are "cells" (not "rows") in the selection system because
+  ;; row? = pull? and keywords aren't pulls. So we use cell-selected? + aria-selected
+  ;; instead of RowHandle's radio pattern. CSS tr:has(td[aria-selected]) highlights the full row.
+  (e/client
+    (dom/tr
+      (dom/props {:style {:--row-index row-index}
+                  :data-empty (str (e/server (nil? rowT)))})
+      (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
+      ;; Key cell — same structure as MatrixHeader <th>: span.column-name + tooltip,
+      ;; minus sort handle, plus right-alignment via CSS.
+      (dom/th (dom/props {:scope :row})
+              (dom/span (dom/props {:class "column-name"})
+                (dom/text (e/server (str (hfql/symbolic-edge rowT))))
+                (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil rowT nil))))
+      ;; Value cell — click-to-select (cell selection, same pattern as MatrixCell)
+      (dom/td (dom/props {:class "entry-val"
+                          :role :radio
+                          :tabindex "0"
+                          :aria-selected (e/server (selection2/cell-selected? selection/*local-selection rowT selection/*local-selection-symbolic))})
+              (let [GetRowT (e/server (utils/Delay rowT))
+                    event (dom/On* "click" cell-ignore-click-on-interactive-content nil)
+                    [token err] (e/Token event)]
+                (e/Reconcile
+                  (when token
+                    (dom/props {:aria-busy true})
+                    ;; Pass nil index — pull children are properties of the current object,
+                    ;; not items in a collection. symbolic-selection-coordinates will use
+                    ;; (hfql/current-point) instead of (hfql/nth N).
+                    (dispatch-event! :up dom/node (munge-str `Select!) [nil GetRowT])
+                    (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
+              (e/server (rendering/Render* rowT))))))
+
+(e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH & {:keys [associative?]}]
   (e/client
     (dom/tbody
       (let [row-group-id (random-uuid)]
-        (e/client ;; trade off:
-          ;; e/for on client = ultra smooth row positioning but glitchy row content
-          ;; e/for on server = slower row rotation (still acceptable) but no row content glitch.
-          (e/for [index (IndexRing limitV offsetV)]
-            (MatrixRow row-group-id columnsT
-              ;; HACK pick your second level of trade off:
-              ;; Option 1 - instant scroll, no server roundtrip.
-              ;; Rows will scroll as fast as the browser's main js thread allows it. Cell content will be inconsistent under load.
-              ;; The worse the network quality, the less consistent.
-              index
-              ;; Option 2 – more consistency, slower scroll – round-trip the row index.
-              ;; In-browser scroll will still happen as fast as JS allows it, but rows will be off-viewport until the server echoes the row-index.
-              ;; If the server is busy, e.g. under load due to many rows × columns, or if network is slow, continuous time semantics will "relieve"
-              ;; the row index at almost the same rate as the inconsistent cells' content.
-              ;; The server will then echo a final big message containing both latest row indexes and latest cells content.
-              ;; Not sure if this behavior is just luck or an emergent, fundamental aspect of the system.
-              #_(e/server (identity index))
-              ;; trades scroll speed for consistency, but slightly better than siting the entire e/for
-              (e/server (e/Offload #(nth rowsT index nil))) offsetH limitH)))))))
+        ;; Branch outside e/for — associative? is stable for view lifetime, no per-row cost
+        (e/Reconcile
+          (if associative?
+            (e/for [index (IndexRing limitV offsetV)]
+              (AssociativeRow row-group-id index
+                (e/server (e/Offload #(nth rowsT index nil)))))
+            ;; e/for on client = ultra smooth row positioning but glitchy row content
+            (e/for [index (IndexRing limitV offsetV)]
+              (MatrixRow row-group-id columnsT
+                index
+                (e/server (e/Offload #(nth rowsT index nil))) offsetH limitH))))))))
 
 #?(:cljs
    (defn- find-clicked-cell-or-row [^js dom-event]
@@ -219,10 +245,9 @@
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
-      (let [!transpose (atom true)
+      (let [!transpose (atom false)
             transpose (e/watch !transpose)
-            columnTs-count (e/server (count columnTs))]
-        (reset! !transpose (boolean associative?))
+            columnTs-count (if associative? 2 (e/server (count columnTs)))]
         (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "associative"} associative?)]
                     :style {:--row-height (str row-height "px")
                             :--column-width (str column-width "px")
@@ -231,14 +256,19 @@
         (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
                             `Noop (e/fn [] [::forms/ok])}
           (e/amb
-            (MatrixHeader columnTs)
+            ;; No header for associative views — "key"/"val" headers are meaningless,
+            ;; the key column carries semantic weight via <th scope=row> instead.
+            (e/Reconcile
+              (when-not associative?
+                (MatrixHeader columnTs)))
             (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
-                  itemTs-count (#(if associative? columnTs-count rowTs-count))
+                  itemTs-count (#(if transpose columnTs-count rowTs-count))
                   scroll-window (Scroll-window 24 itemTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))})
                   [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)]
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
-                offsetH (min columnTs-count limitH)))
+                offsetH (min columnTs-count limitH)
+                :associative? associative?))
             (e/amb
               (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
                 (fn [event]
@@ -282,34 +312,21 @@
                               [dom/node (dom/span (dom/props {:style {:float :inline-start, :display :flex, :flex-wrap :wrap}})
                                                   (rendering/Step-Title stepT)
                                                   dom/node)])
-          columnsT (e/server (in legend (ColumnPicker stepT)))
+          ;; Skip ColumnPicker for associative views — properties are rows, not columns
+          columnsT (e/server (when-not associative? (in legend (ColumnPicker stepT))))
           stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
           limit (e/server (::hfql/limit (extract (meta stepT)) COLLECTION-LIMIT))
-          rowsT (e/server (#(if ((glitch-guard hfql/pull?) stepT) ; FIXME smell
-                              [stepT]
-                              ((glitch-guard unwrap) stepT))))
+          ;; Always unwrap — for pulls, children are property entries (rows)
+          rowsT (e/server ((glitch-guard unwrap) stepT))
           rowsT-count (e/server (e/Offload #(bounded-count limit rowsT)
                                   #_{:label 'count-rows})) ; 𝓞(n)
-          disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection)) ; Use case: allow positional selection on unidentifiable rows.
-          ]
-      (search/Filtered (e/server (if associative? (search/no-row-filter) (search/eager-search-BIG-O-N-SQUARE)))
+          disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection))]
+      (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
         rowsT-count
         (e/server rowsT)
-        (e/server columnsT)
+        (e/server columnsT) ; nil for associative — search fallback handles it
         (e/fn [rowsT]
-          (let [columnsT (e/server
-                           (e/Reconcile
-                             (if associative?
-                               (Offload #(search/filter-columns-by-search
-                                           rendering/*server-pretty
-                                           (first rowsT)
-                                           columnsT
-                                           search/*local-search)
-                                         {:label 'in-memory-column-search})
-                               columnsT)))
-                entries-count (e/server (#(if associative?
-                                            (count columnsT)
-                                            (bounded-count rowsT-count rowsT))))]
+          (let [entries-count (e/server (#(bounded-count rowsT-count rowsT)))]
             (in top-left
               (dom/span (dom/props {:style {:order -1}
                                     :class "count"})

@@ -130,8 +130,26 @@
                (hyperfiddle.navigator6.selection2/resolve-selection-coordinates
                  selectable-point
                  symbolic-selection-coordinates))
-           ;; this point is not selectable
-           nil)))))
+           ;; current-point is a leaf traversal (e.g. .getName → String). ResolveRenderer
+           ;; would have nav'd + suggested to build a synthetic pull (e.g. String's Java
+           ;; methods). Replicate that suggestion so we can resolve selection against the
+           ;; same tree structure the user sees on screen.
+           (let [either-value (hfql/nav* current-point)
+                 value (either identity identity either-value)
+                 suggested-stepT (either
+                                   (constantly nil)
+                                   (fn [suggestedT]
+                                     (when (and (some? suggestedT) (not= current-point suggestedT))
+                                       (-> suggestedT
+                                         ((flip hfql/seed) (assoc (hfql/scope current-point) (symbol "%") (right value)))
+                                         (hfql/set-parent current-point))))
+                                   (hfql/suggest* value))
+                 selectable-from-suggested (when suggested-stepT
+                                            (hyperfiddle.navigator6.selection2/find-selectable-point suggested-stepT))]
+             (when selectable-from-suggested
+               (hyperfiddle.navigator6.selection2/resolve-selection-coordinates
+                 selectable-from-suggested
+                 symbolic-selection-coordinates))))))))
 
 (defn- object-level-identity [obj]
   #?(:clj (System/identityHashCode obj)

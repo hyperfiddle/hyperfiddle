@@ -267,9 +267,30 @@ table.matrix.associative{
             display: none;
         }
     }
-    tbody tr th[scope="row"]{
-        input{
-            display: none;
+    /* Full-row highlight for cell selection — pull children are "cells" not "rows"
+       in the selection system, so we derive row highlight from td[aria-selected]. */
+    tr:has(td[aria-selected=true]){
+        color: var(--row-text-color);
+        th:first-child{
+            border-top-left-radius: var(--item-selected-border-radius);
+            border-bottom-left-radius: var(--item-selected-border-radius);
+        }
+        td:last-child{
+            border-top-right-radius: var(--item-selected-border-radius);
+            border-bottom-right-radius: var(--item-selected-border-radius);
+            /* Reset left-side radius from the general td[aria-selected] rule —
+               in associative layout the th carries the left rounding. */
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+        }
+        th, td {
+            background: var(--row-background-color);
+        }
+        a{ color: inherit; }
+    }
+    tr:has(td[aria-busy=true]){
+        th, td {
+            background: var(--color-pending);
         }
     }
 }
@@ -339,6 +360,4 @@ fieldset:has(table.matrix){
     padding: 0;
 }
 
-fieldset:has(table.matrix.associative) legend .count {
-    display: none;
-}
+/* Count is shown for associative views — "(N entries)" */

@@ -259,6 +259,15 @@
        (cell? point)
        (hfql/multiplicity-many? (hfql/parent (hfql/parent point)))
        (pair (symbolize-form point) `(hfql/nth ~row-positional-index)))
+     ;; Fallback for cells without positional index — use current-point addressing.
+     ;; Covers associative views where properties are the "rows", not collection items.
+     ;; The parent is already "the current object" at this scope level, so
+     ;; (hfql/current-point) unambiguously refers to it during resolution.
+     (and (selection-point? point)
+       (nil? row-positional-index)
+       (cell? point)
+       (symbolic-column? (symbolize-form point))
+       (pair (symbolize-form point) `(hfql/current-point)))
      ;; At this point we have a selectable HFQL point that is
      ;; not identifiable
      ;; the parent is not identifiable

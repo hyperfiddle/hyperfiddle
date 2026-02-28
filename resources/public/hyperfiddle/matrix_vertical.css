@@ -108,12 +108,29 @@ table.matrix .matrix__diagonal {
 }
 
 table.matrix.associative{
-
+    --header-row-count: 0; /* no thead — key cells carry semantic weight via th[scope=row] */
+    /* No header row to skip — start stripes at gray (dark) for the first data row.
+       The base formula adds an extra row-height shift for the header; zero it out here. */
+    --background-position-y: 0px;
+    grid-template-columns: var(--column-width) 1fr; /* fixed key width prevents re-layout on scroll */
     thead > tr > th{
         contain: layout;
     }
-    tbody > tr > th{
-        display: none;
+    tbody > tr {
+        grid-row: calc(var(--row-index) + 1); /* no header row to skip (default formula assumes +2) */
+        /* Remove the header-row shift from the base TR stripe formula.
+           Chrome collapses TRs to height:0 (contain:size + subgrid) so only the table bg paints,
+           but Firefox gives TRs their full height — this override keeps stripes aligned in both. */
+        background-position-y: calc(var(--row-height) * mod(var(--row-index), 2));
+    }
+    tbody > tr > th[scope="row"]{
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding: 0 0.25em;
+        /* Right-align key names — reads as "label: value" */
+        justify-content: flex-end;
+        text-align: right;
     }
 }
 
