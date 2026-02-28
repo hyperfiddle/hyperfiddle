@@ -178,28 +178,27 @@
       (dom/props {:style {:--row-index row-index}
                   :data-empty (str (e/server (nil? rowT)))})
       (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
+      ;; Click anywhere on the row to select — both key and value cells are targets.
+      ;; Lifted to <tr> so the user doesn't have to aim for the value cell specifically.
+      (let [GetRowT (e/server (utils/Delay rowT))
+            event (dom/On* "click" cell-ignore-click-on-interactive-content nil)
+            [token err] (e/Token event)]
+        (e/Reconcile
+          (when token
+            ;; Pass nil index — pull children are properties of the current object,
+            ;; not items in a collection. symbolic-selection-coordinates will use
+            ;; (hfql/current-point) instead of (hfql/nth N).
+            (dispatch-event! :up dom/node (munge-str `Select!) [nil GetRowT])
+            (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
       ;; Key cell — same structure as MatrixHeader <th>: span.column-name + tooltip,
       ;; minus sort handle, plus right-alignment via CSS.
       (dom/th (dom/props {:scope :row})
               (dom/span (dom/props {:class "column-name"})
                 (dom/text (e/server (str (hfql/symbolic-edge rowT))))
                 (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil rowT nil))))
-      ;; Value cell — click-to-select (cell selection, same pattern as MatrixCell)
+      ;; Value cell — carries aria-selected for CSS row highlighting
       (dom/td (dom/props {:class "entry-val"
-                          :role :radio
-                          :tabindex "0"
                           :aria-selected (e/server (selection2/cell-selected? selection/*local-selection rowT selection/*local-selection-symbolic))})
-              (let [GetRowT (e/server (utils/Delay rowT))
-                    event (dom/On* "click" cell-ignore-click-on-interactive-content nil)
-                    [token err] (e/Token event)]
-                (e/Reconcile
-                  (when token
-                    (dom/props {:aria-busy true})
-                    ;; Pass nil index — pull children are properties of the current object,
-                    ;; not items in a collection. symbolic-selection-coordinates will use
-                    ;; (hfql/current-point) instead of (hfql/nth N).
-                    (dispatch-event! :up dom/node (munge-str `Select!) [nil GetRowT])
-                    (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
               (e/server (rendering/Render* rowT))))))
 
 (e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH & {:keys [associative?]}]
@@ -264,7 +263,10 @@
             (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
                   itemTs-count (#(if transpose columnTs-count rowTs-count))
                   scroll-window (Scroll-window 24 itemTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))})
-                  [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)]
+                  [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)
+                  ;; Associative views have no sticky header eating a viewport slot,
+                  ;; so add 1 row to keep the bottom edge populated during sub-pixel scroll.
+                  limitV (cond-> limitV associative? inc)]
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
                 offsetH (min columnTs-count limitH)
