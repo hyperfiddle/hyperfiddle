@@ -58,6 +58,10 @@ table.matrix {
             }
         }
     }
+    /* IndexRing-paginated header — explicit grid placement mirrors tbody td */
+    thead tr th:not(.transpose-affordance) {
+        grid-column: calc(2 + var(--cell-index));
+    }
 }
 
 /* Cosmetics */

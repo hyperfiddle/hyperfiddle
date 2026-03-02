@@ -55,18 +55,22 @@
           sort-spec)
       '.)))
 
-(e/defn MatrixHeader [columnsT]
+(e/defn MatrixHeader [columnsT offsetH limitH]
   (dom/thead
     (dom/tr
       (e/amb
         (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :title "Transpose" :style {:width "100%"}})
                 (Command (constantly [`Transpose!]) (dom/On* "click" identity nil) (constantly nil)))
-        (let [shorten (e/server (name-shortener (map hfql/symbolic-edge columnsT)))
-              columns-index (e/server (into {} (map (juxt hfql/id identity)) columnsT))]
-          (e/for [edge (e/diff (e/server (map hfql/id columnsT)))]
-            (let [columnT (e/server (get columns-index edge))
-                  form (e/server (str (shorten (hfql/symbolic-edge columnT))))]
-              (dom/th (dom/props {:scope :col})
+        ;; shorten needs full column set to detect naming conflicts
+        (let [shorten (e/server (name-shortener (map hfql/symbolic-edge columnsT)))]
+          (e/for [col-index (IndexRing limitH offsetH)]
+            ;; Nil-check on server — columnT is an HFQL tree node (unserializable),
+            ;; so it must never cross to client. Only `form` (string) crosses the wire.
+            (e/server
+              (when-let [columnT (nth columnsT col-index nil)]
+                (let [form (str (shorten (hfql/symbolic-edge columnT)))]
+                  (e/client
+                    (dom/th (dom/props {:scope :col, :style {:--cell-index col-index}})
                       (dom/span (dom/props {:class "column-name"}) (dom/text form)
                         (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)))
                       (e/client
@@ -78,7 +82,7 @@
                           (let [!direction (atom (cycle ['. '> '<]))
                                 direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
                                 [t err] (e/Token direction)]
-                            (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]])))))))))))))
+                            (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]]))))))))))))))))
 
 #?(:cljs
    (defn- dispatch-event! [direction ^js node type detail]
@@ -217,21 +221,25 @@
                             :--column-count columnTs-count}})
         (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
                             `Noop (e/fn [] [::forms/ok])}
-          (e/amb
-            ;; MatrixHeader renders property names as <th scope=col>. CSS transposition
-            ;; turns them into visual row headers. Sort handles hidden via CSS for associative.
-            (MatrixHeader columnTs)
-            (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
-                  itemTs-count (#(if transpose columnTs-count rowTs-count))
-                  scroll-window (Scroll-window 24 itemTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))})
-                  [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)]
+          ;; Hoist scroll computation so both MatrixHeader and MatrixBody share
+          ;; the same pagination window. Cost: header waits ~1 frame for first
+          ;; resize observation — practically imperceptible.
+          (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
+                itemTs-count (#(if transpose columnTs-count rowTs-count))
+                scroll-window (Scroll-window 24 itemTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))})
+                [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)
+                col-limit (min columnTs-count limitH)]
+            (e/amb
+              ;; MatrixHeader renders property names as <th scope=col>. CSS transposition
+              ;; turns them into visual row headers. Sort handles hidden via CSS for associative.
+              (MatrixHeader columnTs offsetH col-limit)
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
-                offsetH (min columnTs-count limitH)))
-            (e/amb
-              (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
-                (fn [event]
-                  (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil))))))))))
+                offsetH col-limit)
+              (e/amb
+                (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
+                  (fn [event]
+                    (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil)))))))))))
 
 (e/defn ColumnPicker [stepT]
   (e/server
