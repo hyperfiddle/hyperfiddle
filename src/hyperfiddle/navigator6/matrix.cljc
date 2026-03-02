@@ -324,16 +324,15 @@
 
 
 (e/defn RenderMatrix [stepT & {:keys [associative?]}]
-  (dom/fieldset
-    (dom/props {:class [({true "error"} (e/server (some? (::hfql/error ((glitch-guard meta) stepT)))))]})
+  (dom/div
+    (dom/props {:class ["matrix-view" ({true "error"} (e/server (some? (::hfql/error ((glitch-guard meta) stepT)))))]})
+    ;; Title in chrome-left — visible in NavigationCard header
+    (when utils/*card-chrome-left*
+      (in utils/*card-chrome-left*
+        (rendering/Step-Title stepT)))
     (let [_ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
-          [legend top-left] (dom/legend
-                              [dom/node (dom/span (dom/props {:style {:float :inline-start, :display :flex, :flex-wrap :wrap}})
-                                                  (rendering/Step-Title stepT)
-                                                  dom/node)])
-          ;; For collections: ColumnPicker lets users toggle columns.
-          ;; For associative: bypass picker — all pull children are columns directly.
-          picker-columnsT (e/server (when-not associative? (in legend (ColumnPicker stepT))))
+          ;; Renders directly into matrix-view body (checkboxes wrap naturally via CSS)
+          picker-columnsT (e/server (when-not associative? (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
           ;; Associative views show all discovered properties — augment the pull
           ;; so (unwrap stepT) returns suggested columns alongside explicit ones.
@@ -369,16 +368,19 @@
                 entries-count (e/server (#(if associative?
                                             (count effective-columnsT)
                                             (bounded-count rowsT-count effective-rowsT))))]
-            (in top-left
-              (dom/span (dom/props {:style {:order -1}
-                                    :class "count"})
-                        (dom/text (#(rendering/format-count entries-count limit associative?)))))
+            ;; Count pill in chrome-left
+            (when utils/*card-chrome-left*
+              (in utils/*card-chrome-left*
+                (dom/span (dom/props {:class "count"})
+                          (dom/text (#(rendering/format-count entries-count limit associative?))))))
             (e/amb
-              (in top-left (dom/span (dom/props {:style {:order -2}})
-                                     (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
-              (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server effective-rowsT)
+              ;; Search in chrome-right
+              (when utils/*card-chrome-right*
+                (in utils/*card-chrome-right*
+                  (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
+              (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
                     ;; For associative views, actual row count = 1 (single data row).
                     ;; entries-count is the property count — used for display only.
-                    (Matrix effective-columnsT (if associative? 1 entries-count) rowsT :associative? associative?)))))))))))
+                    (Matrix columnsT (if associative? 1 entries-count) rowsT :associative? associative?)))))))))))

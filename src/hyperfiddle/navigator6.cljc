@@ -12,7 +12,7 @@
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
             [hyperfiddle.navigator6.selection2 :as selection2]
             [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
-            [hyperfiddle.navigator6.utils :refer [rebooting freezing glitch-guard]]
+            [hyperfiddle.navigator6.utils :as utils :refer [rebooting freezing glitch-guard]]
             [contrib.css :as cssx]
             [contrib.data :refer [#?(:clj array?)]]
             [hyperfiddle.hfql2.utils :refer [imap?]]
@@ -192,53 +192,58 @@
                   :aria-label (str "Navigation level " (inc depth))
                   :tabindex "-1"}) ; Focusable for keyboard nav
 
-      ;; Chrome bar with close button and click-to-focus
-      (dom/div
-        (dom/props {:class "navigation-card__chrome"})
-        ;; Click chrome to focus this card (trashes deeper children)
-        (let [chrome-clicked (dom/On "click"
-                               (fn [^js e]
-                                 ;; Only if not clicking close button
-                                 (when-not (.. e -target (closest ".navigation-card__close-button"))
-                                   (.stopPropagation e)
-                                   true))
-                               nil)]
-          (e/Reconcile
-            (when chrome-clicked
-              ;; Clicking chrome clears this card's selection, trashing children
-              [`selection/SetSelection! nil])))
+      ;; Chrome bar — left/right slots are filled by views via dynamic vars
+      (let [[chrome-left chrome-right]
+            (dom/div
+              (dom/props {:class "navigation-card__chrome"})
+              ;; Click chrome to focus this card (trashes deeper children)
+              (let [chrome-clicked (dom/On "click"
+                                    (fn [^js e]
+                                      (when-not (.. e -target (closest ".navigation-card__close-button"))
+                                        (.stopPropagation e)
+                                        true))
+                                    nil)]
+                (e/Reconcile
+                  (when chrome-clicked
+                    [`selection/SetSelection! nil])))
+              ;; Left slot: title + count pill (filled by RenderMatrix)
+              (let [left (dom/div (dom/props {:class "navigation-card__chrome-left"}) dom/node)]
+                ;; Right slot: search input (filled by RenderMatrix)
+                (let [right (dom/div (dom/props {:class "navigation-card__chrome-right"}) dom/node)]
+                  ;; Close button — rightmost in chrome bar
+                  (when (pos? depth)
+                    (dom/button
+                      (dom/props {:class "navigation-card__close-button"
+                                  :aria-label "Close"
+                                  :title "Close (ESC)"})
+                      (dom/text "\u2715")
+                      (dom/On "click"
+                        (fn [e]
+                          (.preventDefault e)
+                          (.stopPropagation e)
+                          [`selection/SetSelection! nil])
+                        nil)))
+                  [left right])))]
 
-        ;; Close button
-        (when (pos? depth) ; Only show close for non-root
-          (dom/button
-            (dom/props {:class "navigation-card__close-button"
-                        :aria-label "Close"
-                        :title "Close (ESC)"})
-            (dom/text "✕")
-            (dom/On "click"
-              (fn [e]
-                (.preventDefault e)
-                (.stopPropagation e)
-                [`selection/SetSelection! nil]) ; Clear selection = close this card
-              nil))))
+        ;; ESC key handler
+        (when (pos? depth)
+          (let [esc-pressed (dom/On "keydown"
+                              (fn [^js e]
+                                (when (= "Escape" (.-key e))
+                                  (.preventDefault e)
+                                  (.stopPropagation e)
+                                  true))
+                              {:node dom/node})]
+            (e/Reconcile
+              (when esc-pressed
+                [`selection/SetSelection! nil]))))
 
-      ;; ESC key handler
-      (when (pos? depth) ; Only non-root cards can be closed
-        (let [esc-pressed (dom/On "keydown"
-                            (fn [^js e]
-                              (when (= "Escape" (.-key e))
-                                (.preventDefault e)
-                                (.stopPropagation e)
-                                true))
-                            {:node dom/node})] ; Listen on card element
-          (e/Reconcile
-            (when esc-pressed
-              [`selection/SetSelection! nil])))) ; Clear selection = close
-
-      ;; Content area
-      (dom/div
-        (dom/props {:class "navigation-card__content"})
-        (Body)))))
+        ;; Content area — bind chrome slots so views can inject header content
+        (dom/div
+          (dom/props {:class "navigation-card__content"})
+          (binding [utils/*card-chrome-left* chrome-left
+                    utils/*card-chrome-right* chrome-right]
+            (Body)))))))
 
 ;; (e/defn RenderMeta [stepT]
 ;;   (e/server

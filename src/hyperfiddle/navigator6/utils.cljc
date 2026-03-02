@@ -17,6 +17,12 @@
 
 (defmacro in [dom-node & body] `(binding [dom/node ~dom-node] ~@body))
 
+;; Card chrome slots — bound by NavigationCard, used by views (e.g. RenderMatrix)
+;; to inject content into the card header (title, count pill, search).
+;; Client-side DOM nodes; don't transfer across the wire.
+(e/declare ^:dynamic *card-chrome-left*)
+(e/declare ^:dynamic *card-chrome-right*)
+
 (defn glitch-guard
   ([f] (glitch-guard some? f))
   ([pred f & as]

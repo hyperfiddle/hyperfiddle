@@ -293,6 +293,5 @@
 (e/defn Step-Title [stepT]
   (dom/span
     (dom/props {:class "title"
-                :style {:order -3}
                 :data-tooltip (e/server (table-title-tooltip-content stepT))})
     (dom/text (e/server (render-step-title stepT selection/*parent-selection-symbolic)))))

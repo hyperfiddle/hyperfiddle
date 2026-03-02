@@ -176,7 +176,8 @@ table.matrix .matrix__diagonal
 
 /* Error state */
 
-fieldset:has(> table.matrix).error > table.matrix{
+/* Error state — .matrix-view.error wraps the table (was fieldset) */
+.matrix-view.error table.matrix{
     --row-color-light: oklch(from var(--row-color-error-light) l calc(c * 0.60) h);
     --row-color-dark: oklch(from var(--row-color-error-dark) l calc(c * 0.60) h)
 }
@@ -318,27 +319,18 @@ table.matrix thead tr th .sort-handle::after{
     clip-path: polygon(0 0, 0 100%, 100% 0);
 }
 
-/* column selection */
-/* This ensures column selection checkboxes nicely wrap around the matrix title and search field. */
-/* It works by giving the same line-height to all direct children of a <legend> above a matrix. */
-/*
-  Putting all title + search input + checkboxes in the same flex or grid container will either:
-  - prevent checkboxes from wrapping on window resize,
-  - cause the search input to lose focus when checkboxes are added/removed and the flex layout recomputes.
-*/
-fieldset:has(table.matrix) legend > * {
+/* Column picker checkboxes — wrap naturally in the body area */
+.matrix-view > :has(input + label) {
     line-height: 1rlh;
     display: inline-block;
 }
 
-
-fieldset:has(table.matrix.associative) legend > :has(input + label){
-    display:none;
+/* Hide column picker for associative views — properties are rows, not selectable columns */
+.matrix-view:has(table.matrix.associative) > :has(input + label) {
+    display: none;
 }
 
-fieldset:has(table.matrix){
+.matrix-view {
     min-inline-size: auto; /* Allow horizontal scrolling. Chrome UA default is min-content */
     padding: 0;
 }
-
-/* Count is shown for associative views — "(N entries)" */
