@@ -17,11 +17,10 @@
 
 (defmacro in [dom-node & body] `(binding [dom/node ~dom-node] ~@body))
 
-;; Card chrome slots — bound by NavigationCard, used by views (e.g. RenderMatrix)
-;; to inject content into the card header (title, count pill, search).
-;; Client-side DOM nodes; don't transfer across the wire.
-(e/declare ^:dynamic *card-chrome-left*)
-(e/declare ^:dynamic *card-chrome-right*)
+;; Card chrome slot — bound by NavigationCard, used by views (e.g. RenderMatrix)
+;; to inject content into the card header (title, search, pill).
+;; Single mount point: the chrome div itself. Children use CSS grid-area for placement.
+(e/declare ^:dynamic *card-chrome*)
 
 (defn glitch-guard
   ([f] (glitch-guard some? f))

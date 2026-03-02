@@ -47,9 +47,7 @@
   animation: card-enter 0.2s ease-out;
 }
 
-/* Chrome bar — 3-column grid: title | search+pill | close
-   The two slot divs (chrome-left, chrome-right) are real DOM nodes
-   that Electric's mount-point system needs, so no display:contents. */
+/* Chrome bar — grid areas: title | search | pill | close */
 .navigation-card__chrome {
   flex: 0 0 auto;
   height: 2.25em;
@@ -59,7 +57,8 @@
   border-top-right-radius: 0.5em;
 
   display: grid;
-  grid-template-columns: 1fr auto 6ch 1.75em;
+  grid-template-columns: 1fr auto 5.5ch 1.75em;
+  grid-template-areas: "title search pill close";
   align-items: center;
   gap: 0.5em;
   padding: 0 0.25em 0 0.5em;
@@ -67,29 +66,20 @@
   cursor: pointer;
 }
 
-/* Title slot — flex so children lay out inline; min-width:0 lets 1fr shrink */
-.navigation-card__chrome-left {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.navigation-card__chrome-left .title {
+/* Title — grows, clips with ellipsis */
+.navigation-card__chrome .title {
+  grid-area: title;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 0.8125em;
+  /* font-size: 0.8125em; */
   font-weight: 500;
   color: #333;
 }
 
-/* Search + pill slot — flex row, fixed child widths */
-.navigation-card__chrome-right {
-  display: contents;
-  /* align-items: center; */
-  /* gap: 0.5em; */
-}
+/* Search input */
 .navigation-card__chrome input[type="search"] {
-  flex: 0 0 13em;
+  grid-area: search;
   height: 2em;
   font-size: 0.75em;
   padding: 0 0.5em 0 2em;
@@ -102,27 +92,31 @@
   outline: none;
   transition: border-color 0.15s;
 }
-.navigation-card__chrome-right input[type="search"]:focus {
+.navigation-card__chrome input[type="search"]:focus {
   border-color: #aaa;
 }
+
 /* Pill container — visual chrome (background, shape) */
-.navigation-card__chrome-right .count {
+.navigation-card__chrome .count {
+  grid-area: pill;
   display: flex;
   place-content: center;
+  width: min-content;
   min-width: 3ch;
   background: #e8e8e8;
-  padding: 0.2em 0.375em;
+  padding: 0.2em 0.4375em;
   border-radius: 0.75em;
 }
 /* Pill text */
-.navigation-card__chrome-right .count > span {
+.navigation-card__chrome .count > span {
   white-space: nowrap;
   font-size: 0.75em;
   color: #666;
 }
 
-/* Close button — centered in fixed column */
+/* Close button */
 .navigation-card__close-button {
+  grid-area: close;
   justify-self: center;
   width: 20px;
   height: 20px;

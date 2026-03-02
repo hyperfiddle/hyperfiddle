@@ -326,8 +326,8 @@
 (e/defn RenderMatrix [stepT & {:keys [associative?]}]
   (dom/div
     (dom/props {:class ["matrix-view" ({true "error"} (e/server (some? (::hfql/error ((glitch-guard meta) stepT)))))]})
-    ;; Title in chrome-left — visible in NavigationCard header
-    (in utils/*card-chrome-left*
+    ;; Title in chrome bar — CSS grid-area places it in the "title" slot
+    (in utils/*card-chrome*
       (rendering/Step-Title stepT))
     (let [_ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
           ;; Renders directly into matrix-view body (checkboxes wrap naturally via CSS)
@@ -368,8 +368,8 @@
                                             (count effective-columnsT)
                                             (bounded-count rowsT-count effective-rowsT))))]
             (e/amb
-              ;; Search then count pill in chrome-right (DOM order = visual order)
-              (in utils/*card-chrome-right*
+              ;; Search + pill in chrome bar — CSS grid-area places each element
+              (in utils/*card-chrome*
                 (search/SearchInput! disabled-search-sort-because-a-row-is-selected)
                 ;; Pill: container div for visual chrome, span for text
                 (dom/div (dom/props {:class "count"})

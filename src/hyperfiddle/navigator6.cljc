@@ -192,8 +192,8 @@
                   :aria-label (str "Navigation level " (inc depth))
                   :tabindex "-1"}) ; Focusable for keyboard nav
 
-      ;; Chrome bar — left/right slots are filled by views via dynamic vars
-      (let [[chrome-left chrome-right]
+      ;; Chrome bar — single mount point, children use CSS grid-area for placement
+      (let [chrome
             (dom/div
               (dom/props {:class "navigation-card__chrome"})
               ;; Click chrome to focus this card (trashes deeper children)
@@ -206,24 +206,20 @@
                 (e/Reconcile
                   (when chrome-clicked
                     [`selection/SetSelection! nil])))
-              ;; Left slot: title + count pill (filled by RenderMatrix)
-              (let [left (dom/div (dom/props {:class "navigation-card__chrome-left"}) dom/node)]
-                ;; Right slot: search input (filled by RenderMatrix)
-                (let [right (dom/div (dom/props {:class "navigation-card__chrome-right"}) dom/node)]
-                  ;; Close button — rightmost in chrome bar
-                  (when (pos? depth)
-                    (dom/button
-                      (dom/props {:class "navigation-card__close-button"
-                                  :aria-label "Close"
-                                  :title "Close (ESC)"})
-                      (dom/text "\u2715")
-                      (dom/On "click"
-                        (fn [e]
-                          (.preventDefault e)
-                          (.stopPropagation e)
-                          [`selection/SetSelection! nil])
-                        nil)))
-                  [left right])))]
+              ;; Close button
+              (when (pos? depth)
+                (dom/button
+                  (dom/props {:class "navigation-card__close-button"
+                              :aria-label "Close"
+                              :title "Close (ESC)"})
+                  (dom/text "\u2715")
+                  (dom/On "click"
+                    (fn [e]
+                      (.preventDefault e)
+                      (.stopPropagation e)
+                      [`selection/SetSelection! nil])
+                    nil)))
+              dom/node)]
 
         ;; ESC key handler
         (when (pos? depth)
@@ -238,11 +234,10 @@
               (when esc-pressed
                 [`selection/SetSelection! nil]))))
 
-        ;; Content area — bind chrome slots so views can inject header content
+        ;; Content area — bind chrome slot so views can inject header content
         (dom/div
           (dom/props {:class "navigation-card__content"})
-          (binding [utils/*card-chrome-left* chrome-left
-                    utils/*card-chrome-right* chrome-right]
+          (binding [utils/*card-chrome* chrome]
             (Body)))))))
 
 ;; (e/defn RenderMeta [stepT]
