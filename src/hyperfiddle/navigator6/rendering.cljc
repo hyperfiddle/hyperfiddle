@@ -269,8 +269,15 @@
   (debug-exceptions `format-count
     (let [truncated? (>= coll-count COLLECTION-LIMIT)
           noun       (if associative? "entries" "items")]
-      (cl-format nil "(~:[~;≥~]~d ~a~:[~; · truncated~])"
+      (cl-format nil "~:[~;≥~]~d ~a~:[~; · truncated~]"
         truncated? coll-count noun truncated?))))
+
+;; Convenience wrappers — used by count pill tooltip in matrix chrome bar
+(defn format-collection-count [coll-count COLLECTION-LIMIT]
+  (format-count coll-count COLLECTION-LIMIT false))
+
+(defn format-map-entries-count [coll-count COLLECTION-LIMIT]
+  (format-count coll-count COLLECTION-LIMIT true))
 
 (defn format-query-meta [query-meta]
   (some-> query-meta
