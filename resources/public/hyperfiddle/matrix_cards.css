@@ -47,49 +47,101 @@
   animation: card-enter 0.2s ease-out;
 }
 
-/* Chrome bar at top of each card */
+/* Chrome bar — 3-column grid: title | search+pill | close
+   The two slot divs (chrome-left, chrome-right) are real DOM nodes
+   that Electric's mount-point system needs, so no display:contents. */
 .navigation-card__chrome {
   flex: 0 0 auto;
-  height: 36px;
+  height: 2.25em;
   border-bottom: 1px solid #e5e5e5;
   background: linear-gradient(to bottom, #fafafa, #f5f5f5);
-  border-top-left-radius: 8px;
-  border-top-right-radius: 8px;
-  
-  display: flex;
+  border-top-left-radius: 0.5em;
+  border-top-right-radius: 0.5em;
+
+  display: grid;
+  grid-template-columns: 1fr auto 6ch 1.75em;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 8px;
-  
-  /* Chrome is always clickable */
+  gap: 0.5em;
+  padding: 0 0.25em 0 0.5em;
+
   cursor: pointer;
 }
 
-/* Close button */
+/* Title slot — flex so children lay out inline; min-width:0 lets 1fr shrink */
+.navigation-card__chrome-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.navigation-card__chrome-left .title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.8125em;
+  font-weight: 500;
+  color: #333;
+}
+
+/* Search + pill slot — flex row, fixed child widths */
+.navigation-card__chrome-right {
+  display: contents;
+  /* align-items: center; */
+  /* gap: 0.5em; */
+}
+.navigation-card__chrome input[type="search"] {
+  flex: 0 0 13em;
+  height: 2em;
+  font-size: 0.75em;
+  padding: 0 0.5em 0 2em;
+  border: 1px solid #ddd;
+  border-radius: 0.33em;
+  background-color: white;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 0.4em center;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.navigation-card__chrome-right input[type="search"]:focus {
+  border-color: #aaa;
+}
+/* Pill container — visual chrome (background, shape) */
+.navigation-card__chrome-right .count {
+  display: flex;
+  place-content: center;
+  min-width: 3ch;
+  background: #e8e8e8;
+  padding: 0.2em 0.375em;
+  border-radius: 0.75em;
+}
+/* Pill text */
+.navigation-card__chrome-right .count > span {
+  white-space: nowrap;
+  font-size: 0.75em;
+  color: #666;
+}
+
+/* Close button — centered in fixed column */
 .navigation-card__close-button {
+  justify-self: center;
   width: 20px;
   height: 20px;
   border-radius: 4px;
   border: none;
   background: transparent;
   cursor: pointer;
-  
   display: flex;
   align-items: center;
   justify-content: center;
-  
   font-size: 16px;
   line-height: 1;
   color: #666;
-  
   transition: background-color 0.15s, color 0.15s;
 }
-
 .navigation-card__close-button:hover {
   background: #e5e5e5;
   color: #000;
 }
-
 .navigation-card__close-button:active {
   background: #d5d5d5;
 }

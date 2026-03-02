@@ -327,9 +327,8 @@
   (dom/div
     (dom/props {:class ["matrix-view" ({true "error"} (e/server (some? (::hfql/error ((glitch-guard meta) stepT)))))]})
     ;; Title in chrome-left — visible in NavigationCard header
-    (when utils/*card-chrome-left*
-      (in utils/*card-chrome-left*
-        (rendering/Step-Title stepT)))
+    (in utils/*card-chrome-left*
+      (rendering/Step-Title stepT))
     (let [_ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
           ;; Renders directly into matrix-view body (checkboxes wrap naturally via CSS)
           picker-columnsT (e/server (when-not associative? (ColumnPicker stepT)))
@@ -368,19 +367,18 @@
                 entries-count (e/server (#(if associative?
                                             (count effective-columnsT)
                                             (bounded-count rowsT-count effective-rowsT))))]
-            ;; Count pill in chrome-left
-            (when utils/*card-chrome-left*
-              (in utils/*card-chrome-left*
-                (dom/span (dom/props {:class "count"})
-                          (dom/text (#(rendering/format-count entries-count limit associative?))))))
             (e/amb
-              ;; Search in chrome-right
-              (when utils/*card-chrome-right*
-                (in utils/*card-chrome-right*
-                  (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
-              (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server rowsT)
+              ;; Search then count pill in chrome-right (DOM order = visual order)
+              (in utils/*card-chrome-right*
+                (search/SearchInput! disabled-search-sort-because-a-row-is-selected)
+                ;; Pill: container div for visual chrome, span for text
+                (dom/div (dom/props {:class "count"})
+                  (dom/span (dom/props {:data-tooltip (#(rendering/format-count entries-count limit associative?))})
+                            (dom/text (#(let [[l r] (if associative? ["{" "}"] ["[" "]"])]
+                                          (str l entries-count r)))))))
+              (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server effective-rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
                     ;; For associative views, actual row count = 1 (single data row).
                     ;; entries-count is the property count — used for display only.
-                    (Matrix columnsT (if associative? 1 entries-count) rowsT :associative? associative?)))))))))))
+                    (Matrix effective-columnsT (if associative? 1 entries-count) rowsT :associative? associative?)))))))))))
