@@ -62,7 +62,7 @@
         (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :title "Transpose" :style {:width "100%"}})
                 (Command (constantly [`Transpose!]) (dom/On* "click" identity nil) (constantly nil)))
         ;; shorten needs full column set to detect naming conflicts
-        (let [shorten (e/server (name-shortener (map hfql/symbolic-edge columnsT)))]
+        (let [shorten (e/server (name-shortener (into [] (comp (take COLLECTION-LIMIT) (map hfql/symbolic-edge)) columnsT)))]
           (e/for [col-index (IndexRing limitH offsetH)]
             ;; Nil-check on server — columnT is an HFQL tree node (unserializable),
             ;; so it must never cross to client. Only `form` (string) crosses the wire.
@@ -213,12 +213,21 @@
       ;; reusing the column IndexRing for lazy property pagination.
       (let [!transpose (atom (boolean associative?))
             transpose (e/watch !transpose)
-            columnTs-count (e/server (count columnTs))]
+            columnTs-count (e/server (count columnTs))
+            ;; Stable header column width — computed from ALL shortened property names
+            ;; (capped at COLLECTION-LIMIT to avoid forcing unbounded lazy seqs),
+            ;; not just the IndexRing-visible subset, to prevent width jumps during scroll.
+            max-label-ch (e/server (let [edges (into [] (comp (take COLLECTION-LIMIT)
+                                                              (map hfql/symbolic-edge))
+                                                        columnTs)
+                                         shorten (name-shortener edges)]
+                                     (transduce (map (comp count str shorten)) max 0 edges)))]
         (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "associative"} associative?)]
-                    :style {:--row-height (str row-height "px")
-                            :--column-width (str column-width "px")
-                            :--row-count rowTs-count
-                            :--column-count columnTs-count}})
+                    :style {:--row-height    (str row-height "px")
+                            :--column-width  (str column-width "px")
+                            :--row-count     rowTs-count
+                            :--column-count  columnTs-count
+                            :--max-label-ch  max-label-ch}})
         (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
                             `Noop (e/fn [] [::forms/ok])}
           ;; Hoist scroll computation so both MatrixHeader and MatrixBody share

@@ -111,17 +111,18 @@ table.matrix.transposed .matrix__diagonal {
     grid-column: 1 / -1;
 }
 
-/* Associative transposed: properties as visual rows.
-   Header column (property names) auto-sizes, body column (values) takes remaining space.
-   Row-select radio hidden in matrix.css — only the header th and value td matter. */
+/* Associative transposed: header column sized from ALL property names via --max-label-ch
+   (set from ClojureScript). Prevents column width jumps during IndexRing scroll. */
 table.matrix.associative.transposed {
+    /* Cap header column: ch-based width from server, but never wider than 25% of the table.
+       Long property names (e.g. fully-qualified Java method names) would otherwise steal
+       most of the horizontal space from the value column. */
     grid-template-columns:
-        repeat(var(--header-row-count), minmax(auto, max-content))
+        min(calc(var(--max-label-ch, 10) * 1ch + 1em), 25%)
         1fr;
-    /* Base matrix.css sets contain: layout style size on th/td — size containment
-       makes intrinsic size zero, defeating the auto-sizing header column above. */
-    thead th {
-        contain: layout style;
+    thead th .column-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 }
 
