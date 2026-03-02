@@ -367,15 +367,16 @@
                 entries-count (e/server (#(if associative?
                                             (count effective-columnsT)
                                             (bounded-count rowsT-count effective-rowsT))))]
+            ;; Pill in chrome bar — outside e/amb so it doesn't mix with command flow
+            (in utils/*card-chrome*
+              (dom/div (dom/props {:class "count"})
+                (dom/span (dom/props {:data-tooltip (#(rendering/format-count entries-count limit associative?))})
+                          (dom/text (#(let [[l r] (if associative? ["{" "}"] ["[" "]"])]
+                                        (str l entries-count r)))))))
             (e/amb
-              ;; Search + pill in chrome bar — CSS grid-area places each element
+              ;; Search in chrome bar — alone so SetSearch! command propagates cleanly
               (in utils/*card-chrome*
-                (search/SearchInput! disabled-search-sort-because-a-row-is-selected)
-                ;; Pill: container div for visual chrome, span for text
-                (dom/div (dom/props {:class "count"})
-                  (dom/span (dom/props {:data-tooltip (#(rendering/format-count entries-count limit associative?))})
-                            (dom/text (#(let [[l r] (if associative? ["{" "}"] ["[" "]"])]
-                                          (str l entries-count r)))))))
+                (search/SearchInput! disabled-search-sort-because-a-row-is-selected))
               (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server effective-rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
