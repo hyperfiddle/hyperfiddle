@@ -837,7 +837,11 @@ identifier, though it might not be serializable."
    (defn- java-object?
      "True if obj is a Java object (not a Clojure type) that may have discoverable methods."
      [object]
-     (not (instance? clojure.lang.IObj object))))
+     (and (not (instance? clojure.lang.IObj object))
+          (not (string? object))
+          (not (number? object))
+          (not (boolean? object))
+          (not (char? object)))))
 
 (defmethod -suggest :default [object]
   (let [user-suggestion (hyperfiddle.hfql2.protocols/-suggest object)]
