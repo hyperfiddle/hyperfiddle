@@ -107,14 +107,18 @@ table.matrix.transposed .matrix__diagonal {
     grid-column: 1 / -1;
 }
 
+/* Associative transposed: properties as visual rows.
+   Header column (property names) auto-sizes, body column (values) takes remaining space.
+   Row-select radio hidden in matrix.css — only the header th and value td matter. */
 table.matrix.associative.transposed {
-    grid-template-columns: minmax(auto, max-content) 1fr;
-    tbody > tr > th[scope="row"] {
-        display: block; /* override vertical layout's display:none — needed as sticky cover for scrolling content */
+    grid-template-columns:
+        repeat(var(--header-row-count), minmax(auto, max-content))
+        1fr;
+    /* Base matrix.css sets contain: layout style size on th/td — size containment
+       makes intrinsic size zero, defeating the auto-sizing header column above. */
+    thead th {
+        contain: layout style;
     }
-
-
-
 }
 
 table.matrix.transposed thead tr th .sort-handle {

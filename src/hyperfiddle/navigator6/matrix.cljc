@@ -168,61 +168,15 @@
             (e/for [col-index (IndexRing limitH offsetH)]
               (MatrixCell col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
 
-(e/defn AssociativeRow [row-group-id row-index short-name rowT]
-  ;; Each row is a pull child (HFQLT entry). Key cell = property name, val cell = rendered value.
-  ;; Selection: pull children are "cells" (not "rows") in the selection system because
-  ;; row? = pull? and keywords aren't pulls. So we use cell-selected? + aria-selected
-  ;; instead of RowHandle's radio pattern. CSS tr:has(td[aria-selected]) highlights the full row.
-  (e/client
-    (dom/tr
-      (dom/props {:style {:--row-index row-index}
-                  :data-empty (str (e/server (nil? rowT)))})
-      (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
-      ;; Click anywhere on the row to select — both key and value cells are targets.
-      ;; Lifted to <tr> so the user doesn't have to aim for the value cell specifically.
-      (let [GetRowT (e/server (utils/Delay rowT))
-            event (dom/On* "click" cell-ignore-click-on-interactive-content nil)
-            [token err] (e/Token event)]
-        (e/Reconcile
-          (when token
-            ;; Pass nil index — pull children are properties of the current object,
-            ;; not items in a collection. symbolic-selection-coordinates will use
-            ;; (hfql/current-point) instead of (hfql/nth N).
-            (dispatch-event! :up dom/node (munge-str `Select!) [nil GetRowT])
-            (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
-      ;; Key cell — same structure as MatrixHeader <th>: span.column-name + tooltip,
-      ;; minus sort handle, plus right-alignment via CSS.
-      (dom/th (dom/props {:scope :row})
-              (dom/span (dom/props {:class "column-name"})
-                ;; short-name is precomputed by MatrixBody using the same name-shortener
-                ;; as MatrixHeader, so key names stay consistent with column headers.
-                (dom/text short-name)
-                (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil rowT nil))))
-      ;; Value cell — carries aria-selected for CSS row highlighting
-      (dom/td (dom/props {:class "entry-val"
-                          :aria-selected (e/server (selection2/cell-selected? selection/*local-selection rowT selection/*local-selection-symbolic))})
-              (e/server (rendering/Render* rowT))))))
-
-(e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH & {:keys [associative?]}]
+(e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
   (e/client
     (dom/tbody
       (let [row-group-id (random-uuid)]
-        ;; Branch outside e/for — associative? is stable for view lifetime, no per-row cost
-        (e/Reconcile
-          (if associative?
-            ;; Shorten key names the same way MatrixHeader shortens column names —
-            ;; strip namespace when unambiguous across all properties.
-            (let [shorten (e/server (name-shortener (map hfql/symbolic-edge rowsT)))]
-              (e/for [index (IndexRing limitV offsetV)]
-                (let [rowT (e/server (e/Offload #(nth rowsT index nil)))
-                      ;; Precompute shortened name server-side — functions can't cross the wire.
-                      short-name (e/server (str (shorten (hfql/symbolic-edge rowT))))]
-                  (AssociativeRow row-group-id index short-name rowT))))
-            ;; e/for on client = ultra smooth row positioning but glitchy row content
-            (e/for [index (IndexRing limitV offsetV)]
-              (MatrixRow row-group-id columnsT
-                index
-                (e/server (e/Offload #(nth rowsT index nil))) offsetH limitH))))))))
+        ;; e/for on client = ultra smooth row positioning but glitchy row content
+        (e/for [index (IndexRing limitV offsetV)]
+          (MatrixRow row-group-id columnsT
+            index
+            (e/server (e/Offload #(nth rowsT index nil))) offsetH limitH))))))
 
 #?(:cljs
    (defn- find-clicked-cell-or-row [^js dom-event]
@@ -251,9 +205,11 @@
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
-      (let [!transpose (atom false)
+      ;; Associative views default to transposed — properties render as visual rows,
+      ;; reusing the column IndexRing for lazy property pagination.
+      (let [!transpose (atom (boolean associative?))
             transpose (e/watch !transpose)
-            columnTs-count (if associative? 2 (e/server (count columnTs)))]
+            columnTs-count (e/server (count columnTs))]
         (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "associative"} associative?)]
                     :style {:--row-height (str row-height "px")
                             :--column-width (str column-width "px")
@@ -262,22 +218,16 @@
         (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
                             `Noop (e/fn [] [::forms/ok])}
           (e/amb
-            ;; No header for associative views — "key"/"val" headers are meaningless,
-            ;; the key column carries semantic weight via <th scope=row> instead.
-            (e/Reconcile
-              (when-not associative?
-                (MatrixHeader columnTs)))
+            ;; MatrixHeader renders property names as <th scope=col>. CSS transposition
+            ;; turns them into visual row headers. Sort handles hidden via CSS for associative.
+            (MatrixHeader columnTs)
             (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
                   itemTs-count (#(if transpose columnTs-count rowTs-count))
                   scroll-window (Scroll-window 24 itemTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))})
-                  [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)
-                  ;; Associative views have no sticky header eating a viewport slot,
-                  ;; so add 1 row to keep the bottom edge populated during sub-pixel scroll.
-                  limitV (cond-> limitV associative? inc)]
+                  [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)]
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
-                offsetH (min columnTs-count limitH)
-                :associative? associative?))
+                offsetH (min columnTs-count limitH)))
             (e/amb
               (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
                 (fn [event]
@@ -321,21 +271,35 @@
                               [dom/node (dom/span (dom/props {:style {:float :inline-start, :display :flex, :flex-wrap :wrap}})
                                                   (rendering/Step-Title stepT)
                                                   dom/node)])
-          ;; Skip ColumnPicker for associative views — properties are rows, not columns
-          columnsT (e/server (when-not associative? (in legend (ColumnPicker stepT))))
+          ;; For collections: ColumnPicker lets users toggle columns.
+          ;; For associative: bypass picker — all pull children are columns directly.
+          picker-columnsT (e/server (when-not associative? (in legend (ColumnPicker stepT))))
           stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
           limit (e/server (::hfql/limit (extract (meta stepT)) COLLECTION-LIMIT))
-          ;; Always unwrap — for pulls, children are property entries (rows)
-          rowsT (e/server ((glitch-guard unwrap) stepT))
-          rowsT-count (e/server (e/Offload #(bounded-count limit rowsT)
-                                  #_{:label 'count-rows})) ; 𝓞(n)
-          disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection))]
+          ;; For associative views: columns = pull children, row = the pull itself (single row).
+          ;; The column IndexRing handles lazy pagination over properties.
+          ;; For collections: columns from ColumnPicker, rows from unwrapping the collection.
+          children (e/server ((glitch-guard unwrap) stepT))
+          columnsT (e/server (or picker-columnsT children))
+          rowsT (e/server (if associative? [stepT] children))
+          rowsT-count (e/server (if associative? 1 (e/Offload #(bounded-count limit rowsT))))
+          disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection))
+          ;; For associative views, swap search axes: filter properties (columns) by name/value
+          ;; using the existing edge-name search path (columnTs = nil triggers it).
+          search-items (e/server (if associative? columnsT rowsT))
+          search-items-count (e/server (if associative? (count columnsT) rowsT-count))
+          search-columnTs (e/server (when-not associative? columnsT))]
       (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
-        rowsT-count
-        (e/server rowsT)
-        (e/server columnsT) ; nil for associative — search fallback handles it
-        (e/fn [rowsT]
-          (let [entries-count (e/server (#(bounded-count rowsT-count rowsT)))]
+        search-items-count
+        (e/server search-items)
+        (e/server search-columnTs)
+        (e/fn [filtered-items]
+          (let [;; For associative: filtered-items = filtered columns. For collection: filtered rows.
+                effective-columnsT (e/server (if associative? filtered-items columnsT))
+                effective-rowsT (e/server (if associative? rowsT filtered-items))
+                entries-count (e/server (#(if associative?
+                                            (count effective-columnsT)
+                                            (bounded-count rowsT-count effective-rowsT))))]
             (in top-left
               (dom/span (dom/props {:style {:order -1}
                                     :class "count"})
@@ -345,7 +309,9 @@
             (e/amb
               (in top-left (dom/span (dom/props {:style {:order -2}})
                                      (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
-              (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server rowsT)
+              (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server effective-rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
-                    (Matrix columnsT entries-count rowsT :associative? associative?)))))))))))
+                    ;; For associative views, actual row count = 1 (single data row).
+                    ;; entries-count is the property count — used for display only.
+                    (Matrix effective-columnsT (if associative? 1 entries-count) rowsT :associative? associative?)))))))))))
