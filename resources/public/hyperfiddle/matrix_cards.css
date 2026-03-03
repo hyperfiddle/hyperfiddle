@@ -32,9 +32,12 @@
     0 4px 6px -1px rgb(0 0 0 / 0.1),
     0 2px 4px -2px rgb(0 0 0 / 0.1);
   
-  /* Layout */
-  display: flex;
-  flex-direction: column;
+  /* Layout — two rows: fixed chrome header, content takes the rest */
+  display: grid;
+  grid-template-rows: 2.25em 1fr;
+  grid-template-areas:
+    "chrome"
+    "content";
   
   /* Isolation for stacking */
   isolation: isolate;
@@ -49,8 +52,7 @@
 
 /* Chrome bar — grid areas: title | search | pill | close */
 .navigation-card__chrome {
-  flex: 0 0 auto;
-  height: 2.25em;
+  grid-area: chrome;
   border-bottom: 1px solid #e5e5e5;
   background: linear-gradient(to bottom, #fafafa, #f5f5f5);
   border-top-left-radius: 0.5em;
@@ -142,7 +144,7 @@
 
 /* Content area */
 .navigation-card__content {
-  flex: 1 1 auto;
+  grid-area: content;
   overflow: auto;
   position: relative;
   contain: strict;
