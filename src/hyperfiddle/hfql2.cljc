@@ -1080,6 +1080,7 @@ identifier, though it might not be serializable."
 (defmethod describe-formatted ::ast/keyword [hfqlT] (::ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/string  [hfqlT] (::ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/lambda  [hfqlT] (symbolic-edge hfqlT))
+(defmethod describe-formatted ::ast/runtime-value [hfqlT] (str (symbolic-edge hfqlT))) ; show label (e.g. ".isBlank") from discover-methods metadata
 
 (defmethod describe-formatted ::ast/traversal [hfqlT]
   (let [desc (describe hfqlT)

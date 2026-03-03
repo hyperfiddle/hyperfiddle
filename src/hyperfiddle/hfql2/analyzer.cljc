@@ -318,7 +318,7 @@
                                       (ast/->quoted-var (unquote* form) (list 'var (resolver env sym))
                                         #?(:clj (list 'var (aliased-form sym)) :cljs (list 'var sym))
                                         :resolved-runtime-value #?(:clj (resolve sym) :cljs nil)))
-                   ::ast/runtime-value (ast/->runtime-value form)
+                   ::ast/runtime-value (ast/->runtime-value form :metadata (meta form)) ; thread fn metadata (e.g. ::label from discover-methods) into AST attrs
                    ::ast/quoted-symbol (ast/->quoted-symbol (second form))
                    ::ast/lambda    (let [kw (get-kw-fn-form-kw form)]
                                      (if kw
