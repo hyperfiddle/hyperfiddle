@@ -15,29 +15,29 @@
   
   /* Deck stacking — each card peeks its header below the one above */
   --card-offset: calc(var(--navigation-depth, 0) * 2.25em);
-  top: var(--card-offset);
+  top: 0; /* var(--card-offset); */
   left: 0;
   right: 0;
-  bottom: 0;
 
-  /* Full width, only shrink vertically by stacked headers */
+  /* Full width, shrink-to-content up to available space */
   width: 100%;
-  height: calc(100% - var(--card-offset));
-  
+  max-height: calc(100% - var(--card-offset));
+
   /* Visual chrome */
   background: white;
   border: 1px solid #d0d0d0;
   border-radius: 8px;
-  box-shadow: 
+  box-shadow:
     0 4px 6px -1px rgb(0 0 0 / 0.1),
     0 2px 4px -2px rgb(0 0 0 / 0.1);
-  
-  /* Layout — two rows: fixed chrome header, content takes the rest */
-  display: grid;
-  grid-template-rows: 2.25em 1fr;
-  grid-template-areas:
-    "chrome"
-    "content";
+
+  /* Layout — flexbox column: chrome header + content.
+     Why flex over grid: Grid can't constrain 1fr tracks against max-height —
+     tracks resolve with indefinite height, then max-height clips but the
+     content track stays unconstrained (no scrollbar). Flex correctly
+     distributes space under max-height constraints. */
+  display: flex;
+  flex-direction: column;
   
   /* Isolation for stacking */
   isolation: isolate;
@@ -52,7 +52,7 @@
 
 /* Chrome bar — grid areas: title | search | pill | close */
 .navigation-card__chrome {
-  grid-area: chrome;
+  flex: 0 0 2.25em;
   border-bottom: 1px solid #e5e5e5;
   background: linear-gradient(to bottom, #fafafa, #f5f5f5);
   border-top-left-radius: 0.5em;
@@ -142,12 +142,15 @@
   background: #d5d5d5;
 }
 
-/* Content area */
+/* Content area — flex-shrink so it respects card's max-height.
+   No size containment here — let flex measure the table's CSS-computed height.
+   The table has its own contain:size, so no deep content measurement occurs. */
 .navigation-card__content {
-  grid-area: content;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow: auto;
   position: relative;
-  contain: strict;
+  contain: layout style paint;
 }
 
 /* Responsive: smaller header peek on narrow screens */

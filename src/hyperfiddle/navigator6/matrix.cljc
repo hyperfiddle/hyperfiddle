@@ -255,7 +255,11 @@
                             :--min-column-width  (str min-column-width "px")
                             :--row-count         rowTs-count
                             :--column-count      columnTs-count
-                            :--max-label-ch      max-label-ch}})
+                            :--max-label-ch      max-label-ch
+                            ;; Smart initial sizing — fit data + header + 1 empty affordance row, clamped to [3, 15]
+                            :--min-row-count     3
+                            :--initial-row-count (let [visual-rows (if transpose columnTs-count rowTs-count)]
+                                                   (clamp (+ visual-rows 2) 3 15))}})
         (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
                             `Noop (e/fn [] [::forms/ok])}
           ;; Hoist scroll computation so both MatrixHeader and MatrixBody share
