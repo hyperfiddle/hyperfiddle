@@ -301,12 +301,15 @@
           rowsT (e/server (if associative? [stepT] children))
           rowsT-count (e/server (if associative? 1 (e/Offload #(bounded-count limit rowsT))))
           disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection))
-          ;; For associative views, swap search axes: filter properties (columns) by name/value
-          ;; using the existing edge-name search path (columnTs = nil triggers it).
+          ;; ── Axis-dependent bindings ──────────────────────────────────────
+          ;; Associative views (single object) swap the search axis:
+          ;;   search filters COLUMNS (properties), rows are fixed at [stepT].
+          ;; Collection views keep the standard axis:
+          ;;   search filters ROWS (items), columns come from ColumnPicker.
           search-items (e/server (if associative? columnsT rowsT))
           search-items-count (e/server (if associative? (count columnsT) rowsT-count))
           search-columnTs (e/server (when-not associative? columnsT))]
-      (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE))
+      (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE associative?))
         search-items-count
         (e/server search-items)
         (e/server search-columnTs)
@@ -320,9 +323,7 @@
             (in top-left
               (dom/span (dom/props {:style {:order -1}
                                     :class "count"})
-                        (dom/text (#(if associative?
-                                      (rendering/format-map-entries-count entries-count limit)
-                                      (rendering/format-collection-count entries-count limit))))))
+                        (dom/text (#(rendering/format-count entries-count limit associative?)))))
             (e/amb
               (in top-left (dom/span (dom/props {:style {:order -2}})
                                      (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))

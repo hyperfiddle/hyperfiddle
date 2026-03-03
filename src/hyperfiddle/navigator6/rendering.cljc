@@ -258,21 +258,19 @@
 
 
 
-(defn format-collection-count
+(defn format-count
+  "Count badge, e.g. '(42 entries)' or '(≥10000 items · truncated)'.
+   associative? controls the noun: true → 'entries', false → 'items'."
   ;; FIXME Today we can't differentiate collections strictly equal to
   ;; `COLLECTION-LIMIT` from collections larger than `COLLECTION-LIMIT`.
-  [coll-count COLLECTION-LIMIT]
+  [coll-count COLLECTION-LIMIT associative?]
   {:pre [(number? coll-count) (number? COLLECTION-LIMIT)]
    :post [(string? %)]}
-  (debug-exceptions `format-collection-count
-    (let [reached-max-in-memory-lenght? (>= coll-count COLLECTION-LIMIT)]
-      (cl-format nil "(~:[~;≥~]~d item~:p~:[~; · truncated~])"
-        reached-max-in-memory-lenght? coll-count reached-max-in-memory-lenght?))))
-
-(defn format-map-entries-count [coll-count COLLECTION-LIMIT]
-  (-> (format-collection-count coll-count COLLECTION-LIMIT)
-    (str/replace "items" "entries")
-    (str/replace "item" "entry")))
+  (debug-exceptions `format-count
+    (let [truncated? (>= coll-count COLLECTION-LIMIT)
+          noun       (if associative? "entries" "items")]
+      (cl-format nil "(~:[~;≥~]~d ~a~:[~; · truncated~])"
+        truncated? coll-count noun truncated?))))
 
 (defn format-query-meta [query-meta]
   (some-> query-meta

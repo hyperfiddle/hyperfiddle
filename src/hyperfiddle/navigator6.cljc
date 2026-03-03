@@ -65,10 +65,35 @@
     :else nil))
 
 (defn- associative-value?
-  "True when the raw value at point is associative (record or map, not a collection)."
+  "True when the raw value at point is associative (record or map, not a collection).
+   Records implement IPersistentMap, so (imap? v) covers them."
   [v]
-  (or (record? v) (and (imap? v) (not (record? v)))
-      #?@(:clj [(and (some? v) (not (instance? clojure.lang.IObj v)) (not (array? v)))]))) ; java object (not array)
+  (or (imap? v)
+      #?@(:clj [(and (some? v) (not (instance? clojure.lang.IObj v)) (not (array? v)))])))
+
+(e/defn SuggestAndRender
+  "Unguided rendering — no HFQL query structure available.
+   Nav the value, auto-suggest columns from runtime type, render as matrix.
+   Used at recursion-end (recursion budget exhausted) and leaf traversals
+   (no static structure definition: escaping sitemap)."
+  [hfqlT]
+  (let [either-value ((glitch-guard hfql/nav*) hfqlT)
+        value (either identity identity either-value)
+        associative? (associative-value? value)
+        stepT (either
+                (fn [suggestion-err]
+                  (-> (hfql/hfql [*] (right suggestion-err))
+                    ((glitch-guard hfql/set-parent) hfqlT)))
+                (fn [suggestedT]
+                  (when (and (some? suggestedT) (not= hfqlT suggestedT))
+                    (-> suggestedT
+                      ((glitch-guard (flip hfql/seed))
+                       (assoc ((glitch-guard hfql/scope) hfqlT) (symbol "%") (right value)))
+                      ((glitch-guard hfql/set-parent) hfqlT))))
+                (hfql/suggest* value))]
+    (if (some? stepT)
+      (e/fn [_] (RenderMatrix stepT :associative? associative?))
+      (e/fn [& _]))))
 
 (e/defn ResolveRenderer [hfqlT]
   (e/server
@@ -79,45 +104,8 @@
         ;; pull → associative (single object, transposed), star → not associative (collection).
         ::pull (e/fn [stepT] (RenderMatrix stepT :associative? true))
         ::star (e/fn [stepT] (RenderMatrix stepT :associative? false))
-        ::recursion-end ; recursion budget exhausted — nav, suggest from runtime value, render
-        (e/Reconcile
-          (let [either-value ((glitch-guard hfql/nav*) hfqlT) ; runs IO — get traversal result (e.g. File[])
-                value (either identity identity either-value)
-                associative? (associative-value? value)
-                stepT (either
-                        (fn [suggestion-err]
-                          (-> (hfql/hfql [*] (right suggestion-err))
-                            ((glitch-guard hfql/set-parent) hfqlT)))
-                        (fn [suggestedT]
-                          (when (and (some? suggestedT) (not= hfqlT suggestedT))
-                            (-> suggestedT
-                              ((glitch-guard (flip hfql/seed))
-                               (assoc ((glitch-guard hfql/scope) hfqlT) (symbol "%") (right value)))
-                              ((glitch-guard hfql/set-parent) hfqlT))))
-                        (hfql/suggest* value))]
-            (if (some? stepT)
-              (e/fn [_] (RenderMatrix stepT :associative? associative?))
-              (e/fn [& _]))))
-        ;; Leaf (traversal with no structured child) → nav, suggest, render directly.
-        ;; Compute step as plain data (either callbacks must not contain e/fn).
-        (e/Reconcile
-          (let [either-value ((glitch-guard hfql/nav*) hfqlT) ; runs IO
-                value (either identity identity either-value)
-                associative? (associative-value? value)
-                stepT (either
-                        (fn [suggestion-err]
-                          (-> (hfql/hfql [*] (right suggestion-err))
-                            ((glitch-guard hfql/set-parent) hfqlT)))
-                        (fn [suggestedT]
-                          (when (and (some? suggestedT) (not= hfqlT suggestedT))
-                            (-> suggestedT
-                              ((glitch-guard (flip hfql/seed))
-                               (assoc ((glitch-guard hfql/scope) hfqlT) (symbol "%") (right value)))
-                              ((glitch-guard hfql/set-parent) hfqlT))))
-                        (hfql/suggest* value))]
-            (if (some? stepT)
-              (e/fn [_] (RenderMatrix stepT :associative? associative?))
-              (e/fn [& _]))))))))
+        ::recursion-end (e/Reconcile (SuggestAndRender hfqlT))
+        (e/Reconcile (SuggestAndRender hfqlT))))))
 
 (defn inject-dynamic-bindings [e-bindings stepT]
   (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))

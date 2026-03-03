@@ -136,11 +136,11 @@
         (m/eduction cat (resequence) (filter #(nth % 1)) (map #(nth % 2)))))))
 
 #?(:clj
-   (defn eager-search-BIG-O-N-SQUARE< [pretty-print-map rowTs columnTs needle]
+   (defn eager-search-BIG-O-N-SQUARE< [associative? pretty-print-map rowTs columnTs needle]
      (pfilter
        (fn [rowT]
          (when-not (.isInterrupted (Thread/currentThread))
-           (if (empty? columnTs)
+           (if associative?
              ;; Associative view: row IS the entry — check edge name + navigated value
              (or (strx/includes-str? (str (hfql/symbolic-edge rowT)) needle)
                  (let [either-value (hfql/nav* rowT)]
@@ -167,12 +167,12 @@
        (m/seed rowTs))))
 
 #?(:clj
-   (defn eager-search-BIG-O-N-SQUARE []
+   (defn eager-search-BIG-O-N-SQUARE [associative?]
      (fn [pretty-print-map rowTs columnTs needle]
        (cond
          (str/blank? needle) rowTs
          :else
-         (m/? (m/reduce conj [] (eager-search-BIG-O-N-SQUARE< pretty-print-map rowTs columnTs needle)))))))
+         (m/? (m/reduce conj [] (eager-search-BIG-O-N-SQUARE< associative? pretty-print-map rowTs columnTs needle)))))))
 
 
 #?(:clj
