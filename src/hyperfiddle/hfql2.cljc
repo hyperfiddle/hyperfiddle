@@ -658,12 +658,13 @@ identifier, though it might not be serializable."
          nil)))
 
 (def DEFAULT-SUGGESTION (hfql ^::default [identity identify type]))
+(def ^:private LEAF-SUGGESTION (hfql ^::default [identity]))
 
 (extend-protocol Suggestable
   #?(:clj java.util.Map$Entry, :cljs MapEntry)
   (-suggest [_] (hfql [key val]))
   #?(:clj Object, :cljs default)
-  (-suggest [_] DEFAULT-SUGGESTION)
+  (-suggest [_] LEAF-SUGGESTION)
   nil (-suggest [_]))
 
 #?(:clj (extend-type Class
