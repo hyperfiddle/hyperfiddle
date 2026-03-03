@@ -150,10 +150,8 @@
                            (fn [] (hash [((glitch-guard hfql/id) stepT) ; HACK
                                          (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
                                          ]))))]
-        (NavigationCard *navigation-depth*
-          (e/fn []
-            (rebooting id ; glitch guard
-              (e/server
+        (rebooting id ; glitch guard
+          (e/server
             (freezing [sitemap stepT]
               (e/Reconcile
                 (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
@@ -161,24 +159,34 @@
                     (with-local-search ::search   ; injects *local-search and interpret search commands
                       (with-local-selection ::selection ; injects *local-selection and interpret selection commands
                             (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
-                          (e/amb
-                            (e/call (ResolveRenderer stepT) ; call renderer for current point
-                              ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
-                              ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
-                              ;; See plans/associative-search-cell-recomputation.md for full analysis.
-                              (e/server (let [bindings (if (= ::pull ((glitch-guard effective-render-type) stepT))
-                                                         (dissoc e/*bindings* (find-var `search/*local-search))
-                                                         e/*bindings*)]
-                                          ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))
-                            (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritizes recursive children over regular children at point
-                              (e/Reconcile
-                                (when (e/server (some? next-childT))
-                                  (e/server
-                                    (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
-                                              selection/*parent-selection selection/*local-selection
-                                              *navigation-depth* (inc *navigation-depth*)]
-                                      (Navigate* sitemap next-childT)))))
-                              (e/amb)))))))))))))))))
+                        (e/amb
+                          ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
+                          ;; NavigationCard renders into the display:contents div, becoming a
+                          ;; direct child of .Browser alongside child cards.
+                          (NavigationCard *navigation-depth*
+                            (e/fn []
+                              (e/call (ResolveRenderer stepT) ; call renderer for current point
+                                ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
+                                ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
+                                ;; See plans/associative-search-cell-recomputation.md for full analysis.
+                                (e/server (let [bindings (if (= ::pull ((glitch-guard effective-render-type) stepT))
+                                                           (dissoc e/*bindings* (find-var `search/*local-search))
+                                                           e/*bindings*)]
+                                            ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))))
+                          ;; Branch 2: child navigation — sibling of card, gets full viewport width.
+                          ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
+                          ;; this card's with-local-selection clears selection → child unmounts.
+                          (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritizes recursive children over regular children at point
+                            (e/Reconcile
+                              (when (e/server (some? next-childT))
+                                (e/server
+                                  (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
+                                            selection/*parent-selection selection/*local-selection
+                                            *navigation-depth* (inc *navigation-depth*)]
+                                    (utils/InterceptCommand `selection/CloseCard!
+                                      (e/fn [_] [`selection/SetSelection! nil])
+                                      (Navigate* sitemap next-childT))))))
+                            (e/amb)))))))))))))))
 
 (e/defn NavigationCard [depth Body]
   (e/client
@@ -206,7 +214,10 @@
                 (e/Reconcile
                   (when chrome-clicked
                     [`selection/SetSelection! nil])))
-              ;; Close button
+              ;; Close button — emits CloseCard! (not SetSelection!) so the command
+              ;; propagates past this card's with-local-selection up to the parent,
+              ;; where InterceptCommand converts it to SetSelection! nil → parent
+              ;; clears selection → this card unmounts.
               (when (pos? depth)
                 (dom/button
                   (dom/props {:class "navigation-card__close-button"
@@ -217,11 +228,12 @@
                     (fn [e]
                       (.preventDefault e)
                       (.stopPropagation e)
-                      [`selection/SetSelection! nil])
+                      [`selection/CloseCard!])
                     nil)))
               dom/node)]
 
-        ;; ESC key handler
+        ;; ESC key handler — same rationale as close button: CloseCard! propagates
+        ;; up to parent's InterceptCommand → SetSelection! nil → card unmounts.
         (when (pos? depth)
           (let [esc-pressed (dom/On "keydown"
                               (fn [^js e]
@@ -232,7 +244,7 @@
                               {:node dom/node})]
             (e/Reconcile
               (when esc-pressed
-                [`selection/SetSelection! nil]))))
+                [`selection/CloseCard!]))))
 
         ;; Content area — bind chrome slot so views can inject header content
         (dom/div

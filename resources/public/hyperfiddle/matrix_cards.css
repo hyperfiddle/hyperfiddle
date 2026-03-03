@@ -15,7 +15,7 @@
   
   /* Deck stacking — each card peeks its header below the one above */
   --card-offset: calc(var(--navigation-depth, 0) * 2.25em);
-  top: 0; /* var(--card-offset); */
+  top: var(--card-offset);
   left: 0;
   right: 0;
 
