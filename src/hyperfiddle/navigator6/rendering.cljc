@@ -181,7 +181,10 @@
         show? (dom/Mouse-over?)] ; TODO perf – factor out. Today it mounts two event handlers per cell (mouseenter + mouseleave).
     (dom/props
       {:data-tooltip
-       (e/Reconcile (when show? (Tooltip object edgeT value)))})) )
+       ;; not-empty: "" → nil → attribute removed from DOM.
+       ;; Prevents stale tooltip when moving from a cell with content
+       ;; to one whose describe-formatted returns "" (e.g. ::ast/runtime-value).
+       (e/Reconcile (when show? (not-empty (Tooltip object edgeT value))))})) )
 
 (e/declare *rowT)
 
