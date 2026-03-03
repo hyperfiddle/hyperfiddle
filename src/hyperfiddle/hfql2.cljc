@@ -484,10 +484,17 @@
                         (or (::co/static-children rose-b) []))
         ;; TODO ::ast/id should become a pure accessor instead of a stored value —
         ;; it's a pure function of node content. See also ast/compute-node-id and ast/node-id.
-        merged-rose   (let [rt (rose-tree merged-attrs merged-ast-children)]
-                        (assoc (mapHead #(assoc % ::ast/id (ast/compute-node-id
-                                                             (rose-tree % merged-ast-children))) rt)
-                               ::co/static-children merged-static))
+        merged-rose   (let [rt (rose-tree merged-attrs merged-ast-children)
+                            base (assoc (mapHead #(assoc % ::ast/id (ast/compute-node-id
+                                                                      (rose-tree % merged-ast-children))) rt)
+                                        ::co/static-children merged-static)]
+                        ;; Carry forward record extras from rose-a (e.g. ::positional-index).
+                        ;; rose-tree and mapHead create fresh RoseTrees without extras,
+                        ;; and merge-pull-head-attrs uses (extract) which only returns AST attrs.
+                        ;; Skip keys already set above (::co/static-children has its own merge).
+                        (reduce-kv (fn [r k v] (if (contains? r k) r (assoc r k v)))
+                                   base
+                                   (dissoc rose-a :a :children)))
         store-a       (runCofreeT a)
         store-b       (runCofreeT b)
         merged-scope  (merge (pos store-b) (pos store-a))  ; left-biased
