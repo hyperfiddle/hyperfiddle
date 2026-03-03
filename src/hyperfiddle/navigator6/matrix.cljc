@@ -236,9 +236,13 @@
           ;; Hoist scroll computation so both MatrixHeader and MatrixBody share
           ;; the same pagination window. Cost: header waits ~1 frame for first
           ;; resize observation — practically imperceptible.
+          ;; Each axis scrolls over a different item set — vertical over the "main"
+          ;; dimension (rows or columns depending on transpose), horizontal over the other.
           (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
-                itemTs-count (#(if transpose columnTs-count rowTs-count))
-                scroll-window (Scroll-window 24 itemTs-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))})
+                v-count (#(if transpose columnTs-count rowTs-count))
+                h-count (#(if transpose rowTs-count columnTs-count))
+                scroll-window (Scroll-window 24 v-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))
+                                                                   :column-record-count h-count})
                 [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)
                 col-limit (min columnTs-count limitH)]
             (e/amb
