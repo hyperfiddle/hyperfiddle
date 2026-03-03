@@ -134,10 +134,12 @@ table.matrix{
     );
     --background-size: 100% calc(2 * var(--row-height));
     --background-position-y: calc(var(--row-height) + mod(var(--header-row-count), 2) * var(--row-height)); /* shifted by a row */
-    background: var(--background-pattern);
-    background-size: var(--background-size);
-    background-position-y: var(--background-position-y);
-    background-attachment: local;
+    /* Dual layers: local (top, scrolls with content) + scroll (fills gutter).
+       Chrome doesn't paint local-attached backgrounds into scrollbar-gutter. */
+    background: var(--background-pattern), var(--background-pattern);
+    background-size: var(--background-size), var(--background-size);
+    background-position-y: var(--background-position-y), var(--background-position-y);
+    background-attachment: local, scroll;
     thead { /* ensure it lines up with body */
         background: var(--background-pattern);
         background-size: var(--background-size);
