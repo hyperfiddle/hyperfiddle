@@ -114,6 +114,8 @@ table.matrix.transposed .matrix__diagonal {
 /* Associative transposed: header column sized from ALL property names via --max-label-ch
    (set from ClojureScript). Prevents column width jumps during IndexRing scroll. */
 table.matrix.associative.transposed {
+    /* No diagonal row — properties start at grid-row 1 instead of 2. */
+    grid-template-rows: repeat(calc(max(0, var(--column-count))), var(--row-height));
     /* Cap header column: ch-based width from server, but never wider than 25% of the table.
        Long property names (e.g. fully-qualified Java method names) would otherwise steal
        most of the horizontal space from the value column. */
@@ -123,6 +125,13 @@ table.matrix.associative.transposed {
     thead th .column-name {
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+    /* Shift header and body cells up by 1 — no diagonal row to skip. */
+    thead tr th:not(.transpose-affordance) {
+        grid-row: calc(1 + var(--cell-index));
+    }
+    tbody tr td {
+        grid-row: calc(1 + var(--cell-index));
     }
 }
 

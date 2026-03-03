@@ -55,12 +55,15 @@
           sort-spec)
       '.)))
 
-(e/defn MatrixHeader [columnsT offsetH limitH]
+(e/defn MatrixHeader [columnsT offsetH limitH associative?]
   (dom/thead
     (dom/tr
       (e/amb
-        (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :title "Transpose" :style {:width "100%"}})
-                (Command (constantly [`Transpose!]) (dom/On* "click" identity nil) (constantly nil)))
+        ;; Only show transpose toggle for collection views — single-object forms
+        ;; are always transposed, the toggle adds clutter with no benefit.
+        (when (not associative?)
+          (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :title "Transpose" :style {:width "100%"}})
+                  (Command (constantly [`Transpose!]) (dom/On* "click" identity nil) (constantly nil))))
         ;; shorten needs full column set to detect naming conflicts
         (let [shorten (e/server (name-shortener (into [] (comp (take COLLECTION-LIMIT) (map hfql/symbolic-edge)) columnsT)))]
           (e/for [col-index (IndexRing limitH offsetH)]
@@ -241,7 +244,7 @@
             (e/amb
               ;; MatrixHeader renders property names as <th scope=col>. CSS transposition
               ;; turns them into visual row headers. Sort handles hidden via CSS for associative.
-              (MatrixHeader columnTs offsetH col-limit)
+              (MatrixHeader columnTs offsetH col-limit associative?)
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
                 offsetH col-limit)

@@ -270,6 +270,10 @@ table.matrix.associative{
     tbody th[scope=row]:has(input[type=radio]){
         display: none;
     }
+    /* No transpose toggle for single-object forms — always transposed. */
+    .matrix__diagonal{
+        display: none;
+    }
 }
 
 /* Column sort handle */
