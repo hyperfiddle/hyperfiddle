@@ -53,6 +53,8 @@
         [(forms/after-ack t (partial after-ack event)) (value-fn event)]))))
 
 
+(def COLLECTION-LIMIT 10000)
+
 (defn- named? [x]
   (or (string? x)
     #?(:clj (instance? clojure.lang.Named x)
@@ -290,7 +292,7 @@
             (e/amb
               (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
                 (fn [event]
-                  (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil)))))))))))
+                  (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil))))))))))
 
 
 (e/defn ColumnPicker [stepT]
@@ -318,8 +320,6 @@
         (->> (mappend from-spec suggested)
           (sort-by childrenT-order <) ; FIXME order is still not respected WRT star. Suggestions should be injected where star is, if present.
           )))))
-
-(def COLLECTION-LIMIT 10000)
 
 
 
