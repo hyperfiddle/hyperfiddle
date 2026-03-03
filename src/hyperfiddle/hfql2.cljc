@@ -22,8 +22,8 @@
    [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.hfql2.ast :as ast]
    [hyperfiddle.hfql2.interpreter :as co :refer [unfoldT hfql-coalgebra hoistHfqlT]]
-   [hyperfiddle.hfql2.protocols :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch
-                                        Searchable -search-matches *search-max-collection-size* *search-max-str-len*]]
+   [hyperfiddle.hfql2.protocols :as hfqlp :refer [Identifiable Suggestable ComparableRepresentation Datafiable -hfql-resolve -resolve-dispatch
+                                                  Searchable -search-matches *search-max-collection-size* *search-max-str-len*]]
    [hyperfiddle.hfql2.utils :refer [has-meta? imap? original-object]]
    #?(:cljs [goog.string :as gstring])
    #?(:cljs [goog.string.format])
@@ -403,16 +403,22 @@
       :hyperfiddle.hfql2.ast/metadata nil}
   )
 
+(declare describe) ; forward ref: symbolic-edge* delegates to describe for runtime-value sources
+
 (defn symbolic-edge* [attrs]
   (or (::as attrs) ; user-explicit from options syntax or metadata
-      (::label attrs) ; auto-generated labels (Java methods)
+      (::label attrs) ; auto-generated labels (e.g. type-column)
       (let [type (::ast/type attrs)
             edge (::ast/edge attrs)]
         (case type
           ::ast/traversal (ast/symbolic-edge edge)
           ::ast/star nil ; star is syntax, not a named edge
           (::ast/recur ::ast/keyword ::ast/string ::ast/symbol
-           ::ast/var ::ast/runtime-value ::ast/call) (::ast/form attrs)
+           ::ast/var ::ast/call) (::ast/form attrs)
+          ;; Delegate to `describe` on the source object (e.g. java.lang.reflect.Method)
+          ;; for the display name. Falls back to the fn object for untagged runtime values.
+          ::ast/runtime-value (or (:name (some-> (::hfqlp/obj attrs) describe))
+                                  (::ast/form attrs))
           ::ast/literal (::ast/resolved-runtime-value attrs)
           ::ast/pull nil
           (::ast/quoted-var ::ast/quoted-symbol) (::ast/form attrs)
@@ -806,8 +812,7 @@ identifier, though it might not be serializable."
    (def ^:private discover-methods-for-class
      "Memoized by class so that the same fn objects are returned for the same class.
       This ensures stable HFQL IDs (compute-id hashes ::form which contains the fn)
-      across ColumnPicker (samples first item) and MatrixRow (per-row augmentation).
-      See also `type-column` which must be a singleton for the same reason."
+      across ColumnPicker (samples first item) and MatrixRow (per-row augmentation). "
      (memoize
        (fn [^Class clazz]
          (let [obj-methods (set (map #(.getName %) (.getMethods Object)))
@@ -830,40 +835,27 @@ identifier, though it might not be serializable."
                             (not (obj-methods (.getName m))))))
              (mapv (fn [^java.lang.reflect.Method m]
                      (try (.setAccessible m true) (catch Exception _))
-                     (let [sym (symbol (str "." (.getName m)))]
-                       (with-meta
-                         (fn [obj]
-                           ;; Invoke on a separate thread to avoid deadlocks with framework
-                           ;; internals (e.g. Jetty holds request-handling locks; a reflected
-                           ;; method that acquires the same locks will deadlock on this thread
-                           ;; but succeed on a fresh thread that doesn't hold those locks).
-                           ;; Uses Clojure's cached daemon thread pool; timeout prevents
-                           ;; permanent hangs if a true cross-thread deadlock occurs.
-                           ;; Timeout returns nil; real exceptions propagate for UI display.
-                           (let [result (deref (future (.invoke m obj (object-array 0))) 50 ::timeout)]
-                             (when-not (= ::timeout result) result)))
-                         {::label sym}))))))))))
-
+                     (with-meta
+                       (fn [obj]
+                         ;; Invoke on a separate thread to avoid deadlocks with framework
+                         ;; internals (e.g. Jetty holds request-handling locks; a reflected
+                         ;; method that acquires the same locks will deadlock on this thread
+                         ;; but succeed on a fresh thread that doesn't hold those locks).
+                         ;; Uses Clojure's cached daemon thread pool; timeout prevents
+                         ;; permanent hangs if a true cross-thread deadlock occurs.
+                         ;; Timeout returns nil; real exceptions propagate for UI display.
+                         (let [result (deref (future (.invoke m obj (object-array 0))) 50 ::timeout)]
+                           (when-not (= ::timeout result) result)))
+                       ;; Store the source Method — `describe` dispatches on its type
+                       ;; to produce :name/:arglists/:doc lazily at describe-time.
+                       {::hfqlp/obj m})))))))))
 #?(:clj
    (defn- discover-methods
      "Discover zero-arg public methods on a Java object, returning callable accessor
-      functions with ::label metadata for column display. Uses reflection to invoke
-      methods at runtime, bypassing the need for compile-time method resolution."
+      functions with the source Method as ::hfqlp/obj metadata. `describe` dispatches
+      on the Method type for column display and tooltips."
      [object]
      (discover-methods-for-class (class object))))
-
-#?(:clj
-   (def ^:private type-column
-     "Singleton fn for the `type` column in Java object suggestions.
-      Why a fn and not a symbol? `build-hfql` calls `ana/analyze` at runtime (not the
-      `hfql` macro), so we can't pass the symbol 'type — the analyzer would classify it
-      as ::symbol and the coalgebra would call it, not look it up. We pass a function
-      value which becomes a ::runtime-value node — always called.
-      Why a def? compute-id hashes ::form (the fn object) to produce HFQL IDs.
-      ColumnPicker and each MatrixRow both call suggest-java-object independently —
-      if each call created a fresh (with-meta type ...), the IDs wouldn't match and
-      find-cell-by-column* would return nil (cell not found → blank column, broken nav)."
-     (with-meta type {::label 'type})))
 
 #?(:clj
    (defn- suggest-java-object
@@ -871,7 +863,7 @@ identifier, though it might not be serializable."
      [object]
      (let [methods (discover-methods object)]
        (if (seq methods)
-         (build-hfql (into [type-column] methods))
+         (union (hfql [type]) (build-hfql (vec methods)))
          DEFAULT-SUGGESTION))))
 
 #?(:clj
@@ -1051,12 +1043,29 @@ identifier, though it might not be serializable."
 (defmethod describe :default [_] nil)
 (defmethod describe ::ast/symbol         [stepT] (extract (meta stepT)))
 (defmethod describe ::ast/quoted-symbol  [stepT] (extract (meta stepT)))
-(defmethod describe ::ast/runtime-value  [stepT] (extract (meta stepT)))
+;; Delegate to (describe source) when a source object is attached,
+;; so extensible description (e.g. Method) flows through one multimethod.
+(defmethod describe ::ast/runtime-value [stepT]
+  (let [attrs (extract (meta stepT))]
+    (if-some [source (::hfqlp/obj attrs)]
+      (merge attrs (describe source))
+      attrs)))
 (defmethod describe ::ast/keyword        [stepT] (extract (meta stepT)))
 (defmethod describe ::ast/string         [stepT] (extract (meta stepT)))
 (defn- describe-call [attrs] (assoc attrs ::symbolic-edge (symbolic-edge* attrs)))
 (defmethod describe ::ast/call   [stepT] (describe-call (extract (meta stepT))))
 (defmethod describe ::ast/traversal [stepT] (describe-call (extract (ast/edge (meta stepT)))))
+
+;; Extension: describe a reflected Java method for column display and tooltips.
+;; Returns standard var-like metadata keys (:name, :arglists, :doc).
+#?(:clj
+   (defmethod describe java.lang.reflect.Method [^java.lang.reflect.Method m]
+     {:name     (symbol (str "." (.getName m)))
+      :arglists (list (mapv #(symbol (.getSimpleName ^Class %))
+                        (.getParameterTypes m)))
+      :doc      (str (.getName (.getDeclaringClass m))
+                     "/." (.getName m)
+                     " \u2192 " (.getSimpleName (.getReturnType m)))}))
 
 (comment
   (describe nil)
@@ -1080,13 +1089,25 @@ identifier, though it might not be serializable."
 (defmethod describe-formatted ::ast/keyword [hfqlT] (::ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/string  [hfqlT] (::ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/lambda  [hfqlT] (symbolic-edge hfqlT))
-(defmethod describe-formatted ::ast/runtime-value [hfqlT] (str (symbolic-edge hfqlT))) ; show label (e.g. ".isBlank") from discover-methods metadata
+;; Delegate to describe-formatted on the source when available,
+;; so Method (or any future foreign type) controls its own tooltip rendering.
+(defmethod describe-formatted ::ast/runtime-value [hfqlT]
+  (let [attrs (extract (meta hfqlT))]
+    (if-some [source (::hfqlp/obj attrs)]
+      (describe-formatted source)
+      (str (symbolic-edge hfqlT)))))
 
 (defmethod describe-formatted ::ast/traversal [hfqlT]
   (let [desc (describe hfqlT)
         {::keys [symbolic-edge]} desc
         var (::ast/var desc)]
     (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" symbolic-edge (some-> var meta :arglists) (some-> var meta :doc))))
+
+;; Tooltip text for a reflected Java method: FQN doc + arglists.
+#?(:clj
+   (defmethod describe-formatted java.lang.reflect.Method [^java.lang.reflect.Method m]
+     (let [{:keys [doc arglists]} (describe m)]
+       (cl-format nil "~a~@[~%~{~a~^~%~}~]" doc arglists))))
 
 (comment
   (describe (hfql :db/ident))
