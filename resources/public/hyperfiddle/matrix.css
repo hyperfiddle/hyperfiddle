@@ -9,10 +9,10 @@
   These rules are essential to get a proper virtual scroll working. Do not ignore them.
 */
 table.matrix{
-    --min-row-count: 2;
-    --initial-row-count: 15;
+    --min-row-count: 3;
+    --initial-row-count: 3;  /* Start compact — Electric's inline style overrides once data arrives */
     --row-height: 1lh; /* injected – one line-height */
-    min-height: calc(var(--min-row-count) * var(--row-height)); /* display a minimum of two rows for affordances to be discoverable */
+    min-height: calc(var(--min-row-count) * var(--row-height)); /* header + 1 data row + 1 empty (affordance) */
     height: calc(var(--initial-row-count) * var(--row-height)); /* prevent expansion to the full collection size. */
     contain: size; /* prevent horizontal expansion to the full column set */
     overflow: auto; /* enable scrolling */
