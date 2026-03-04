@@ -12,7 +12,7 @@
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
             [hyperfiddle.navigator6.selection2 :as selection2]
             [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
-            [hyperfiddle.navigator6.utils :as utils :refer [rebooting freezing glitch-guard]]
+            [hyperfiddle.navigator6.utils :as utils :refer [in rebooting glitch-guard]]
             [contrib.css :as cssx]
             [contrib.data :refer [#?(:clj array?)]]
             [hyperfiddle.hfql2.utils :refer [imap?]]
@@ -151,42 +151,40 @@
                                          (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
                                          ]))))]
         (rebooting id ; glitch guard
-          (e/server
-            (freezing [sitemap stepT]
-              (e/Reconcile
-                (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
-                  (with-local-state ::state/route ; injects *local-state and interpret state write commands
-                    (with-local-search ::search   ; injects *local-search and interpret search commands
-                      (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                            (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
-                        (e/amb
-                          ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
-                          ;; NavigationCard renders into the display:contents div, becoming a
-                          ;; direct child of .Browser alongside child cards.
-                          (NavigationCard *navigation-depth*
-                            (e/fn []
-                              (e/call (ResolveRenderer stepT) ; call renderer for current point
-                                ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
-                                ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
-                                ;; See plans/associative-search-cell-recomputation.md for full analysis.
-                                (e/server (let [bindings (if (= ::pull ((glitch-guard effective-render-type) stepT))
-                                                           (dissoc e/*bindings* (find-var `search/*local-search))
-                                                           e/*bindings*)]
-                                            ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))))
-                          ;; Branch 2: child navigation — sibling of card, gets full viewport width.
-                          ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
-                          ;; this card's with-local-selection clears selection → child unmounts.
-                          (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritizes recursive children over regular children at point
-                            (e/Reconcile
-                              (when (e/server (some? next-childT))
-                                (e/server
-                                  (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
-                                            selection/*parent-selection selection/*local-selection
-                                            *navigation-depth* (inc *navigation-depth*)]
-                                    (utils/InterceptCommand `selection/CloseCard!
-                                      (e/fn [_] [`selection/SetSelection! nil])
-                                      (Navigate* sitemap next-childT))))))
-                            (e/amb)))))))))))))))
+          (let [sitemap (e/server (e/Snapshot sitemap))
+                stepT (e/server (e/Snapshot stepT))]
+            (e/Reconcile
+              (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
+                (with-local-state ::state/route ; injects *local-state and interpret state write commands
+                  (with-local-search ::search   ; injects *local-search and interpret search commands
+                    (with-local-selection ::selection ; injects *local-selection and interpret selection commands
+                      (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
+                      (e/amb
+                        ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
+                        ;; NavigationCard renders into the display:contents div, becoming a
+                        ;; direct child of .Browser alongside child cards.
+                        (NavigationCard *navigation-depth*
+                          (e/fn []
+                            (e/call (ResolveRenderer stepT) ; call renderer for current point
+                              ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
+                              ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
+                              ;; See plans/associative-search-cell-recomputation.md for full analysis.
+                              (e/server (let [bindings (if (= ::pull ((glitch-guard effective-render-type) stepT))
+                                                         (dissoc e/*bindings* (find-var `search/*local-search))
+                                                         e/*bindings*)]
+                                          ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))))
+                        ;; Branch 2: child navigation — sibling of card, gets full viewport width.
+                        ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
+                        ;; this card's with-local-selection clears selection → child unmounts.
+                        (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritizes recursive children over regular children at point
+                          (e/Reconcile
+                            (e/When (e/server (some? next-childT))
+                              (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
+                                        selection/*parent-selection selection/*local-selection
+                                        *navigation-depth* (inc *navigation-depth*)]
+                                (utils/InterceptCommand `selection/CloseCard!
+                                  (e/fn [_] [`selection/SetSelection! [nil (e/fn [])]])
+                                  (Navigate* sitemap next-childT))))))))))))))))))
 
 (e/defn NavigationCard [depth Body]
   (e/client
@@ -200,57 +198,59 @@
                   :aria-label (str "Navigation level " (inc depth))
                   :tabindex "-1"}) ; Focusable for keyboard nav
 
-      ;; Chrome bar — single mount point, children use CSS grid-area for placement
-      (let [chrome
-            (dom/div
-              (dom/props {:class "navigation-card__chrome"})
-              ;; Click chrome to focus this card (trashes deeper children)
-              (let [chrome-clicked (dom/On "click"
+      (let [chrome (dom/div
+                     (dom/props {:class "navigation-card__chrome"})
+                     dom/node)]
+        ;; All command sources merged via e/amb as the LAST expression of the
+        ;; outer dom/div. Electric's do-semantics drain all but the last expr,
+        ;; so commands must live here to propagate out of NavigationCard.
+        (e/amb
+          ;; Close button click → CloseCard! (delegated on chrome node).
+          ;; CloseCard! propagates past this card's with-local-selection up to the
+          ;; parent, where InterceptCommand converts it to SetSelection! nil →
+          ;; parent clears selection → this card unmounts.
+          (e/When (pos? depth)
+            (in chrome
+              (dom/button
+                (dom/props {:class "navigation-card__close-button"
+                            :aria-label "Close"
+                            :title "Close (ESC)"})
+                (dom/text "\u2715")
+                (let [[t _err] (e/Token (dom/On "click"
+                                          (fn [^js e]
+                                            (.preventDefault e)
+                                            (.stopPropagation e)
+                                            true)
+                                          nil {}))]
+                  (e/When t [t [`selection/CloseCard!]])))))
+          ;; Chrome click → close children (SetSelection! nil)
+          ;; e/Token wraps the event into a [token command] edit pair
+          ;; expected by the forms/Parse pipeline (InterceptCommand, with-local-selection, etc.)
+          (let [[t _err] (e/Token (dom/On chrome "click"
                                     (fn [^js e]
                                       (when-not (.. e -target (closest ".navigation-card__close-button"))
                                         (.stopPropagation e)
                                         true))
-                                    nil)]
-                (e/Reconcile
-                  (when chrome-clicked
-                    [`selection/SetSelection! nil])))
-              ;; Close button — emits CloseCard! (not SetSelection!) so the command
-              ;; propagates past this card's with-local-selection up to the parent,
-              ;; where InterceptCommand converts it to SetSelection! nil → parent
-              ;; clears selection → this card unmounts.
-              (when (pos? depth)
-                (dom/button
-                  (dom/props {:class "navigation-card__close-button"
-                              :aria-label "Close"
-                              :title "Close (ESC)"})
-                  (dom/text "\u2715")
-                  (dom/On "click"
-                    (fn [e]
-                      (.preventDefault e)
-                      (.stopPropagation e)
-                      [`selection/CloseCard!])
-                    nil)))
-              dom/node)]
+                                    nil {}))]
+            (e/When t [t [`selection/SetSelection! [nil (e/fn [])]]]))
 
-        ;; ESC key handler — same rationale as close button: CloseCard! propagates
-        ;; up to parent's InterceptCommand → SetSelection! nil → card unmounts.
-        (when (pos? depth)
-          (let [esc-pressed (dom/On "keydown"
-                              (fn [^js e]
-                                (when (= "Escape" (.-key e))
-                                  (.preventDefault e)
-                                  (.stopPropagation e)
-                                  true))
-                              {:node dom/node})]
-            (e/Reconcile
-              (when esc-pressed
-                [`selection/CloseCard!]))))
+          ;; ESC key → CloseCard! (same rationale as close button)
+          (e/When (pos? depth)
+            (let [[t _err] (e/Token (dom/On dom/node "keydown"
+                                      (fn [^js e]
+                                        (when (= "Escape" (.-key e))
+                                          (.preventDefault e)
+                                          (.stopPropagation e)
+                                          true))
+                                      nil {}))]
+              (e/When t [t [`selection/CloseCard!]])))
 
-        ;; Content area — bind chrome slot so views can inject header content
-        (dom/div
-          (dom/props {:class "navigation-card__content"})
-          (binding [utils/*card-chrome* chrome]
-            (Body)))))))
+          ;; Content area — commands from Body propagate through e/amb
+          (dom/div
+            (dom/props {:class "navigation-card__content"})
+            (binding [utils/*card-chrome* chrome]
+              (Body))))))))
+
 
 ;; (e/defn RenderMeta [stepT]
 ;;   (e/server
