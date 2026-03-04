@@ -154,7 +154,7 @@
                 (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
           (e/amb)))
 
-(e/defn MatrixRow [row-group-id columnsT row-index rowT offsetH limitH]
+(e/defn MatrixRow [row-group-id columnsT row-index rowT offsetH limitH & {:keys [associative?]}]
   (e/client
     (dom/tr
       (dom/props {:style {:--row-index row-index}
@@ -165,9 +165,13 @@
       (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
       (let [rowT (e/server (e/Offload #(hfql/augment-with-suggestions! rowT)))]
         (RowHandle row-group-id row-index rowT)
-        (let [cellsT (e/server (e/Offload (fn [] (let [cellsT ((maybe unwrap) rowT)
-                                                      selected-colsT (set (mapv hfql/id columnsT))]
-                                                  (filterv #(selected-colsT (hfql/id %)) cellsT)))))
+        ;; Associative views show all discovered properties — no column filtering.
+        ;; Collection views filter to ColumnPicker selection.
+        (let [cellsT (e/server (e/Offload (fn [] (let [cellsT ((maybe unwrap) rowT)]
+                                                  (if associative?
+                                                    cellsT
+                                                    (let [selected-colsT (set (mapv hfql/id columnsT))]
+                                                      (filterv #(selected-colsT (hfql/id %)) cellsT)))))))
               ]
           (e/client ;; trade off:
             ;; e/for on client = ultra smooth row positioning but glitchy row content
@@ -175,7 +179,7 @@
             (e/for [col-index (IndexRing limitH offsetH)]
               (MatrixCell col-index (e/server (hfql/find-cell-by-column* (nth columnsT col-index nil) cellsT))))))))))
 
-(e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH]
+(e/defn MatrixBody [columnsT rowsT offsetV limitV offsetH limitH & {:keys [associative?]}]
   (e/client
     (dom/tbody
       (let [row-group-id (random-uuid)]
@@ -183,7 +187,8 @@
         (e/for [index (IndexRing limitV offsetV)]
           (MatrixRow row-group-id columnsT
             index
-            (e/server (e/Offload #(nth rowsT index nil))) offsetH limitH))))))
+            (e/server (e/Offload #(nth rowsT index nil))) offsetH limitH
+            :associative? associative?))))))
 
 #?(:cljs
    (defn- find-clicked-cell-or-row [^js dom-event]
@@ -251,7 +256,8 @@
               (MatrixHeader columnTs offsetH col-limit associative?)
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
-                offsetH col-limit)
+                offsetH col-limit
+                :associative? associative?)
               (e/amb
                 (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
                   (fn [event]
@@ -299,8 +305,14 @@
           ;; For associative: bypass picker — all pull children are columns directly.
           picker-columnsT (e/server (when-not associative? (in legend (ColumnPicker stepT))))
           stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
+          ;; Associative views show all discovered properties — augment the pull
+          ;; so (unwrap stepT) returns suggested columns alongside explicit ones.
+          ;; Collection views handle this via ColumnPicker (line 263) instead.
+          stepT (e/server (if associative?
+                            (e/Offload #(or (hfql/augment-with-suggestions! stepT) stepT))
+                            stepT))
           limit (e/server (::hfql/limit (extract (meta stepT)) COLLECTION-LIMIT))
-          ;; For associative views: columns = pull children, row = the pull itself (single row).
+          ;; For associative views: columns = pull children (now includes suggestions), row = the pull itself.
           ;; The column IndexRing handles lazy pagination over properties.
           ;; For collections: columns from ColumnPicker, rows from unwrapping the collection.
           children (e/server ((glitch-guard unwrap) stepT))
