@@ -23,7 +23,7 @@ table.matrix {
         visibility: hidden;
         content: "";
         width: 1px;
-        height: calc(var(--row-count) * var(--row-height));
+        height: calc((var(--row-count) + 1) * var(--row-height)); /* +1 for header row offset in grid-row placement (tr uses --row-index + 2) */
     }
     thead {
         contain: style; /* override base 'size style' — size containment collapses painted height to 0, breaking opaque background on sticky headers */

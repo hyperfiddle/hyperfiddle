@@ -22,7 +22,7 @@ table.matrix.transposed {
         position: absolute;
         visibility: hidden;
         content: "";
-        width: calc(var(--row-count) * var(--column-width));
+        width: calc((var(--row-count) + 1) * var(--column-width)); /* +1 for header column offset in grid-column placement (tr uses --row-index + 2) */
         height: 1px;
     }
     thead {
