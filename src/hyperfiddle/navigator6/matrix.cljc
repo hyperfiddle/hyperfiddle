@@ -127,6 +127,9 @@
 (e/defn MatrixCell [cell-index cellT]
   (e/client
     (dom/td (dom/props {:style {:--cell-index cell-index}
+                        ;; Buffer cell beyond column count at far-bottom scroll —
+                        ;; mirrors the data-empty pattern for nil rows (line 164).
+                        :data-empty (str (e/server (nil? cellT)))
                         :role :radio
                         :tabindex "0"
                         :data-tooltip (e/server ({false (str "Can't select this cell. Column object is not Identifiable. " (type (hfql/symbolic-edge cellT)) " : " (hfql/symbolic-edge cellT))} (selection2/cell-selectable? cellT)))
@@ -249,7 +252,11 @@
                 scroll-window (Scroll-window 24 v-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))
                                                                    :column-record-count h-count})
                 [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)
-                col-limit (min columnTs-count limitH)]
+                ;; +1 for associative: the transposed header is a column (no vertical
+                ;; space consumed), so compute-scroll-window's limit is an exact fit.
+                ;; Collection views get a free +1 because the sticky header row steals
+                ;; vertical space. Match that buffer for smooth property scrolling.
+                col-limit (min columnTs-count (#(if associative? (inc limitH) limitH)))]
             (e/amb
               ;; MatrixHeader renders property names as <th scope=col>. CSS transposition
               ;; turns them into visual row headers. Sort handles hidden via CSS for associative.
