@@ -176,7 +176,7 @@
                         ;; Branch 2: child navigation — sibling of card, gets full viewport width.
                         ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
                         ;; this card's with-local-selection clears selection → child unmounts.
-                        (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritizes recursive children over regular children at point
+                        (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritize recursive children over regular children at point
                           (e/Reconcile
                             (e/When (e/server (some? next-childT))
                               (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
@@ -190,13 +190,11 @@
   (e/client
     (dom/div
       (dom/props {:class "hyperfiddle-navigation-card"
-                  :style {:--navigation-depth depth
-                          :z-index (+ 10 depth)}
+                  :style {:--navigation-depth depth}
                   :data-depth depth
-                  :role "dialog"
-                  :aria-modal (zero? depth) ; Only root is non-modal
+                  :role "region"
                   :aria-label (str "Navigation level " (inc depth))
-                  :tabindex "-1"}) ; Focusable for keyboard nav
+                  :tabindex "0"}) ; TAB-navigable — :focus-within drives accordion reveal
 
       (let [chrome (dom/div
                      (dom/props {:class "navigation-card__chrome"})
@@ -223,16 +221,17 @@
                                             true)
                                           nil {}))]
                   (e/When t [t [`selection/CloseCard!]])))))
-          ;; Chrome click → close children (SetSelection! nil)
-          ;; e/Token wraps the event into a [token command] edit pair
-          ;; expected by the forms/Parse pipeline (InterceptCommand, with-local-selection, etc.)
-          (let [[t _err] (e/Token (dom/On chrome "click"
-                                    (fn [^js e]
-                                      (when-not (.. e -target (closest ".navigation-card__close-button"))
-                                        (.stopPropagation e)
-                                        true))
-                                    nil {}))]
-            (e/When t [t [`selection/SetSelection! [nil (e/fn [])]]]))
+          ;; Mousedown on non-focusable areas → focus this card.
+          ;; Ensures clicking empty table cells or whitespace keeps the
+          ;; accordion reveal active via :focus-within.
+          (dom/On "mousedown"
+            (fn [^js e]
+              (when-not (or (instance? js/HTMLInputElement (.-target e))
+                            (instance? js/HTMLButtonElement (.-target e))
+                            (instance? js/HTMLAnchorElement (.-target e))
+                            (.closest (.-target e) "[tabindex]"))
+                (.focus dom/node)))
+            nil {})
 
           ;; ESC key → CloseCard! (same rationale as close button)
           (e/When (pos? depth)

@@ -1,26 +1,23 @@
-/* Navigation Card Z-Axis Stacking */
+/* Navigation Card Focus-Reveal Accordion
+   Cards stack vertically in normal flow. Only the focused card reveals its
+   content — all others collapse to their chrome bar. :focus-within drives
+   the reveal so the browser's native focus model is the sole state. */
 
-/* Browser container needs relative positioning for absolute cards */
+/* Browser container — flex column so cards stack top-to-bottom */
 .Browser {
-  position: relative;
   width: 100%;
   height: 100vh;
-  overflow: hidden;
+  overflow-y: auto;      /* scroll if collapsed chrome bars exceed viewport */
   isolation: isolate;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Card wrapper - stacks on z-axis with offset */
+/* Card — flow participant, collapses to chrome height by default */
 .hyperfiddle-navigation-card {
-  position: absolute;
-  
-  /* Deck stacking — each card peeks its header below the one above */
-  --card-offset: calc(var(--navigation-depth, 0) * 2.25em);
-  top: var(--card-offset);
-  left: 0;
-  right: 0;
-
-  /* Full width, intrinsic height from content (table sizes itself) */
+  /* No absolute positioning — participates in parent flex flow */
   width: 100%;
+  flex: 0 0 auto; /* default: only chrome height, no growth */
 
   /* Visual chrome */
   background: white;
@@ -30,24 +27,15 @@
     0 4px 6px -1px rgb(0 0 0 / 0.1),
     0 2px 4px -2px rgb(0 0 0 / 0.1);
 
-  /* Layout — flexbox column: chrome header + content.
-     Why flex over grid: Grid can't constrain 1fr tracks against max-height —
-     tracks resolve with indefinite height, then max-height clips but the
-     content track stays unconstrained (no scrollbar). Flex correctly
-     distributes space under max-height constraints. */
+  /* Internal layout — chrome header + content column */
   display: flex;
   flex-direction: column;
-  
-  /* Isolation for stacking */
+
   isolation: isolate;
   contain: layout style;
-  
-  /* Smooth transitions */
   transition: box-shadow 0.2s ease-out;
-
-  /* Entrance animation */
-  animation: card-enter 0.2s ease-out;
 }
+
 
 /* Chrome bar — grid areas: title | search | pill | close */
 .navigation-card__chrome {
@@ -141,13 +129,28 @@
   background: #d5d5d5;
 }
 
-/* Content area — no overflow scroll here; only the inner table scrolls.
-   The table has contain:size + overflow:auto, so it manages its own scrollbar. */
+/* Content area — collapsed by default, revealed by focus or leaf status.
+   grid-template-rows: 0fr→1fr animates height from 0 to intrinsic. */
 .navigation-card__content {
-  flex: 0 0 auto;
-  position: relative;
-  contain: layout style paint;
-  transition: filter 0.15s ease-out;
+  display: grid;
+  grid-template-rows: 0fr;   /* collapsed — only chrome bar visible */
+  overflow: hidden;
+  transition: grid-template-rows 0.2s ease-out;
+}
+/* Allow the grid child to shrink below its intrinsic size during collapse */
+.navigation-card__content > * {
+  min-height: 0;
+}
+/* Focused card: reveal content */
+.hyperfiddle-navigation-card:focus-within > .navigation-card__content {
+  grid-template-rows: 1fr;
+}
+/* Leaf card (no children) — always visible, exempt from collapse logic.
+   A leaf is a card with no subsequent sibling containing another card.
+   Works because e/amb renders card + child-navigation as DOM siblings,
+   and display:contents wrappers are transparent to descendant queries. */
+.hyperfiddle-navigation-card:not(:has(~ * .hyperfiddle-navigation-card)) > .navigation-card__content {
+  grid-template-rows: 1fr;
 }
 
 /* Close-button hover preview — gray out everything that will disappear on close.
@@ -159,31 +162,3 @@
   filter: grayscale(1) brightness(0.7);
 }
 
-/* Responsive: smaller header peek on narrow screens */
-@media (max-width: 768px) {
-  .hyperfiddle-navigation-card {
-    --card-offset: calc(var(--navigation-depth, 0) * 2em);
-  }
-}
-
-/* Deep nesting: cap offset at 10 levels */
-.hyperfiddle-navigation-card[data-depth="10"],
-.hyperfiddle-navigation-card[data-depth="11"],
-.hyperfiddle-navigation-card[data-depth="12"],
-.hyperfiddle-navigation-card[data-depth="13"],
-.hyperfiddle-navigation-card[data-depth="14"],
-.hyperfiddle-navigation-card[data-depth="15"] {
-  --card-offset: calc(10 * 2.25em);
-}
-
-/* Entrance animation — slides up from below */
-@keyframes card-enter {
-  from {
-    opacity: 0;
-    transform: translateY(1em) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
