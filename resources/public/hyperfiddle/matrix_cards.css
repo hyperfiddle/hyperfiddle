@@ -19,9 +19,8 @@
   left: 0;
   right: 0;
 
-  /* Full width, shrink-to-content up to available space */
+  /* Full width, intrinsic height from content (table sizes itself) */
   width: 100%;
-  max-height: calc(100% - var(--card-offset));
 
   /* Visual chrome */
   background: white;
@@ -142,13 +141,10 @@
   background: #d5d5d5;
 }
 
-/* Content area — flex-shrink so it respects card's max-height.
-   No size containment here — let flex measure the table's CSS-computed height.
-   The table has its own contain:size, so no deep content measurement occurs. */
+/* Content area — no overflow scroll here; only the inner table scrolls.
+   The table has contain:size + overflow:auto, so it manages its own scrollbar. */
 .navigation-card__content {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow: auto;
+  flex: 0 0 auto;
   position: relative;
   contain: layout style paint;
 }
