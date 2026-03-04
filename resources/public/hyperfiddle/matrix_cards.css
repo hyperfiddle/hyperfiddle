@@ -147,6 +147,16 @@
   flex: 0 0 auto;
   position: relative;
   contain: layout style paint;
+  transition: filter 0.15s ease-out;
+}
+
+/* Close-button hover preview — gray out everything that will disappear on close.
+   Current card is lightly dimmed (still "yours"), children heavily (collateral). */
+.hyperfiddle-navigation-card:has(.navigation-card__close-button:hover) {
+  filter: grayscale(0.5) brightness(0.9);
+}
+.hyperfiddle-navigation-card:has(.navigation-card__close-button:hover) ~ * .hyperfiddle-navigation-card {
+  filter: grayscale(1) brightness(0.7);
 }
 
 /* Responsive: smaller header peek on narrow screens */
