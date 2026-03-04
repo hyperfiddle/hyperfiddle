@@ -166,6 +166,10 @@
                   ;; This extra row is empty at the end of the collection, and we don't want it to show up at all. So we hide it with CSS.
                   :data-empty (str (e/server (nil? rowT)))})
       (e/client (set! (.-data-rowT ^js dom/node) (e/server (utils/Delay rowT))))
+      ;; PERF: Per-row augmentation — all visible rows re-discover the same schema via
+      ;; augment-with-suggestions!. For a 10-row viewport with 100 columns, that's 10×
+      ;; redundant IO + eager union. Associative views avoid this (line ~318 does it once).
+      ;; Lazy alternative: lift suggestion computation to collection level, share across rows.
       (let [rowT (e/server (e/Offload #(hfql/augment-with-suggestions! rowT)))]
         (RowHandle row-group-id row-index rowT)
         ;; Associative views show all discovered properties — no column filtering.

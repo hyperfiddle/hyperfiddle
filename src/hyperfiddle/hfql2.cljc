@@ -451,6 +451,9 @@
   (when hfqlT
     (resolved-symbolic-edge* (meta hfqlT))))
 
+;; PERF: Eager — `into #{}` forces children-a for the dedup set, then `into (vec ...)`
+;; forces both seqs again. A lazy alternative (concat + memoized edge-set) would defer
+;; materialization, but callers use `nth` on the result which requires a vector.
 (defn- merge-hfqlt-children
   "Merge two sequences of HFQLT children by resolved-symbolic-edge. Left-biased."
   [children-a children-b]
@@ -459,6 +462,7 @@
           (remove (comp a-edges resolved-symbolic-edge))
           children-b)))
 
+;; PERF: Same eager pattern as merge-hfqlt-children, but AST-level (pure computation, no IO).
 (defn- merge-pull-children [children-A children-B]
   (let [a-edges (into #{} (map resolved-symbolic-edge* children-A))]
     (into children-A (remove (comp a-edges resolved-symbolic-edge*) children-B))))
@@ -479,6 +483,10 @@
         rose-b        (meta b)
         merged-attrs  (merge-pull-head-attrs rose-a rose-b)
         merged-ast-children (merge-pull-children (unwrap rose-a) (unwrap rose-b))
+        ;; PERF: Union is eager end-to-end — merge-hfqlt-children and merge-pull-children
+        ;; above both force all children immediately. When called from augment-with-suggestions!,
+        ;; this materializes all suggested columns per row even though IndexRing only renders
+        ;; `limitH` visible columns.
         merged-static (merge-hfqlt-children
                         (or (::co/static-children rose-a) [])
                         (or (::co/static-children rose-b) []))
@@ -875,9 +883,13 @@ identifier, though it might not be serializable."
 
 #?(:clj
    (defn- java-object?
-     "True if obj is a Java object (not a Clojure type) that may have discoverable methods."
+     "True if obj is a Java object (not a Clojure type) that may have discoverable methods.
+     Excludes nil and some scalar types — nil is not an instance of anything, so the IObj check alone
+     would wrongly classify it as a Java object, leading to spurious column
+     discovery (e.g. 'type' / '.getBasis' on nil cells)."
      [object]
-     (and (not (instance? clojure.lang.IObj object))
+     (and (some? object)
+          (not (instance? clojure.lang.IObj object))
           (not (string? object))
           (not (number? object))
           (not (boolean? object))
@@ -907,6 +919,12 @@ identifier, though it might not be serializable."
 
 (declare parent set-parent)
 
+;; PERF: Per-row eagerness — each call forces: (1) value-at-point IO to discover schema,
+;; (2) children-ids diff (forces ::co/static-children), (3) collection sampling via `(first coll)`
+;; for [*] pulls, (4) eager union of all children. Collection views pay this per visible row
+;; (all rows rediscover the same schema). Associative views pay it once at RenderMatrix level.
+;; Lazy alternative: compute suggestions once at collection level, share across rows.
+;; Blocked on heterogeneous collections (varying attrs per entity).
 (let [children-ids (comp set (fmap id) ::co/static-children meta)]
   (defn augment-with-suggestions! [hfqlT]
     (when hfqlT
