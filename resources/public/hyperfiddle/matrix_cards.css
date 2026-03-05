@@ -1,7 +1,8 @@
-/* Navigation Card Focus-Reveal Accordion
-   Cards stack vertically in normal flow. Only the focused card reveals its
-   content — all others collapse to their chrome bar. :focus-within drives
-   the reveal so the browser's native focus model is the sole state. */
+/* Navigation Card Accordion — position-based defaults + explicit toggle.
+   Cards stack vertically. The leaf (top-most) card is always expanded.
+   The penultimate card is expanded by default. Earlier cards are collapsed.
+   An eye-toggle checkbox lets the user override the positional default.
+   Focus is tracked via data-focused (set by JS) for the ESC indicator. */
 
 /* Browser container — flex column so cards stack top-to-bottom */
 .Browser {
@@ -37,7 +38,7 @@
 }
 
 
-/* Chrome bar — grid areas: title | search | pill | close */
+/* Chrome bar — grid areas: toggle | title | search | pill | close */
 .navigation-card__chrome {
   flex: 0 0 2.25em;
   border-bottom: 1px solid #e5e5e5;
@@ -46,11 +47,11 @@
   border-top-right-radius: 0.5em;
 
   display: grid;
-  grid-template-columns: 1fr auto 5.5ch 1.75em;
-  grid-template-areas: "title search pill close";
+  grid-template-columns: 1.75em 1fr auto 5.5ch 1.75em;
+  grid-template-areas: "toggle title search pill close";
   align-items: center;
   gap: 0.5em;
-  padding: 0 0.25em 0 0.5em;
+  padding: 0 0.25em;
 
   cursor: pointer;
 }
@@ -129,8 +130,35 @@
   background: #d5d5d5;
 }
 
-/* Content area — collapsed by default, revealed by focus or leaf status.
-   grid-template-rows: 0fr→1fr animates height from 0 to intrinsic. */
+/* Eye toggle — styled checkbox, appearance:none so we draw the icon ourselves.
+   Unchecked = use positional default. Checked = invert positional default. */
+.navigation-card__toggle {
+  grid-area: toggle;
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 20px;
+  height: 20px;
+  justify-self: center;
+  cursor: pointer;
+  background-size: 14px 14px;
+  background-repeat: no-repeat;
+  background-position: center;
+  border: none;
+  border-radius: 4px;
+  background-color: transparent;
+  transition: background-color 0.15s;
+  /* Default icon: eye-closed (collapsed) */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E");
+}
+.navigation-card__toggle:hover {
+  background-color: #e5e5e5;
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Content area — collapsed by default.
+   grid-template-rows: 0fr→1fr animates height from 0 to intrinsic.
+   ─────────────────────────────────────────────────────────────────────── */
 .navigation-card__content {
   display: grid;
   grid-template-rows: 0fr;   /* collapsed — only chrome bar visible */
@@ -141,16 +169,81 @@
 .navigation-card__content > * {
   min-height: 0;
 }
-/* Focused card: reveal content */
-.hyperfiddle-navigation-card:focus-within > .navigation-card__content {
-  grid-template-rows: 1fr;
-}
-/* Leaf card (no children) — always visible, exempt from collapse logic.
-   A leaf is a card with no subsequent sibling containing another card.
+
+/* ───────────────────────────────────────────────────────────────────────
+   Position-based expand/collapse rules.
+
+   Position detection uses :has() with general sibling combinator (~).
    Works because e/amb renders card + child-navigation as DOM siblings,
-   and display:contents wrappers are transparent to descendant queries. */
+   and display:contents wrappers are transparent to :has() descendant queries.
+
+   IMPORTANT: :has() CANNOT be nested inside :has() per the CSS spec.
+   We detect "other" (2+ following cards) with a FLAT selector:
+     ~ * .HNC ~ * .HNC  ("a following sibling card that itself has a following sibling card")
+   This avoids the invalid :has(:has()) nesting.
+
+   LEAF:        :not(:has(~ * .HNC))
+   PENULTIMATE: :has(~ * .HNC):not(:has(~ * .HNC ~ * .HNC))
+   OTHER:       :has(~ * .HNC ~ * .HNC)
+
+   Toggle semantics: checkbox starts unchecked (= use positional default).
+   Checking inverts the default. Each click toggles the visual state.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Leaf card — always expanded, exempt from toggle.
+   A leaf is the deepest card (no subsequent sibling containing another card). */
 .hyperfiddle-navigation-card:not(:has(~ * .hyperfiddle-navigation-card)) > .navigation-card__content {
   grid-template-rows: 1fr;
+}
+/* Leaf toggle: disabled appearance, always eye-open */
+.hyperfiddle-navigation-card:not(:has(~ * .hyperfiddle-navigation-card)) > .navigation-card__chrome .navigation-card__toggle {
+  pointer-events: none;
+  opacity: 0.4;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+
+/* Penultimate card — expanded by default (unchecked = expanded).
+   "Has exactly one following card": has a following card, but no further card after it. */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)) > .navigation-card__content {
+  grid-template-rows: 1fr;
+}
+/* Penultimate: eye-open by default (expanded) */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)) > .navigation-card__chrome .navigation-card__toggle {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+/* Penultimate + toggled → collapse (checked inverts the expanded default) */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):has(.navigation-card__toggle:checked) > .navigation-card__content {
+  grid-template-rows: 0fr;
+}
+/* Penultimate + toggled → eye-closed */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):has(.navigation-card__toggle:checked) > .navigation-card__chrome .navigation-card__toggle {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E");
+}
+
+/* Other cards (earlier than penultimate) — collapsed by default (0fr from base rule).
+   "Has 2+ following cards": a following sibling card that has its own following sibling card. */
+/* Other: eye-closed by default (collapsed) — already set as the toggle's default icon */
+/* Other + toggled → expand (checked inverts the collapsed default) */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card):has(.navigation-card__toggle:checked) > .navigation-card__content {
+  grid-template-rows: 1fr;
+}
+/* Other + toggled → eye-open */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card):has(.navigation-card__toggle:checked) > .navigation-card__chrome .navigation-card__toggle {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+
+/* ───────────────────────────────────────────────────────────────────────
+   Focus indicator — shows which card will close on ESC.
+   Tracked via data-focused attribute (set by JS, survives window blur).
+   CSS :focus-within can't be used because it clears when the browser
+   window loses focus (e.g. switching to another OS app).
+   ─────────────────────────────────────────────────────────────────────── */
+.hyperfiddle-navigation-card[data-focused="true"] {
+  border-color: #4a90d9;
+  box-shadow:
+    0 0 0 2px rgba(74, 144, 217, 0.25),
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
 
 /* Close-button hover preview — gray out everything that will disappear on close.

@@ -194,10 +194,41 @@
                   :data-depth depth
                   :role "region"
                   :aria-label (str "Navigation level " (inc depth))
-                  :tabindex "0"}) ; TAB-navigable — :focus-within drives accordion reveal
+                  :tabindex "0"}) ; TAB-navigable for keyboard focus and ESC handling
+
+      ;; Track which card has focus, persisting through window blur.
+      ;; CSS :focus-within can't do this — it clears when the browser window
+      ;; loses focus (e.g. switching to another OS app). We need the indicator
+      ;; to persist so the user knows which card ESC will close.
+      ;; dom/Focused-in? with a custom handler returns nil (= no state change,
+      ;; via squarewave's some->) when relatedTarget is null (window blur).
+      (let [card-node dom/node
+            focused? (dom/Focused-in? card-node
+                       (fn [event-type ^js event]
+                         ;; relatedTarget = where focus came from (focusin) or is going to
+                         ;; (focusout). null when the browser window itself loses focus.
+                         (let [related (.-relatedTarget event)]
+                           (cond
+                             ;; Focus moved between elements inside this card — no change
+                             (and (some? related) (.contains card-node related)) nil
+                             ;; Focus entered this card from outside
+                             (= "focusin" event-type) true
+                             ;; Focus left to a specific element outside this card
+                             (and (= "focusout" event-type) (some? related)) false
+                             ;; Window blur (relatedTarget is null) — retain current state
+                             :else nil))))]
+        (dom/props {:data-focused (str focused?)}))
 
       (let [chrome (dom/div
                      (dom/props {:class "navigation-card__chrome"})
+                     ;; Eye toggle — pure CSS drives expand/collapse via :checked.
+                     ;; Unchecked = positional default. Checked = invert default.
+                     (dom/input
+                       (dom/props {:type "checkbox"
+                                   :class "navigation-card__toggle"
+                                   :tabindex "-1"       ; skip in TAB order — not a navigation target
+                                   :aria-label "Toggle card visibility"
+                                   :data-tooltip "Toggle"}))
                      dom/node)]
         ;; All command sources merged via e/amb as the LAST expression of the
         ;; outer dom/div. Electric's do-semantics drain all but the last expr,
@@ -222,8 +253,7 @@
                                           nil {}))]
                   (e/When t [t [`selection/CloseCard!]])))))
           ;; Mousedown on non-focusable areas → focus this card.
-          ;; Ensures clicking empty table cells or whitespace keeps the
-          ;; accordion reveal active via :focus-within.
+          ;; Updates the data-focused indicator so the user knows which card ESC targets.
           (dom/On "mousedown"
             (fn [^js e]
               (when-not (or (instance? js/HTMLInputElement (.-target e))

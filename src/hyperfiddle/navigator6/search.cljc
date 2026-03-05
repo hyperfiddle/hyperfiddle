@@ -31,7 +31,10 @@
 
 (e/defn SearchInput! [disabled?]
   (e/client
-    (->> (forms/Input! ::search *local-search :type :search :maxlength 100 :disabled disabled? :style {:grid-area "search"})
+    ;; :autofocus true — grab focus on mount so the user can immediately type
+    ;; when a new card appears after a selection. This places focus onto the
+    ;; new card, which also activates the focus indicator (data-focused).
+    (->> (forms/Input! ::search *local-search :type :search :maxlength 100 :disabled disabled? :autofocus true :style {:grid-area "search"})
       (forms/Parse (e/fn [{search ::search}] [`SetSearch! search])))))
 
 
