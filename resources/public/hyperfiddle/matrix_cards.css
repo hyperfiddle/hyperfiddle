@@ -86,6 +86,11 @@
   border-color: #aaa;
 }
 
+.navigation-card__chrome input[type="search"]:disabled {
+  background-color: whitesmoke;
+  cursor: not-allowed;
+}
+
 /* Pill container — visual chrome (background, shape) */
 .navigation-card__chrome .count {
   grid-area: pill;
