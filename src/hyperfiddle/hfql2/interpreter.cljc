@@ -1,7 +1,7 @@
 (ns hyperfiddle.hfql2.interpreter
   "
-  Defines the HFQLT type, a Cofree Transformer (aka. CofreeT) over the HFQL AST.
   Defines how to interpret AST nodes with corresponding effects. Implement all of these effects.
+  Defines the HFQLT type, a Cofree Transformer (aka. CofreeT) over the HFQL AST.
   Provides:
   - how to transform and HFQL AST into an HFQL navigator,
   - how to `seed` the resulting navigator instance with a value,
@@ -470,8 +470,8 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (defn- link-parent
   "Annotate `child` with a parent reference to `parent-node`."
-  [parent-node child]
-  (assoc child ::parent parent-node))
+  ([parent-node] (partial link-parent parent-node))
+  ([parent-node child] (assoc child ::parent parent-node)))
 
 (defn- resolve-pull-children
   "Given pull's children AST nodes and the current % value, compute ordered
@@ -510,7 +510,7 @@ Pulling on non-maps (non associative) is perfectly fine.
     ;; (not downstream) so ::recur nodes stay invisible to pull_algebra.
     (let [unwrapped (first (unwrap direct-child))
           unwrapped (link-parent ast-node unwrapped)]
-      (if (= ::ast/recur (ast/node-type unwrapped))
+      (if (ast/recur-node? unwrapped)
         (recursion-children ast-node unwrapped identity)
         [unwrapped]))
     ;; Non-star child: handle recursion at traversal level if needed.
@@ -573,9 +573,9 @@ Pulling on non-maps (non associative) is perfectly fine.
                           (recursion-children ast-node recur-point ast/mark-recursive-child)
                           []))
                       ;; map (not mapv) — lazy children for large pull-star collections
-                      (map (fn [child] (link-parent ast-node child)))))))))
+                      (map (link-parent ast-node))))))))
           ::ast/traversal
-          (let [lexical-symbol? (and (= ::ast/symbol (ast/node-type (ast/edge ast-node)))
+          (let [lexical-symbol? (and (ast/symbol-node? (ast/edge ast-node))
                                      (not (fn? (ast/node-value (ast/edge ast-node)))))
                 lexical-value (ast/node-value (ast/edge ast-node))
                 edgeT (unfoldT hfql-coalgebra (cond (ast/star-traversal? ast-node) (ana/hfql identity)
@@ -589,9 +589,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                               (assoc env '% lexical-value)
                               env)]
                     (pair (extract (seed env' edgeT))
-                      (let [direct-child (first children)
-                            direct-child (link-parent ast-node direct-child)]
-                        (traversal-continuation ast-node direct-child)))))))))]
+                      (traversal-continuation ast-node (link-parent ast-node (first children))))))))))]
     (inject-dynamic-bindings ast-node (transform ast-node))))
 
 (declare hfqlt-equals hfqlt-hash)
