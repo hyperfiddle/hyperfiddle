@@ -4,11 +4,11 @@
    An eye-toggle checkbox lets the user override the positional default.
    Focus is tracked via data-focused (set by JS) for the ESC indicator. */
 
-/* Browser container — flex column so cards stack top-to-bottom */
+/* Browser container — flex column so cards stack top-to-bottom.
+   NOT a scroll container — the native page-level scrollbar handles overflow. */
 .Browser {
   width: 100%;
-  height: 100vh;
-  overflow-y: auto;      /* scroll if collapsed chrome bars exceed viewport */
+  min-height: 100vh;     /* fill viewport, grow beyond it naturally */
   isolation: isolate;
   display: flex;
   flex-direction: column;

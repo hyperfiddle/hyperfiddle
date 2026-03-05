@@ -388,8 +388,8 @@
   (str
     "@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700;800&display=swap');
 *:has(.Browser), .Browser, .Browser * { box-sizing: border-box; }
-body:has(.Browser) { font-family: 'Open Sans', Arial, Verdana, sans-serif; background-color: rgb(248 250 252); }
-html:has(.Browser) { scrollbar-gutter: stable; }
+body:has(.Browser) { margin: 0; font-family: 'Open Sans', Arial, Verdana, sans-serif; background-color: rgb(248 250 252); }
+html:has(.Browser) { scrollbar-gutter: stable; /* native page-level scroll is authoritative */ }
 "
     forms/css
     loader/css
