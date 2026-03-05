@@ -176,65 +176,65 @@
 }
 
 /* ───────────────────────────────────────────────────────────────────────
-   Position-based expand/collapse rules.
+   Position-based expand/collapse rules — three-state checkbox.
+
+   The toggle checkbox uses :indeterminate for "no user preference" (CSS
+   positional defaults apply). Once the user clicks, indeterminate clears
+   and the state becomes absolute: checked = expand, unchecked = collapse,
+   regardless of card position. This prevents the inversion bug where a
+   card's toggled state flipped when its position changed.
 
    Position detection uses :has() with general sibling combinator (~).
    Works because e/amb renders card + child-navigation as DOM siblings,
    and display:contents wrappers are transparent to :has() descendant queries.
 
-   IMPORTANT: :has() CANNOT be nested inside :has() per the CSS spec.
-   We detect "other" (2+ following cards) with a FLAT selector:
-     ~ * .HNC ~ * .HNC  ("a following sibling card that itself has a following sibling card")
-   This avoids the invalid :has(:has()) nesting.
-
    LEAF:        :not(:has(~ * .HNC))
    PENULTIMATE: :has(~ * .HNC):not(:has(~ * .HNC ~ * .HNC))
    OTHER:       :has(~ * .HNC ~ * .HNC)
-
-   Toggle semantics: checkbox starts unchecked (= use positional default).
-   Checking inverts the default. Each click toggles the visual state.
    ─────────────────────────────────────────────────────────────────────── */
 
-/* Leaf card — always expanded, exempt from toggle.
-   A leaf is the deepest card (no subsequent sibling containing another card). */
+/* === 1. Positional defaults (indeterminate = no user preference) === */
+
+/* Leaf card — always expanded, toggle disabled */
 .hyperfiddle-navigation-card:not(:has(~ * .hyperfiddle-navigation-card)) > .navigation-card__content {
   grid-template-rows: 1fr;
 }
-/* Leaf toggle: disabled appearance, always eye-open */
 .hyperfiddle-navigation-card:not(:has(~ * .hyperfiddle-navigation-card)) > .navigation-card__chrome .navigation-card__toggle {
   pointer-events: none;
   opacity: 0.4;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
 }
 
-/* Penultimate card — expanded by default (unchecked = expanded).
-   "Has exactly one following card": has a following card, but no further card after it. */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)) > .navigation-card__content {
+/* Penultimate + indeterminate → expanded (positional default) */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):has(.navigation-card__toggle:indeterminate) > .navigation-card__content {
   grid-template-rows: 1fr;
 }
-/* Penultimate: eye-open by default (expanded) */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)) > .navigation-card__chrome .navigation-card__toggle {
+/* Penultimate + indeterminate: eye-open (expanded default) */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):has(.navigation-card__toggle:indeterminate) > .navigation-card__chrome .navigation-card__toggle {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
-}
-/* Penultimate + toggled → collapse (checked inverts the expanded default) */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):has(.navigation-card__toggle:checked) > .navigation-card__content {
-  grid-template-rows: 0fr;
-}
-/* Penultimate + toggled → eye-closed */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):has(.navigation-card__toggle:checked) > .navigation-card__chrome .navigation-card__toggle {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E");
 }
 
-/* Other cards (earlier than penultimate) — collapsed by default (0fr from base rule).
-   "Has 2+ following cards": a following sibling card that has its own following sibling card. */
-/* Other: eye-closed by default (collapsed) — already set as the toggle's default icon */
-/* Other + toggled → expand (checked inverts the collapsed default) */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card):has(.navigation-card__toggle:checked) > .navigation-card__content {
+/* Other + indeterminate → collapsed (base 0fr rule applies, no override needed) */
+/* Other + indeterminate: eye-closed (collapsed default) — already set as toggle's default icon */
+
+/* === 2. User explicit overrides (position-independent) === */
+
+/* User wants expanded (checked, not indeterminate) */
+.hyperfiddle-navigation-card:has(.navigation-card__toggle:checked:not(:indeterminate)) > .navigation-card__content {
   grid-template-rows: 1fr;
 }
-/* Other + toggled → eye-open */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card):has(.navigation-card__toggle:checked) > .navigation-card__chrome .navigation-card__toggle {
+/* User wants expanded: eye-open */
+.hyperfiddle-navigation-card:has(.navigation-card__toggle:checked:not(:indeterminate)) > .navigation-card__chrome .navigation-card__toggle {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+
+/* User wants collapsed (unchecked, not indeterminate) — override leaf/penultimate 1fr for non-leaf */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):has(.navigation-card__toggle:not(:checked):not(:indeterminate)) > .navigation-card__content {
+  grid-template-rows: 0fr;
+}
+/* User wants collapsed: eye-closed */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):has(.navigation-card__toggle:not(:checked):not(:indeterminate)) > .navigation-card__chrome .navigation-card__toggle {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E");
 }
 
 /* ───────────────────────────────────────────────────────────────────────

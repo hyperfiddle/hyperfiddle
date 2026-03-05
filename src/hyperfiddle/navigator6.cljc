@@ -159,24 +159,27 @@
                   (with-local-search ::search   ; injects *local-search and interpret search commands
                     (with-local-selection ::selection ; injects *local-selection and interpret selection commands
                       (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
-                      (e/amb
-                        ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
-                        ;; NavigationCard renders into the display:contents div, becoming a
-                        ;; direct child of .Browser alongside child cards.
-                        (NavigationCard *navigation-depth*
-                          (e/fn []
-                            (e/call (ResolveRenderer stepT) ; call renderer for current point
-                              ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
-                              ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
-                              ;; See plans/associative-search-cell-recomputation.md for full analysis.
-                              (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
-                                                           (dissoc e/*bindings* (find-var `search/*local-search))
-                                                           e/*bindings*))]
-                                          ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))))
-                        ;; Branch 2: child navigation — sibling of card, gets full viewport width.
-                        ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
-                        ;; this card's with-local-selection clears selection → child unmounts.
-                        (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))] ; Navigation must prioritize recursive children over regular children at point
+                      ;; Hoist next-childT above e/amb so NavigationCard can receive has-child?.
+                      ;; This lets the three-state checkbox (indeterminate/checked/unchecked) know
+                      ;; the positional default before the user interacts.
+                      (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))]
+                        (e/amb
+                          ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
+                          ;; NavigationCard renders into the display:contents div, becoming a
+                          ;; direct child of .Browser alongside child cards.
+                          (NavigationCard *navigation-depth* (e/server (some? next-childT))
+                            (e/fn []
+                              (e/call (ResolveRenderer stepT) ; call renderer for current point
+                                ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
+                                ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
+                                ;; See plans/associative-search-cell-recomputation.md for full analysis.
+                                (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
+                                                             (dissoc e/*bindings* (find-var `search/*local-search))
+                                                             e/*bindings*))]
+                                            ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))))
+                          ;; Branch 2: child navigation — sibling of card, gets full viewport width.
+                          ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
+                          ;; this card's with-local-selection clears selection → child unmounts.
                           (e/Reconcile
                             (e/When (e/server (some? next-childT))
                               (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
@@ -186,7 +189,7 @@
                                   (e/fn [_] [`selection/SetSelection! [nil (e/fn [])]])
                                   (Navigate* sitemap next-childT))))))))))))))))))
 
-(e/defn NavigationCard [depth Body]
+(e/defn NavigationCard [depth has-child? Body]
   (e/client
     (dom/div
       (dom/props {:class "hyperfiddle-navigation-card"
@@ -221,14 +224,24 @@
 
       (let [chrome (dom/div
                      (dom/props {:class "navigation-card__chrome"})
-                     ;; Eye toggle — pure CSS drives expand/collapse via :checked.
-                     ;; Unchecked = positional default. Checked = invert default.
+                     ;; Eye toggle — three-state via :indeterminate.
+                     ;; indeterminate = no user preference (CSS positional defaults apply).
+                     ;; After user clicks: checked = expand, unchecked = collapse (absolute, position-independent).
                      (dom/input
                        (dom/props {:type "checkbox"
                                    :class "navigation-card__toggle"
                                    :tabindex "-1"       ; skip in TAB order — not a navigation target
                                    :aria-label "Toggle card visibility"
-                                   :data-tooltip "Toggle"}))
+                                   :data-tooltip "Toggle"})
+                       ;; Start indeterminate — positional CSS rules apply until user clicks
+                       (set! (.-indeterminate dom/node) true)
+                       ;; Pre-set checked to match positional default so first click inverts correctly:
+                       ;; has-child? true → penultimate-like → checked → first click unchecks → collapse
+                       (set! (.-checked dom/node) has-child?)
+                       (dom/On "change" (e/fn [_]
+                         ;; User expressed preference — clear indeterminate, state is now absolute
+                         (set! (.-indeterminate dom/node) false))
+                         nil {}))
                      dom/node)]
         ;; All command sources merged via e/amb as the LAST expression of the
         ;; outer dom/div. Electric's do-semantics drain all but the last expr,
