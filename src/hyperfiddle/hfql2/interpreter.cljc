@@ -73,17 +73,15 @@
   (:require
    [contrib.data :as cd :refer [group-by-pred]]
    #?(:clj [clojure.tools.logging :as log])
-   [hyperfiddle.ct.function :refer [flip]]
    [hyperfiddle.ct.functor :refer [Functor fmap]]
-   [hyperfiddle.ct.bifunctor :as bf]
    [hyperfiddle.ct.pair :refer [pair]]
    [hyperfiddle.ct.monoid :refer [mappend]]
    [hyperfiddle.ct.comonad :refer [Comonad extract duplicate extend -extract]]
-   [hyperfiddle.ct.cofree :refer [ComonadCofree synthesize unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tailF tree-seqT]]
-   [hyperfiddle.ct.rose-tree :refer [mapHead mapTail]]
+   [hyperfiddle.ct.cofree :refer [ComonadCofree unwrap ICofreeT runCofreeT ->CofreeF ->CofreeT headF tailF tree-seqT]]
+   [hyperfiddle.ct.rose-tree :refer [mapHead]]
    [hyperfiddle.ct.store :refer [store seek pos #?(:cljs Store)]]
    [hyperfiddle.ct.monad-reader :refer [reader local runReader memoize-1]]
-   [hyperfiddle.ct.monad :refer [bind =<<]]
+   [hyperfiddle.ct.monad :refer [=<<]]
    [hyperfiddle.ct.either :as either :refer [either? left?]]
    [hyperfiddle.hfql2 :as-alias hfql]
    [hyperfiddle.hfql2.protocols :as hfqlp]
@@ -157,7 +155,7 @@
     (either/either? %) %
     :else (either/right %)))
 
-(def focus-% (local (thunked (comp ensure-either (resolve '%)))))
+(def ^:private focus-% (local (thunked (comp ensure-either (resolve '%)))))
 
 (defn resolve-arguments
   ([ast-node] (partial resolve-arguments ast-node))
@@ -180,11 +178,11 @@
      (catch #?(:clj Throwable, :cljs :default) err
        (either/left err)))))
 
-(def focus-arguments (comp local thunked resolve-arguments))
+(def ^:private focus-arguments (comp local thunked resolve-arguments))
 
 (defn- unwrap-either [e] (either/either identity identity e))
 
-(defn template-symbolic-edge [env ast-node & [point-free?]]
+(defn- template-symbolic-edge [env ast-node & [point-free?]]
   (let [edge (ast/edge ast-node)
         form (ast/form edge)
         parameters (ast/parameters edge)]
@@ -203,7 +201,7 @@
 
 (declare hfql?)
 
-(defn symbolic-edge-static [ast-node]
+(defn- symbolic-edge-static [ast-node]
   (ast/symbolic-edge
    (case (ast/node-type ast-node)
      ::ast/traversal (ast/edge ast-node)
@@ -219,7 +217,7 @@
       ;; ::ast/call (template-symbolic-edge (::scope ast-node) ast-node point-free) ; TODO
       (symbolic-edge-static ast-node))))
 
-(def mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
+(def ^:private mem-reader "Like `monad-reader/reader` but the read function only reruns if the environment has changed." (comp reader memoize-1))
 
 (defn- fmap-original-objects [f objs]
   (let [ret (f (map original-object objs))
@@ -286,8 +284,9 @@
 
 (defn- call [ast-node]
   (let [call! (if (= ::ast/keyword-fn (ast/kind ast-node))
-                (let [key (ast/form-resolved ast-node)]
-                  #(*navigate* %1 key (get %1 key)))
+                (let [key         (ast/form-resolved ast-node)
+                      default-val (::hfql/default (extract ast-node))] ; honor ::hfql/default for keyword-fn dispatch
+                  #(*navigate* %1 key (get %1 key default-val)))
                 (let [f (ast/node-value ast-node)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
                   #(apply f %&)))
         xform (or (::hfql/xform (extract ast-node)) identity)]
@@ -309,7 +308,7 @@
       :cljs f ; TODO
       )))
 
-(defn leaf
+(defn- leaf
   ([ast-node] (partial leaf ast-node))
   ([ast-node Ra]
    (->> (reader (fn [env] ((bound-fn* {} (runReader Ra)) env)))

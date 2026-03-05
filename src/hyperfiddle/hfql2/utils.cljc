@@ -6,7 +6,7 @@
   #?(:clj (instance? clojure.lang.IObj object)
      :cljs (satisfies? IMeta object)))
 
-(defn ordered-map
+(defn- ordered-map
   "A simple, naive ordered map impl preserving order of keys given at creation
   time, and behaving as a sorted-map on keys assoced after creation.
   Performances aside, one can always re-build the map to freeze the keyset
@@ -31,7 +31,7 @@
    := '("a" "b" "c" "d" "e" "f" "g" "h" "i" :y :z)
   )
 
-(defn distinct-by
+(defn- distinct-by
   "Returns a lazy sequence of the elements of coll with duplicates removed by key function kf.
   Returns a stateful transducer when no collection is provided.
   (distinct-by identity) ≣ (clojure.core/distinct)."
@@ -55,7 +55,7 @@
   (distinct-by :key [{:key 1}, {:key 2}, {:key 1} {:key 3}]) := '({:key 1} {:key 2} {:key 3})
   )
 
-(defn shift-right
+(defn- shift-right
   "A transducer cons-ing a value onto the head of an eduction. Use it to shift an eduction right by one."
   [value]
   (fn [rf]

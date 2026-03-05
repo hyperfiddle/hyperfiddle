@@ -47,8 +47,7 @@
 (defpointfree pull (comp force-thunk pull*))
 (defpointfree next-steps unwrap)
 (defpointfree static-next-steps (comp ::co/static-children meta)) ; unseeded children, no IO. Structural shape fallback for empty collections.
-(def ^:private from-either (either left identity))
-(defpointfree values (comp (fmap (comp #_from-either force-thunk nav)) tree-seqT))
+(defpointfree values (comp (fmap (comp force-thunk nav)) tree-seqT))
 
 (defpointfree scope (comp pos runCofreeT))
 (defpointfree value-at-point (comp force-thunk '% scope))
@@ -407,7 +406,7 @@
 
 (defn symbolic-edge* [attrs]
   (or (::as attrs) ; user-explicit from options syntax or metadata
-      (::label attrs) ; auto-generated labels (e.g. type-column)
+      (::label attrs) ; auto-generated labels (e.g. type-column). Set via ^{::hfql/label ...} metadata on forms.
       (let [type (::ast/type attrs)
             edge (::ast/edge attrs)]
         (case type
@@ -535,10 +534,6 @@
   ([hfqlT-a hfqlT-b & hfqlTs]
    (reduce union (union hfqlT-a hfqlT-b) (remove nil? hfqlTs))))
 
-(def ^:deprecated combine
-  "Deprecated. Use `union` instead."
-  union)
-
 (tests
   (->
     (union
@@ -593,7 +588,7 @@
       (call-matches? symbolic-edge (normalize-edge child-edge))
       )))
 
-(defn find-child-by [pred hfqlT]
+(defn- find-child-by [pred hfqlT]
   (->> (unwrap hfqlT)
     (eduction
       #?(:clj (halt-when (fn [_] (.isInterrupted (Thread/currentThread))))
@@ -601,7 +596,7 @@
       (filter pred))
     (first)))
 
-(defn find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
+(defn- find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
 
 (def id (comp ast/node-id meta))
 
@@ -784,7 +779,7 @@ identifier, though it might not be serializable."
 
 (defn suggest [object] (unwrap! (suggest* object)))
 
-(defn suggest-map [object]
+(defn- suggest-map [object]
   ;; TODO render the type in UI if the map-like object is of an interesting type (e.g. IRecords)
   ;; See edge case in `suggest-record` for records with no static fields.
   (hfql [*] object))
@@ -821,7 +816,7 @@ identifier, though it might not be serializable."
       #?(:clj (array? object))
       #?(:clj (instance? java.util.Collection object)))))
 
-(defn suggest-collection [coll] (hfql {* [*]} (to-seq coll)))
+(defn- suggest-collection [coll] (hfql {* [*]} (to-seq coll)))
 
 #?(:clj
    (def ^:private discover-methods-for-class
@@ -957,6 +952,10 @@ identifier, though it might not be serializable."
                               (when-let [sample (first coll)]
                                 (let [s (from-right nil (suggest* sample))]
                                   (cond
+                                    ;; FIXME: ::ana/pull and ::ana/type were wrong qualifiers (always-false).
+                                    ;; Fixing to ::ast/pull and ::ast/type changes suggestion merging behavior
+                                    ;; for maps — suggest-map returns [*] pull which produces different symbolic
+                                    ;; edges than (build-hfql (keys sample)). Needs careful redesign.
                                     (and s (= ::ana/pull (::ana/type (extract (meta s))))) s
                                     (imap? sample) (build-hfql (vec (keys sample))))))
                               ;; value-at-point is already a map (e.g. {*} traversal fanned out
@@ -1145,7 +1144,7 @@ identifier, though it might not be serializable."
 (defn set-parent [childT parentT] (vary-meta childT assoc ::parent parentT))
 (defpointfree multiplicity-many? (comp ast/multiplicity-many? meta))
 
-(defn lookup
+(defn- lookup
   "Given an HFQL step object, lookup for a symbolic point in the reachable HFQL scope.
   The reachable HFQL scope is made of:
   - the current step (passed in),

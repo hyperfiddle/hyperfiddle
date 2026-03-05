@@ -119,8 +119,7 @@
 
 (defmethod node-spec ::call [_]
   (s/keys :req [::type ::form ::lexical-env ::id
-                ::resolved-runtime-value ::var ::parameters ::arguments ::form-resolved]
-          :opt [::lexical-env]))
+                ::resolved-runtime-value ::var ::parameters ::arguments ::form-resolved]))
 
 (defmethod node-spec ::traversal [_]
   (s/keys :req [::type ::lexical-env ::id ::multiplicity ::metadata]

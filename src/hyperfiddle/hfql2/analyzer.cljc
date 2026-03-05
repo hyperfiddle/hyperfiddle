@@ -77,10 +77,10 @@
     (#{'do} (first form))))
 
 (defn- last-form [forms]
-  (let [last-form (last forms)]
-    (if (is-structural? last-form)
-      (last-form last-form)
-      last-form)))
+  (let [lf (last forms)]
+    (if (is-structural? lf)
+      (recur lf) ; unwrap nested (do ...) to find the terminal form
+      lf)))
 
 (defn- is-kw-fn? [form]
   (when (and (expanded-fn-form? form)

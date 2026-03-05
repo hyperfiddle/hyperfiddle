@@ -172,7 +172,7 @@
   := true
   )
 
-(defn sharp-lambda? [form]
+(defn- sharp-lambda? [form]
   {:post [(boolean? %)]}
   (and (lambda? form)
     (let [lambda (parse-lambda form)]
@@ -201,9 +201,6 @@
   (sharp-lambda? `(fn* [a#] a#))
   := false
 
-  (sharp-lambda? `(fn* [a#] a#))
-  := false
-
   (sharp-lambda? `(fn* [~'%] ~'%))
   := false
   )
@@ -214,7 +211,7 @@
      := false
      ))
 
-(defn anonymous? [lambda-form] (nil? (::name (parse-lambda lambda-form))))
+(defn- anonymous? [lambda-form] (nil? (::name (parse-lambda lambda-form))))
 
 (tests
   (anonymous? '(fn []))
@@ -227,11 +224,11 @@
 (defn- largest-arity [lambda]
   {:pre [(parsed-lambda? lambda)]
    :post [(or (nil? %) (arity? %))]}
-  (first (sort-by (comp count parameters) (arities lambda))))
+  (last (sort-by (comp count parameters) (arities lambda))))
 
-(def penultimate (comp last butlast))
+(def ^:private penultimate (comp last butlast))
 
-(defn variadic? [lambda-form]
+(defn- variadic? [lambda-form]
   {:pre [(lambda? lambda-form)]
    :post [(boolean? %)]}
   (= '& (penultimate (parameters (largest-arity (parse-lambda lambda-form))))))
@@ -251,11 +248,11 @@
    :post [(every? arity? %)]}
   (filter #(contains? (disj (set (parameters %)) '&) parameter) (arities lambda)))
 
-(defn find-arities-with-parameter
+(defn- find-arities-with-parameter
   [lambda-form symbolic-parameter]
   (find-arities-with-parameter* (parse-lambda lambda-form) symbolic-parameter))
 
-(defn has-parameter? [lambda-form parameter]
+(defn- has-parameter? [lambda-form parameter]
   {:pre [(symbol? parameter)]
    :post [(boolean? %)]}
   (not (empty? (find-arities-with-parameter lambda-form parameter))))
