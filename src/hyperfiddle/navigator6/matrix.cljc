@@ -342,34 +342,34 @@
           ;; Associative views show all discovered properties — augment the pull
           ;; so (unwrap stepT) returns suggested columns alongside explicit ones.
           ;; Collection views handle this via ColumnPicker (line 263) instead.
-          stepT (e/server (if associative?
-                            (e/Offload #(or (hfql/augment-with-suggestions! stepT) stepT))
-                            stepT))
+          stepT (e/server (e/Offload #(if associative?
+                                        (or (hfql/augment-with-suggestions! stepT) stepT)
+                                        stepT)))
           limit (e/server (::hfql/limit (extract (meta stepT)) COLLECTION-LIMIT))
           ;; For associative views: columns = pull children (now includes suggestions), row = the pull itself.
           ;; The column IndexRing handles lazy pagination over properties.
           ;; For collections: columns from ColumnPicker, rows from unwrapping the collection.
           children (e/server ((glitch-guard unwrap) stepT))
-          columnsT (e/server (or picker-columnsT children))
-          rowsT (e/server (if associative? [stepT] children))
-          rowsT-count (e/server (if associative? 1 (e/Offload #(bounded-count limit rowsT))))
+          columnsT (e/server (#(or picker-columnsT children)))
+          rowsT (e/server (#(if associative? [stepT] children)))
+          rowsT-count (e/server (e/Offload #(if associative? 1 (bounded-count limit rowsT))))
           disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection))
           ;; ── Axis-dependent bindings ──────────────────────────────────────
           ;; Associative views (single object) swap the search axis:
           ;;   search filters COLUMNS (properties), rows are fixed at [stepT].
           ;; Collection views keep the standard axis:
           ;;   search filters ROWS (items), columns come from ColumnPicker.
-          search-items (e/server (if associative? columnsT rowsT))
-          search-items-count (e/server (if associative? (count columnsT) rowsT-count))
-          search-columnTs (e/server (when-not associative? columnsT))]
+          search-items (e/server (#(if associative? columnsT rowsT)))
+          search-items-count (e/server (#(if associative? (count columnsT) rowsT-count)))
+          search-columnTs (e/server (#(when-not associative? columnsT)))]
       (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE associative?))
         search-items-count
         (e/server search-items)
         (e/server search-columnTs)
         (e/fn [filtered-items]
           (let [;; For associative: filtered-items = filtered columns. For collection: filtered rows.
-                effective-columnsT (e/server (if associative? filtered-items columnsT))
-                effective-rowsT (e/server (if associative? rowsT filtered-items))
+                effective-columnsT (e/server (#(if associative? filtered-items columnsT)))
+                effective-rowsT (e/server (#(if associative? rowsT filtered-items)))
                 entries-count (e/server (#(if associative?
                                             (count effective-columnsT)
                                             (bounded-count rowsT-count effective-rowsT))))]
@@ -388,4 +388,4 @@
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
                     ;; For associative views, actual row count = 1 (single data row).
                     ;; entries-count is the property count — used for display only.
-                    (Matrix effective-columnsT (if associative? 1 entries-count) rowsT :associative? associative?)))))))))))
+                    (Matrix effective-columnsT (#(if associative? 1 entries-count)) rowsT :associative? associative?)))))))))))

@@ -169,9 +169,9 @@
                               ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
                               ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
                               ;; See plans/associative-search-cell-recomputation.md for full analysis.
-                              (e/server (let [bindings (if (= ::pull ((glitch-guard effective-render-type) stepT))
-                                                         (dissoc e/*bindings* (find-var `search/*local-search))
-                                                         e/*bindings*)]
+                              (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
+                                                           (dissoc e/*bindings* (find-var `search/*local-search))
+                                                           e/*bindings*))]
                                           ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))))
                         ;; Branch 2: child navigation — sibling of card, gets full viewport width.
                         ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
