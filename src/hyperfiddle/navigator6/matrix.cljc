@@ -220,7 +220,7 @@
      (set! (.-scrollLeft table-node) 0)
      (swap! !transpose not)))
 
-(e/defn Matrix [columnTs rowTs-count rowTs & {:keys [associative? row-height column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch"}}]
+(e/defn Matrix [columnTs rowTs-count rowTs & {:keys [associative? row-height column-width min-column-width min-row-count] :or {row-height 24 #_"1lh" column-width 200 #_ "40ch" min-column-width 150}}]
   (e/client
     (dom/table
       (dom/props {:role :radiogroup})
@@ -238,11 +238,12 @@
                                          shorten (name-shortener edges)]
                                      (transduce (map (comp count str shorten)) max 0 edges)))]
         (dom/props {:class ["matrix" ({true "transposed"} transpose) ({true "associative"} associative?)]
-                    :style {:--row-height    (str row-height "px")
-                            :--column-width  (str column-width "px")
-                            :--row-count     rowTs-count
-                            :--column-count  columnTs-count
-                            :--max-label-ch  max-label-ch}})
+                    :style {:--row-height        (str row-height "px")
+                            :--column-width      (str column-width "px")
+                            :--min-column-width  (str min-column-width "px")
+                            :--row-count         rowTs-count
+                            :--column-count      columnTs-count
+                            :--max-label-ch      max-label-ch}})
         (forms/Interpreter {`Transpose! (e/fn [] ((constantly [::forms/ok]) (transpose! dom/node !transpose)))
                             `Noop (e/fn [] [::forms/ok])}
           ;; Hoist scroll computation so both MatrixHeader and MatrixBody share
@@ -253,7 +254,14 @@
           (let [[_clientHeight clientWidth] (e/input (resize-observer dom/node))
                 v-count (#(if transpose columnTs-count rowTs-count))
                 h-count (#(if transpose rowTs-count columnTs-count))
-                scroll-window (Scroll-window 24 v-count dom/node {:column-width (#(if transpose column-width (/ clientWidth (max columnTs-count 1))))
+                ;; Effective column width: in normal view, columns fill the viewport
+                ;; but never shrink below min-column-width. When too many columns to fit,
+                ;; the grid overflows horizontally and IndexRing virtual-scrolls them.
+                ;; Effective column width for IndexRing bounds — CSS handles visual sizing
+                ;; independently via minmax(min-column-width, 1fr). This pixel value is
+                ;; only used by Scroll-window to compute limitH/offsetH.
+                effective-col-width (#(if transpose column-width (max min-column-width (/ clientWidth (max columnTs-count 1)))))
+                scroll-window (Scroll-window 24 v-count dom/node {:column-width effective-col-width
                                                                    :column-record-count h-count})
                 [offsetV limitV offsetH limitH] (bounds-by-axis transpose scroll-window)
                 ;; +1 for associative: the transposed header is a column (no vertical

@@ -10,7 +10,7 @@
  */
 
 table.matrix {
-    grid-template-columns: 1lh repeat(calc(max(1, var(--column-count))), 1fr); /* 1lh for radio button, 1fr for vertical layout (header on top) */
+    grid-template-columns: 1lh repeat(calc(max(1, var(--column-count))), minmax(var(--min-column-width), 1fr)); /* 1lh for radio, columns flex but never below min-column-width — pure CSS, no CLJC dependency */
     /* grid-template-rows: /**/
     /*   repeat(var(--header-row-count), var(--row-height)) /* header rows */
     /*   repeat(var(--row-count), var(--row-height)) /* scrolled body rows */
@@ -22,7 +22,7 @@ table.matrix {
         position: absolute;
         visibility: hidden;
         content: "";
-        width: 1px;
+        width: calc(var(--column-count) * var(--min-column-width) + 1lh); /* horizontal scroll extent — matches grid overflow point */
         height: calc((var(--row-count) + 1) * var(--row-height)); /* +1 for header row offset in grid-row placement (tr uses --row-index + 2) */
     }
     thead {
@@ -86,9 +86,12 @@ table.matrix{
     }
     tbody{
         th[scope="row"]{
-
             left:0;
-
+            /* Opaque — content scrolls behind this during horizontal scroll.
+               Same stripe formula as parent tr (matrix.css:154) so the color matches the row. */
+            background: var(--background-pattern);
+            background-size: var(--background-size);
+            background-position-y: calc(var(--background-position-y) + var(--row-height) + var(--row-height) * mod(var(--row-index), 2));
         }
 
 
@@ -109,6 +112,14 @@ table.matrix{
 table.matrix .matrix__diagonal {
     grid-row: 1 / -1;
     grid-column: 1;
+    position: sticky; /* stay pinned during horizontal column scroll */
+    left: 0;
+    z-index: 3;
+    /* Opaque — content scrolls behind this during horizontal scroll.
+       Layer: diagonal SVG + stripe pattern + solid fallback (mirrors matrix_horizontal.css .transpose-affordance) */
+    background: var(--diagonal), var(--background-pattern);
+    background-size: 100% 100%, var(--background-size);
+    background-color: var(--row-color-light);
 }
 
 /* Associative views in non-transposed mode (rare — user un-transposed a form).
