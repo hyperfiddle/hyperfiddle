@@ -85,10 +85,9 @@
 
 (def COLLECTION-LIMIT 10000)
 
-(defn sort-rows-by-columns "TODO support multi-column sort." [disabled? columnT-specs rowsT]
+(defn sort-rows-by-columns "TODO support multi-column sort." [columnT-specs rowsT]
   ;; (def _args [columnT-specs rowsT])
   (cond
-    disabled? rowsT
     (>= (bounded-count COLLECTION-LIMIT rowsT) COLLECTION-LIMIT) rowsT
     :else
     (try
@@ -130,7 +129,7 @@
     (binding [*disabled?* disabled?
               *sort-spec* (e/server sort-spec)]
       #_(e/server (prn "sort-spec" sort-spec) nil)
-      (->> (Body (e/server (Offload #(sort-rows-by-columns *disabled?* sort-spec rowsT) {:label 'sort})))
+      (->> (Body (e/server (Offload #(sort-rows-by-columns sort-spec rowsT) {:label 'sort})))
         (forms/Interpreter {`Sort! (e/fn [Getter direction]
                                      (e/server ((constantly nil) direction Getter)) ; HACK must touch both args on server, otherwise the `case` do not run.
                                      (case (e/server (reset! !sort-spec [[(Getter) direction]]) nil)
