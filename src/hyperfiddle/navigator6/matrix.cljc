@@ -91,23 +91,22 @@
           (e/for [col-index (IndexRing limitH offsetH)]
             ;; Nil-check on server — columnT is an HFQL tree node (unserializable),
             ;; so it must never cross to client. Only `form` (string) crosses the wire.
-            (e/server
-              (when-let [columnT (nth columnsT col-index nil)]
-                (let [form (str (shorten (hfql/symbolic-edge columnT)))]
+            (let [columnT (e/server (nth columnsT col-index nil))]
+              (when (e/server (some? columnT))
+                (let [form (e/server (str (shorten (hfql/symbolic-edge columnT))))]
                   (e/client
                     (dom/th (dom/props {:scope :col, :style {:--cell-index col-index}})
                       (dom/span (dom/props {:class "column-name"}) (dom/text form)
                         (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)))
-                      (e/client
-                        (dom/span
-                          (dom/props {:class "sort-handle"
-                                      :title "Sort"
-                                      :data-sort-order (str (e/server (column-sort-order columnT sort/*sort-spec*)))
-                                      :disabled sort/*disabled?*})
-                          (let [!direction (atom (cycle ['. '> '<]))
-                                direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
-                                [t err] (e/Token direction)]
-                            (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]]))))))))))))))))
+                      (dom/span
+                        (dom/props {:class "sort-handle"
+                                    :title "Sort"
+                                    :data-sort-order (str (e/server (column-sort-order columnT sort/*sort-spec*)))
+                                    :disabled sort/*disabled?*})
+                        (let [!direction (atom (cycle ['. '> '<]))
+                              direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
+                              [t err] (e/Token direction)]
+                          (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]])))))))))))))))
 
 #?(:cljs
    (defn- dispatch-event! [direction ^js node type detail]
@@ -294,11 +293,11 @@
               (MatrixBody columnTs rowTs
                 offsetV (min rowTs-count limitV)
                 offsetH col-limit
-                :associative? associative?))
-            (e/amb
-              (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
-                (fn [event]
-                  (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil))))))))))
+                :associative? associative?)
+              (e/amb
+                (Command (fn [^js event] [`selection/SetSelection! (.-detail event)]) (dom/On* (munge-str `Select!) identity nil)
+                  (fn [event]
+                    (dispatch-event! :down (.-target event) (munge-str `SelectAck!) nil)))))))))))
 
 
 (e/defn ColumnPicker [stepT]
