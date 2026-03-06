@@ -166,8 +166,7 @@
                               (e/Reconcile
                                 (when (e/server (some? next-childT))
                                   (e/server
-                                    (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
-                                              selection/*parent-selection selection/*local-selection]
+                                    (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic]
                                       (Navigate* sitemap next-childT)))))
                               (e/amb)))))))))))))))
 

@@ -183,7 +183,7 @@
        ;; to one whose describe-formatted returns "" (e.g. ::ast/runtime-value).
        (e/Reconcile (when show? (not-empty (Tooltip object edgeT value))))})) )
 
-(e/declare *rowT)
+(e/declare ^:dynamic *rowT)
 
 (e/defn RenderTooltip [tooltip-kind-ident object edgeT value]
   (RenderTooltip* (get ((glitch-guard (comp extract meta)) edgeT) tooltip-kind-ident
@@ -225,7 +225,7 @@
             (router/link (relativize-link-path link-href) (dom/text pretty-v))
             (dom/text pretty-v)))))))
 
-(e/declare Render)
+(e/declare ^:dynamic Render)
 
 (e/defn RenderCell [either-object edgeT either-value]
   (binding [Render DefaultCellRenderer

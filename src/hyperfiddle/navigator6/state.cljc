@@ -5,7 +5,7 @@
             [hyperfiddle.router5 :as router])
   #?(:cljs (:require-macros [hyperfiddle.navigator6.state :refer [with-local-state]])))
 
-(e/declare *depth *local-state)
+(e/declare ^:dynamic *depth ^:dynamic *local-state)
 
 (defmulti read-state (fn [type & _args] type))
 (defmethod read-state ::route [_ route depth] (nth route depth {}))

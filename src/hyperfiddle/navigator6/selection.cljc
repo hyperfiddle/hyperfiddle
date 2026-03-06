@@ -11,7 +11,7 @@
             )
   #?(:cljs (:require-macros [hyperfiddle.navigator6.selection :refer [with-local-selection]])))
 
-(e/declare *local-selection *local-selection-symbolic *parent-selection *parent-selection-symbolic)
+(e/declare ^:dynamic *local-selection ^:dynamic *local-selection-symbolic ^:dynamic *parent-selection-symbolic)
 
 ;; (symbolic-cell-coordinates hyperfiddle.navigator6.matrix/_cellT)
 ;; (symbolic-row-coordinates hyperfiddle.navigator6.matrix/_cellT)
