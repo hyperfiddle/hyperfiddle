@@ -105,7 +105,10 @@
             (map hfql/augment-with-suggestions! rowsT)))) ; TODO only augment with sorted column(s), if not already present
       #?(:clj (catch missionary.Cancelled ex (throw ex)))
       (catch #?(:clj Throwable, :cljs :default) ex
-        (println " Failed to sort" (ex-message ex) #_ex)
+        ;; Keep fallback-to-unsorted — better to show unordered data than crash.
+        ;; Logging (not println) so it's filterable and visible in prod.
+        #?(:clj  (log/warn "Failed to sort, returning unsorted" (ex-message ex))
+           :cljs (.warn js/console "Failed to sort, returning unsorted" (ex-message ex)))
         rowsT))))
 
 

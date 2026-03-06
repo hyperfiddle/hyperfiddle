@@ -22,6 +22,28 @@
    [dustingetz.loader :refer [Offload]]
    [missionary.core :as m]))
 
+;; ── Data pipeline (RenderMatrix, line ~301) ───────────────────────────
+;; Each stage transforms the data before rendering. Order matters:
+;;
+;;   1. ColumnPicker (line ~274)
+;;      augment-with-suggestions! once on the pull step to discover all
+;;      available columns for the picker UI (collection views only).
+;;
+;;   2. Search — eager-search-BIG-O-N-SQUARE (search.cljc)
+;;      Per-row: augment-with-suggestions! to discover searchable cells,
+;;      then string-match against search query. Filters rows (or columns
+;;      for associative views).
+;;
+;;   3. Sort — sort-rows-by-columns (sorting.cljc)
+;;      Per-row: augment-with-suggestions! so sorted column is present.
+;;      Fallback: returns unsorted on error (logged, not silent).
+;;
+;;   4. Render — Matrix → MatrixRow (line ~171)
+;;      Per-row: augment-with-suggestions! again — PERF redundant, same
+;;      schema rediscovered per row. Associative views avoid this (line
+;;      ~317 does it once at RenderMatrix level). Fixing requires
+;;      heterogeneous collection support.
+
 (defn- maybe [f] (fn [x] (when x (f x))))
 
 (e/defn Command [value-fn event after-ack]

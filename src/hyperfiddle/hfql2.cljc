@@ -922,6 +922,15 @@ identifier, though it might not be serializable."
 
 (declare parent set-parent)
 
+;; ── Call sites (7) ──────────────────────────────────────────────────
+;; matrix.cljc:171   — per-row rendering (PERF: redundant, same schema per row)
+;; matrix.cljc:274   — ColumnPicker (discovers all columns for picker UI)
+;; matrix.cljc:317   — associative views (once at RenderMatrix level)
+;; sorting.cljc:105  — per-row sort (TODO: only augment sorted column(s))
+;; search.cljc:151   — per-row search (discovers searchable cells)
+;; selection2.cljc:438 — cell resolution (resolve column from seeded point)
+;; selection2.cljc:454 — cell resolution fallback (resolve from row point)
+;;
 ;; PERF: Per-row eagerness — each call forces: (1) value-at-point IO to discover schema,
 ;; (2) children-ids diff (forces ::co/static-children), (3) collection sampling via `(first coll)`
 ;; for [*] pulls, (4) eager union of all children. Collection views pay this per visible row
