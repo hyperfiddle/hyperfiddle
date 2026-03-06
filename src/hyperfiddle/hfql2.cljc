@@ -37,6 +37,10 @@
   [name f]
   `(defn ~name [point#] (~f point#)))
 
+;; ── Human API ────────────────────────────────────────────────────────
+;; Functions for HFQL users writing queries, sitemaps, and REPL exploration.
+;; Stable contract. Should have docstrings.
+
 (def ^:dynamic *limit* nil)   ; Collection size limit for fan-out. Bound by ::limit option.
 (def ^:dynamic *default* nil) ; Default value for absent keys. Bound by ::default option.
 
@@ -369,6 +373,10 @@
      (values (seed {'% "  "} (hfql [String/.isBlank java.lang.String/.isEmpty .length])))
      := '({String/.isBlank true, java.lang.String/.isEmpty false, .length 2} true false 2)
      ))
+
+;; ── Navigator API ────────────────────────────────────────────────────
+;; Functions consumed by navigator6. Public but not part of the human-facing API.
+;; Stable enough for navigator to depend on. Should have docstrings.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Sitemap / Dynamic HFQL expression manipulation ;;
@@ -713,7 +721,7 @@ identifier, though it might not be serializable."
          (println "Failed to resolve by positional index running (nth % " index ") in collection of type:" (type (either identity identity *collection-at-point*)) "." t)
          nil)))
 
-(def DEFAULT-SUGGESTION (hfql ^::default [identity identify type]))
+(def ^:private DEFAULT-SUGGESTION (hfql ^::default [identity identify type]))
 (def ^:private LEAF-SUGGESTION (hfql ^::default [identity]))
 
 (extend-protocol Suggestable
@@ -1284,7 +1292,7 @@ identifier, though it might not be serializable."
 
 ;;; Misc
 
-(defn unchunk-seq ; keeping around for reference
+(defn- unchunk-seq
   "Turn a clojure seqable into a one-step-at-a-time seq. Preserves eventual
   metadata. Must be called on the original chunked seq. Calling `unchunk-seq` on
   any descendent seq won't have any effect. E.g. `(unchunk-seq (range 3))` –
