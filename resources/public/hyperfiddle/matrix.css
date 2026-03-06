@@ -333,6 +333,10 @@ table.matrix thead tr th .sort-handle::after{
 }
 
 .matrix-view {
-    min-inline-size: auto; /* Allow horizontal scrolling. Chrome UA default is min-content */
+    /* Chrome bug: when .matrix-view is a grid item, min-inline-size:auto
+       expands to the table's full grid-template-columns width, ignoring
+       contain:size on the table. 0 lets the table shrink to its container
+       and overflow:auto on the table produces a horizontal scrollbar. */
+    min-inline-size: 0;
     padding: 0;
 }
