@@ -1,7 +1,7 @@
-/* Navigation Card Accordion — position-based defaults + explicit toggle.
+/* Navigation Card Accordion — position-based defaults + chrome click toggle.
    Cards stack vertically. The leaf (top-most) card is always expanded.
    The penultimate card is expanded by default. Earlier cards are collapsed.
-   An eye-toggle checkbox lets the user override the positional default.
+   Clicking the chrome bar toggles visibility via data-visibility attribute.
    Focus is tracked via data-focused (set by JS) for the ESC indicator. */
 
 /* Browser container — flex column so cards stack top-to-bottom.
@@ -38,7 +38,7 @@
 }
 
 
-/* Chrome bar — grid areas: toggle | title | search | pill | close */
+/* Chrome bar — grid areas: title | search | pill | close */
 .navigation-card__chrome {
   flex: 0 0 2.25em;
   border-bottom: 1px solid #e5e5e5;
@@ -47,11 +47,11 @@
   border-top-right-radius: 0.5em;
 
   display: grid;
-  grid-template-columns: 1.75em 1fr auto 5.5ch 1.75em;
-  grid-template-areas: "toggle title search pill close";
+  grid-template-columns: 1fr auto 5.5ch 1.75em;
+  grid-template-areas: "title search pill close";
   align-items: center;
   gap: 0.5em;
-  padding: 0 0.25em;
+  padding: 0 0.25em 0 0.5em;
 
   cursor: pointer;
 }
@@ -135,31 +135,6 @@
   background: #d5d5d5;
 }
 
-/* Eye toggle — styled checkbox, appearance:none so we draw the icon ourselves.
-   Unchecked = use positional default. Checked = invert positional default. */
-.navigation-card__toggle {
-  grid-area: toggle;
-  appearance: none;
-  -webkit-appearance: none;
-  margin: 0;
-  width: 20px;
-  height: 20px;
-  justify-self: center;
-  cursor: pointer;
-  background-size: 14px 14px;
-  background-repeat: no-repeat;
-  background-position: center;
-  border: none;
-  border-radius: 4px;
-  background-color: transparent;
-  transition: background-color 0.15s;
-  /* Default icon: eye-closed (collapsed) */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E");
-}
-.navigation-card__toggle:hover {
-  background-color: #e5e5e5;
-}
-
 /* ───────────────────────────────────────────────────────────────────────
    Content area — collapsed by default.
    grid-template-rows: 0fr→1fr animates height from 0 to intrinsic.
@@ -176,13 +151,11 @@
 }
 
 /* ───────────────────────────────────────────────────────────────────────
-   Position-based expand/collapse rules — three-state checkbox.
+   Position-based expand/collapse rules — data-visibility attribute.
 
-   The toggle checkbox uses :indeterminate for "no user preference" (CSS
-   positional defaults apply). Once the user clicks, indeterminate clears
-   and the state becomes absolute: checked = expand, unchecked = collapse,
-   regardless of card position. This prevents the inversion bug where a
-   card's toggled state flipped when its position changed.
+   No user preference = no aria-expanded attribute → CSS positional
+   defaults apply. After user clicks chrome: aria-expanded="true"
+   or "false" — absolute, position-independent.
 
    Position detection uses :has() with general sibling combinator (~).
    Works because e/amb renders card + child-navigation as DOM siblings,
@@ -193,48 +166,30 @@
    OTHER:       :has(~ * .HNC ~ * .HNC)
    ─────────────────────────────────────────────────────────────────────── */
 
-/* === 1. Positional defaults (indeterminate = no user preference) === */
+/* === 1. Positional defaults (no aria-expanded attribute) === */
 
-/* Leaf card — always expanded, toggle disabled */
+/* Leaf card — always expanded */
 .hyperfiddle-navigation-card:not(:has(~ * .hyperfiddle-navigation-card)) > .navigation-card__content {
   grid-template-rows: 1fr;
 }
-.hyperfiddle-navigation-card:not(:has(~ * .hyperfiddle-navigation-card)) > .navigation-card__chrome .navigation-card__toggle {
-  pointer-events: none;
-  opacity: 0.4;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
-}
 
-/* Penultimate + indeterminate → expanded (positional default) */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):has(.navigation-card__toggle:indeterminate) > .navigation-card__content {
+/* Penultimate + no user preference → expanded (positional default) */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):not([aria-expanded]) > .navigation-card__content {
   grid-template-rows: 1fr;
 }
-/* Penultimate + indeterminate: eye-open (expanded default) */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):not(:has(~ * .hyperfiddle-navigation-card ~ * .hyperfiddle-navigation-card)):has(.navigation-card__toggle:indeterminate) > .navigation-card__chrome .navigation-card__toggle {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
-}
 
-/* Other + indeterminate → collapsed (base 0fr rule applies, no override needed) */
-/* Other + indeterminate: eye-closed (collapsed default) — already set as toggle's default icon */
+/* Other + no user preference → collapsed (base 0fr rule applies, no override needed) */
 
 /* === 2. User explicit overrides (position-independent) === */
 
-/* User wants expanded (checked, not indeterminate) */
-.hyperfiddle-navigation-card:has(.navigation-card__toggle:checked:not(:indeterminate)) > .navigation-card__content {
+/* User wants expanded */
+.hyperfiddle-navigation-card[aria-expanded="true"] > .navigation-card__content {
   grid-template-rows: 1fr;
 }
-/* User wants expanded: eye-open */
-.hyperfiddle-navigation-card:has(.navigation-card__toggle:checked:not(:indeterminate)) > .navigation-card__chrome .navigation-card__toggle {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
-}
 
-/* User wants collapsed (unchecked, not indeterminate) — override leaf/penultimate 1fr for non-leaf */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):has(.navigation-card__toggle:not(:checked):not(:indeterminate)) > .navigation-card__content {
+/* User wants collapsed — :has(~ * .HNC) prevents collapsing leaf cards */
+.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card)[aria-expanded="false"] > .navigation-card__content {
   grid-template-rows: 0fr;
-}
-/* User wants collapsed: eye-closed */
-.hyperfiddle-navigation-card:has(~ * .hyperfiddle-navigation-card):has(.navigation-card__toggle:not(:checked):not(:indeterminate)) > .navigation-card__chrome .navigation-card__toggle {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24'/%3E%3Cline x1='1' y1='1' x2='23' y2='23'/%3E%3C/svg%3E");
 }
 
 /* ───────────────────────────────────────────────────────────────────────

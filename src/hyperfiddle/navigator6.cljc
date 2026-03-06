@@ -224,24 +224,22 @@
 
       (let [chrome (dom/div
                      (dom/props {:class "navigation-card__chrome"})
-                     ;; Eye toggle — three-state via :indeterminate.
-                     ;; indeterminate = no user preference (CSS positional defaults apply).
-                     ;; After user clicks: checked = expand, unchecked = collapse (absolute, position-independent).
-                     (dom/input
-                       (dom/props {:type "checkbox"
-                                   :class "navigation-card__toggle"
-                                   :tabindex "-1"       ; skip in TAB order — not a navigation target
-                                   :aria-label "Toggle card visibility"
-                                   :data-tooltip "Toggle"})
-                       ;; Start indeterminate — positional CSS rules apply until user clicks
-                       (set! (.-indeterminate dom/node) true)
-                       ;; Pre-set checked to match positional default so first click inverts correctly:
-                       ;; has-child? true → penultimate-like → checked → first click unchecks → collapse
-                       (set! (.-checked dom/node) has-child?)
-                       (dom/On "change" (e/fn [_]
-                         ;; User expressed preference — clear indeterminate, state is now absolute
-                         (set! (.-indeterminate dom/node) false))
-                         nil {}))
+                     ;; Chrome click toggles card visibility.
+                     ;; Tri-state via aria-expanded: absent = CSS positional default,
+                     ;; "true" = user wants expanded, "false" = user wants collapsed.
+                     ;; Skip for inputs and buttons (search field, close button).
+                     (dom/On "click"
+                       (fn [^js e]
+                         (when-not (or (.closest (.-target e) "input")
+                                       (.closest (.-target e) "button"))
+                           (let [card (.closest (.-currentTarget e) ".hyperfiddle-navigation-card")
+                                 current (.getAttribute card "aria-expanded")]
+                             (.setAttribute card "aria-expanded"
+                               (case current
+                                 "true"  "false"
+                                 "false" "true"
+                                 "true")))))
+                       nil {})
                      dom/node)]
         ;; All command sources merged via e/amb as the LAST expression of the
         ;; outer dom/div. Electric's do-semantics drain all but the last expr,
