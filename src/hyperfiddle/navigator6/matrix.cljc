@@ -103,7 +103,7 @@
                                     :title "Sort"
                                     :data-sort-order (str (e/server (column-sort-order columnT sort/*sort-spec*)))
                                     :disabled sort/*disabled?*})
-                        (let [!direction (atom (cycle ['. '> '<]))
+                        (let [!direction (atom (cycle ['. '< '>])) ; ASC first — matches spreadsheet convention
                               direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
                               [t err] (e/Token direction)]
                           (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]])))))))))))))))
