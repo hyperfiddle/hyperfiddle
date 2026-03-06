@@ -19,7 +19,7 @@
             [dustingetz.str :as strx]
             [dustingetz.loader :as loader :refer [Offload]]
             [hyperfiddle.ct.function :refer [flip]]
-            [hyperfiddle.ct.either :refer [either right from-right]]
+            [hyperfiddle.ct.either :refer [either right left? from-left from-right]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [contrib.assert :refer [is]])
@@ -65,6 +65,22 @@
   (or (imap? v)
       #?@(:clj [(and (some? v) (not (instance? clojure.lang.IObj v)) (not (array? v)))])))
 
+(defn- suggest-and-graft
+  "Nav the value at `hfqlT`, auto-suggest columns from runtime type, graft
+  the suggested tree onto `hfqlT` as parent. Returns suggested HFQLT or nil.
+  Shared logic between SuggestAndRender (rendering) and resolve-selection-coordinates (selection)."
+  [hfqlT]
+  (let [either-value (hfql/nav* hfqlT)
+        value (either identity identity either-value)]
+    (either
+      (constantly nil)
+      (fn [suggestedT]
+        (when (and (some? suggestedT) (not= hfqlT suggestedT))
+          (-> suggestedT
+            ((flip hfql/seed) (assoc (hfql/scope hfqlT) (symbol "%") (right value)))
+            (hfql/set-parent hfqlT))))
+      (hfql/suggest* value))))
+
 (e/defn SuggestAndRender
   "Unguided rendering — no HFQL query structure available.
    Nav the value, auto-suggest columns from runtime type, render as matrix.
@@ -74,17 +90,12 @@
   (let [either-value ((glitch-guard hfql/nav*) hfqlT)
         value (either identity identity either-value)
         associative? (associative-value? value)
-        stepT (either
-                (fn [suggestion-err]
-                  (-> (hfql/hfql [*] (right suggestion-err))
-                    ((glitch-guard hfql/set-parent) hfqlT)))
-                (fn [suggestedT]
-                  (when (and (some? suggestedT) (not= hfqlT suggestedT))
-                    (-> suggestedT
-                      ((glitch-guard (flip hfql/seed))
-                       (assoc ((glitch-guard hfql/scope) hfqlT) (symbol "%") (right value)))
-                      ((glitch-guard hfql/set-parent) hfqlT))))
-                (hfql/suggest* value))]
+        ;; suggest-and-graft handles the happy path (Right). For errors (Left),
+        ;; we render the error as a value instead of silently returning nil.
+        stepT (or ((glitch-guard suggest-and-graft) hfqlT)
+                (when (left? either-value)
+                  (-> (hfql/hfql [*] (right (from-left nil either-value)))
+                    ((glitch-guard hfql/set-parent) hfqlT))))]
     (if (some? stepT)
       (e/fn [_] (RenderMatrix stepT :associative? associative?))
       (e/fn [& _]))))
@@ -116,16 +127,7 @@
            ;; would have nav'd + suggested to build a synthetic pull (e.g. String's Java
            ;; methods). Replicate that suggestion so we can resolve selection against the
            ;; same tree structure the user sees on screen.
-           (let [either-value (hfql/nav* current-point)
-                 value (either identity identity either-value)
-                 suggested-stepT (either
-                                   (constantly nil)
-                                   (fn [suggestedT]
-                                     (when (and (some? suggestedT) (not= current-point suggestedT))
-                                       (-> suggestedT
-                                         ((flip hfql/seed) (assoc (hfql/scope current-point) (symbol "%") (right value)))
-                                         (hfql/set-parent current-point))))
-                                   (hfql/suggest* value))
+           (let [suggested-stepT (suggest-and-graft current-point)
                  selectable-from-suggested (when suggested-stepT
                                             (hyperfiddle.navigator6.selection2/find-selectable-point suggested-stepT))]
              (when selectable-from-suggested

@@ -408,7 +408,6 @@
   {:pre [(selection-point? selection-point)
          (or (nil? symbolic-selection-coordinates) (symbolic-selection-coordinates? symbolic-selection-coordinates))]
    :post [(or (nil? %) (selection-point? %))]}
-  ;; (def _selection-point selection-point)
   (when-not (row? selection-point)
     (println `resolve-selection-coordinates "WARNING: the received selection point is not a row."))
   (or
@@ -471,13 +470,6 @@
     ;; no valid selection coordinates
     nil))
 
-
-(comment
-  (hfql/value-at-point _selection-point)
-  (hfql/nav _selection-point)
-  (hfql/nav (hfql/parent _selection-point))
-  (resolve-selection-coordinates _selection-point (pair nil '(hyperfiddle.hfql2/nth 2)))
-  )
 
 (tests
   "Resolve a selected row"
