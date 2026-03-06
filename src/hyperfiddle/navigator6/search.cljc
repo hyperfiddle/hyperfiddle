@@ -12,7 +12,6 @@
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.navigator6.rendering :refer [*server-pretty]]
             [hyperfiddle.navigator6.utils :as utils]
-            [hyperfiddle.navigator6.generator :refer [generator yield]]
             [dustingetz.loader :refer [Offload]]
             [missionary.core :as m]
             [contrib.missionary-contrib :as mx])
