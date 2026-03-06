@@ -91,12 +91,12 @@
             (= needle last-needle)) @!last-filtered
           :else (vreset! !last-filtered (filter do-filter pulled)))))))
 
-(defn run-tasks
+(defn- run-tasks
   ([flow] (run-tasks 1 flow))
   ([par flow] (m/ap (m/? (m/?> par flow)))))
 
 #?(:clj
-   (defn resequence-by
+   (defn- resequence-by
      ([kf] (resequence-by kf (.. Runtime getRuntime availableProcessors)))
      ([kf par]
       (fn [rf]
@@ -121,10 +121,10 @@
                  (do (.put buffer current-index value)
                      res))))))))))
 
-#?(:clj (defn resequence [] (resequence-by #(nth % 0))))
+#?(:clj (defn- resequence [] (resequence-by #(nth % 0))))
 
 #?(:clj
-   (defn pfilter
+   (defn- pfilter
      ([pred flow]
       (pfilter pred (.. Runtime getRuntime availableProcessors) 64 flow))
      ([pred par chunk-size flow]
@@ -136,7 +136,7 @@
         (m/eduction cat (resequence) (filter #(nth % 1)) (map #(nth % 2)))))))
 
 #?(:clj
-   (defn eager-search-BIG-O-N-SQUARE< [associative? pretty-print-map rowTs columnTs needle]
+   (defn- eager-search-BIG-O-N-SQUARE< [associative? pretty-print-map rowTs columnTs needle]
      (pfilter
        (fn [rowT]
          (when-not (.isInterrupted (Thread/currentThread))

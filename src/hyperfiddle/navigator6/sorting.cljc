@@ -11,7 +11,6 @@
             [hyperfiddle.ct.monad :refer [join]]
             [hyperfiddle.ct.monoid :refer [mappend]]
             [hyperfiddle.ct.either :refer [from-right]]
-            [hyperfiddle.hfql2.analyzer :as ana]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.ct.experiments.thunk :as thunks]
             [hyperfiddle.rcf :refer [tests]]
@@ -36,7 +35,7 @@
       (thunks/force-thunk thunk) ; TODO would be nice if force-thunk was retrocompatible with Delay
       )))
 
-(def compare-cells "Take a comparator and transform it such that it receives comparable cell values instead of raw CofreeT objects."
+(def ^:private compare-cells "Take a comparator and transform it such that it receives comparable cell values instead of raw CofreeT objects."
   ((join bimap) (fmap hfql/comparable force-cell-value!)))
 
 (defn- compare-fallback-to-identity
@@ -52,7 +51,7 @@
           (comparator (hfql/identify a) (hfql/identify b))
           (throw ex))))))
 
-(defn directional-comparator
+(defn- directional-comparator
   "Take '. , '< or '> and return a comparator comparing any two values in resp. natural order, ascending or descending order.
   Note < and > functions (not quoted) only work on numbers and so can only be used as a comparator for numbers.
   The comparator returned by the current function sorts based on the sign of the return value of `compare`."
@@ -80,7 +79,7 @@
   (extract (extract _ageT))
   )
 
-(defn interruptible-comparator [cmp]
+(defn- interruptible-comparator [cmp]
   #?(:cljs cmp
      :clj (fn [a b] (m/!) (cmp a b))))
 
@@ -134,13 +133,13 @@
                                      (case (e/server (reset! !sort-spec [[(Getter) direction]]) nil)
                                        [::forms/ok]))})))))
 
-(defn -fsym [sexpr]
+(defn- -fsym [sexpr]
   (when (seq? sexpr)
     (if (= 'quote (first sexpr))
       (-fsym (second sexpr))
       (first sexpr))))
 
-(defn sexpr-comparator [a b]
+(defn- sexpr-comparator [a b]
   (debug-exceptions `sexpr-comparator
     (cond
       (nil? a) -1
@@ -151,7 +150,7 @@
       (seq? b) (sexpr-comparator a (-fsym b))
       :else (compare a b))))
 
-(defn ?sort-by [keyfn v*]
+(defn- ?sort-by [keyfn v*]
   (try (debug-exceptions `?sort-by
          (sort-by keyfn sexpr-comparator v*))
        (catch #?(:clj Throwable :cljs :default) e
@@ -179,7 +178,7 @@
        (mappend (keep (fn [pullspec-key] (get static-map pullspec-key)) static-keys)
          (?sort-by hfql/symbolic-edge (remove (comp some? static-keyset hfql/symbolic-edge) dynamic-children))))))
 
-(defn toggle-column-sort [sort-spec for-col]
+(defn- toggle-column-sort [sort-spec for-col]
   (when-some [[col asc?] (first sort-spec)]
     [[for-col (if (= col for-col) (not asc?) true)]]))
 

@@ -3,7 +3,6 @@
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.api :as hf]
             [hyperfiddle.hfql2 :as hfql]
-            [hyperfiddle.entrypoint2 :refer [Index]]
             [hyperfiddle.router5 :as router]
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.ui.tooltip :as tooltip]
@@ -18,16 +17,11 @@
             [contrib.data :refer [#?(:clj array?)]]
             [hyperfiddle.hfql2.utils :refer [imap?]]
             [dustingetz.str :as strx]
-            [clojure.pprint]
-            [dustingetz.loader :as loader]
+            [dustingetz.loader :as loader :refer [Offload]]
             [hyperfiddle.ct.function :refer [flip]]
-            [hyperfiddle.ct.maybe :refer [just nothing from-maybe]]
             [hyperfiddle.ct.either :refer [either right from-right]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
-            [hyperfiddle.hfql2.analyzer :as ana]
-            [hyperfiddle.hfql2.ast :as ast]
-            [dustingetz.loader :refer [Offload]]
             [contrib.assert :refer [is]])
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 

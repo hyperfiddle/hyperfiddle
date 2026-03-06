@@ -313,7 +313,7 @@
 ;;;; Selection resolution
 ;;;;;; Resolving identifiable objects
 
-(defn resolve-identifiable-object [symbolic-constructor-form]
+(defn- resolve-identifiable-object [symbolic-constructor-form]
   {:pre [(or (nil? symbolic-constructor-form) (symbolic-constructor-form? symbolic-constructor-form))]
    :post [(or (nil? %) (either? %))]}
   (or (and (some? symbolic-constructor-form)
@@ -440,7 +440,6 @@
                       (and ; we are resolving a cell selection but the given selection point is not a row. We can't focus on a cell.
                         (not (row? seeded-selection-point))
                         (println "The given selection contains a column and so targets a cell. But the current selection point is not a row. Can't focus on a cell on an object that is not a row." (hfql/node-type seeded-selection-point))
-                        (def _selection-point seeded-selection-point) ; G – for me, for debugging.
                         nil)))
                 ;; there's no symbolic column to focus on. This is a row selection.
                 seeded-selection-point)))
@@ -733,19 +732,6 @@
 
 ;;;; Navigation from selection
 ;;;;;; Finding the next navigation point from the current point and an HFQL selection point
-
-#_(defn find-next-point [current-point selected-point]
-  (or
-    ;; [✓] if a column is selected, selected-point is expected to already be a cellT
-    ;; [✓] if a row is selected, selected-point is expected to already be a rowT
-    ;; [✓] if selected-point can be a recursive point, it is expected for selected-point to already be the recursive point
-
-    ;; [✓] if selected-point has ::navigator/select metas, selected-point is expected to already have been looked up and hydrated from sitemap
-    ;;   Should we look for an ::navigator/select point? no. Selectability is not defined by `::navigator/select`. `::navigator/select` only advise how to interpret a selection action.
-    ;; reshaping (expanding collection) is not a matter of navigation and is of no concern here
-    ;; therefore this function should not exist
-    )
-  )
 
 (declare sitemap-lookup normalize-navigator-select-command hydrate-navigator-select-command)
 

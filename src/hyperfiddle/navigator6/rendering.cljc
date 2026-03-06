@@ -15,7 +15,6 @@
             [hyperfiddle.ct.either :refer [either either? left? from-left from-right right left]]
             [hyperfiddle.hfql2 :as hfql]
             [hyperfiddle.hfql2.utils :refer [imap? original-object]]
-            [hyperfiddle.navigator6.extensions :as extensions]
             [hyperfiddle.navigator6.selection :as selection]
             [hyperfiddle.navigator6.selection2 :as selection2]
             [hyperfiddle.navigator6.utils :as utils :refer [glitch-guard Swallow-empty-diffs]]
@@ -144,8 +143,6 @@
                #?(:clj (instance? java.util.Collection obj)))
         (m/sp (str-inline-coll obj user-handlers))
         (-pretty-printer obj)))))
-
-(defn as-coll [v] (if (or (array? v) (coll? v)) v [v])) ; TODO removeme, glitch guard
 
 (defn relativize-link-path [symbolic-link-href]
   (if (vector? symbolic-link-href)

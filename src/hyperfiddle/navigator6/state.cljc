@@ -24,8 +24,7 @@
 (e/defn HandleReplaceState! [f & args]
   ;; `update` doesn't work, route is a lazyseq (?)
   (e/Reconcile
-    (case (router/Navigate! ['. (doto (take (inc *depth) (apply update-state ::route router/route *depth f args))
-                                  prn)])
+    (case (router/Navigate! ['. (take (inc *depth) (apply update-state ::route router/route *depth f args))])
       [::forms/ok])))
 
 (e/defn HandleUpdateState! [f & args]

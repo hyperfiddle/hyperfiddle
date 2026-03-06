@@ -7,7 +7,6 @@
    [hyperfiddle.electric-forms5 :as forms]
    [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing #?(:cljs resize-observer)]]
    [hyperfiddle.electric3 :as e]
-   [hyperfiddle.hfql2.analyzer :as ana]
    [hyperfiddle.ct.cofree :refer [unwrap]]
    [hyperfiddle.ct.comonad :refer [extract]]
 
@@ -20,7 +19,6 @@
    [hyperfiddle.navigator6.selection2 :as selection2]
    [hyperfiddle.navigator6.sorting :as sort]
    [hyperfiddle.navigator6.utils :as utils :refer [in glitch-guard]]
-   #_[hyperfiddle.hfql2.utils :refer [imap?]]
    [dustingetz.loader :refer [Offload]]
    [missionary.core :as m]))
 
@@ -95,7 +93,7 @@
                                :down [true false])]
        (.dispatchEvent node (new js/CustomEvent type #js{:capture capture, :bubbles bubbles, :detail detail})))))
 
-(def INTERRACTIVE-DOM-ELEMENT-SELECTOR
+(def INTERACTIVE-DOM-ELEMENT-SELECTOR
   "Elements matching this selector will be considered interactive. Interactions
   with interactive elements won't be interpreted by the Matrix. E.g. clicking on
   a link or button in a cell won't select the cell. Users may mark any element
@@ -107,8 +105,8 @@
 #?(:cljs
    (defn- cell-ignore-click-on-interactive-content [^js event]
      (when-let [target (.-target event)]
-       (if (or (.matches target INTERRACTIVE-DOM-ELEMENT-SELECTOR)
-             (when-let [hit (.closest target INTERRACTIVE-DOM-ELEMENT-SELECTOR)]
+       (if (or (.matches target INTERACTIVE-DOM-ELEMENT-SELECTOR)
+             (when-let [hit (.closest target INTERACTIVE-DOM-ELEMENT-SELECTOR)]
                (.. event -currentTarget (contains hit))))
          nil
          event))))
@@ -196,18 +194,6 @@
             index
             (e/server (e/Offload #(nth rowsT index nil))) offsetH limitH
             :associative? associative?))))))
-
-#?(:cljs
-   (defn- find-clicked-cell-or-row [^js dom-event]
-     (let [target (.-target dom-event)]
-       (when-let [closest-td (.closest target "td")]
-         (if-let [cellT (.-data-cellT closest-td)]
-           cellT
-           (when-let [closest-tr (.closest target "tr")]
-             (if-let [rowT (.-data-rowT closest-tr)]
-               rowT
-               nil)))))))
-
 
 (defn- bounds-by-axis [transpose? [offsetV limitV offsetH limitH :as initial]]
   (if transpose?
