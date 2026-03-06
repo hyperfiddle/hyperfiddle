@@ -22,8 +22,9 @@
   ([comparator] (partial compare-nils-last comparator))
   ([comparator a b]
    (cond
-     (nil? a) false
-     (nil? b) true
+     (and (nil? a) (nil? b)) 0
+     (nil? a) 1    ; nil after non-nil
+     (nil? b) -1   ; non-nil before nil
      :else (comparator a b))))
 
 (defn- force-cell-value! "Equivalent to hfql/nav, but log a TRACE-level message if the cell wasn't realized already. Because we want to know if sorting causes unexpected IO."
@@ -58,8 +59,9 @@
   [order]
   {:pre [(or (= '. order) (= '< order) (= '> order))]}
   (case order
-    . (constantly 0) ; compare return 0 for equal values – wasteful sort, but correct.
-    (fmap (case order < neg? > pos?) compare)))
+    . (constantly 0)
+    < compare
+    > (fn [a b] (compare b a))))
 
 (comment
   (map hfql/pull (sort-by (hfql/find-cell-by-column _ageT) (compare-cells (compare-nils-last (directional-comparator '>))) _rowsT))
@@ -78,6 +80,17 @@
   (def _ageT (-> _rowsT first _unwrap second))
   (extract (extract _ageT))
   )
+
+(defn- normalize-comparable-nil
+  "Either-wrapped nils become [\"0:right\" nil] after `comparable` — a non-nil
+  vector that hides the nil from `compare-nils-last`. Detect nil in the value
+  slot and replace the whole vector with bare nil."
+  [comparator]
+  (let [nil-val? (fn [x] (and (vector? x) (nil? (peek x))))]
+    (fn [a b]
+      (comparator
+        (if (nil-val? a) nil a)
+        (if (nil-val? b) nil b)))))
 
 (defn- interruptible-comparator [cmp]
   #?(:cljs cmp
@@ -99,8 +112,9 @@
             (interruptible-comparator
               (compare-cells
                 (compare-fallback-to-identity
-                  (compare-nils-last
-                    (directional-comparator order)))))
+                  (normalize-comparable-nil
+                    (compare-nils-last
+                      (directional-comparator order))))))
             (map hfql/augment-with-suggestions! rowsT)))) ; TODO only augment with sorted column(s), if not already present
       #?(:clj (catch missionary.Cancelled ex (throw ex)))
       (catch #?(:clj Throwable, :cljs :default) ex
