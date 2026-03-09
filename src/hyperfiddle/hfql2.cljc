@@ -39,24 +39,110 @@
 
 ;; ── Human API ────────────────────────────────────────────────────────
 ;; Functions for HFQL users writing queries, sitemaps, and REPL exploration.
-;; Stable contract. Should have docstrings.
+;; Stable contract.
+;;
+;; Defined here:  *limit*, *default*, seed, nav*, nav, pull*, pull,
+;;                next-steps, values, scope, value-at-point, hfql?,
+;;                navigable, hfql*, hfql
+;; Defined below (load-order dependencies):
+;;                filtered, filtered?, union, find-child, find-child-by,
+;;                find-cell-by-symbolic-column, hfql-resolve,
+;;                identifiable, identify, suggest, comparable
 
-(def ^:dynamic *limit* nil)   ; Collection size limit for fan-out. Bound by ::limit option.
-(def ^:dynamic *default* nil) ; Default value for absent keys. Bound by ::default option.
+(def ^{:dynamic true, :doc "Collection size cap for fan-out traversals. Bind to an integer to limit how many children HFQL materializes.
+  (binding [*limit* 10] (hfql [*] my-big-seq))
+"}
+  *limit* nil)
 
-(def seed co/seed)
-(defpointfree nav* (comp force-thunk extract))
-(defpointfree nav (comp original-object unwrap! nav*)) ; not to be confused with ccp/nav nor hyperfiddle.hfql2.protocols/nav. TODO disambiguate
-(defpointfree pull* (comp extract co/pull))
-(defpointfree pull (comp force-thunk pull*))
-(defpointfree next-steps unwrap)
-(defpointfree static-next-steps (comp ::co/static-children meta)) ; unseeded children, no IO. Structural shape fallback for empty collections.
-(defpointfree values (comp (fmap (comp force-thunk nav)) tree-seqT))
+(def ^{:dynamic true, :doc "Default value substituted when a key is absent.
+  (binding [*default* :n/a] (hfql [:missing-key] {}))
+"}
+  *default* nil)
 
-(defpointfree scope (comp pos runCofreeT))
-(defpointfree value-at-point (comp force-thunk '% scope))
-(defpointfree seeded? (comp (flip contains? '%) scope))
-(defn update-scope [stepT f & args] (seed (apply f (scope stepT) args) stepT))
+(def ^{:doc "Inject data into an HFQL tree by binding scope variables.
+  (seed {'% my-data} (hfql [:a :b]))
+  (seed {'% root 'page 2} (hfql (list-items % page))
+"}
+  seed co/seed)
+
+(defpointfree ^{:doc "Navigate one step forward by applying the current HFQL query's step onto the current scope. Return the computed value as an Either (Right value | Left error).
+  (nav* (hfql inc 41)) := (Right 42)
+  (nav* (hfql inc \"hello\") := (Left #error...)
+"}
+  nav* (comp force-thunk extract))
+
+(defpointfree ^{:doc "Navigate one step forward by applying the current HFQL query's step onto the current scope. Return the computed value, throwing on error.
+  (nav (hfql inc 41)) := 42
+  (nav (hfql inc \"hello\") := throws #error
+
+  Not to be confused with clojure.core.protocols/nav. TODO disambiguate
+"}
+  nav (comp original-object unwrap! nav*))
+
+(defpointfree ^{:doc "Eagerly pull the full tree as an Either.
+  (pull* (hfql [:a {:b [:c]}] x)) := (Right {:a 1, :b {:c 2}})
+"}
+  pull* (comp extract co/pull))
+
+(defpointfree ^{:doc "Eagerly pull the full tree into plain Clojure data, throwing on error.
+  (pull (hfql [:a {:b [:c]}] x)) := {:a 1, :b {:c 2}}
+"}
+  pull (comp force-thunk pull*))
+
+(defpointfree ^{:doc "Return immediate children of an HFQL point as a non-chunked lazy sequence.
+  (next-steps (hfql [inc dec] 42)) := (list (hfql inc 42) (hfql dec 42))
+  (next-steps (hfql {* inc} (range))) := (list (hfql inc 1) (hfql inc 2) (hfql inc 3) ...) ; infinite
+"}
+  next-steps unwrap)
+
+(defpointfree ^{:doc "Flat, lazy pre-order traversal of all values in the tree.
+  (values (hfql [{:a inc}] {:a 41})) := '({:a 41} 41 42)
+  (values (hfql {inc ...} 0)) := '(0 1 2 3 4 ...)
+"}
+  values (comp (fmap (comp force-thunk nav)) tree-seqT))
+
+(defpointfree ^{:doc "Return the environment map (scope) of an HFQL point.
+  (scope (seed (hfql (list-items % page)) {'% my-data, 'page 2})) := {'% my-data, 'page 2}
+  (scope (first (next-steps (hfql [:a] {'% my-data, 'page 2})) := {'% my-data, 'page 2}
+"}
+  scope (comp pos runCofreeT))
+
+(defpointfree ^{:doc "Return the raw value bound to '% at the current point.
+  (value-at-point (hfql inc 42)) := (Right 42)
+"}
+  value-at-point (comp force-thunk '% scope))
+
+(defpointfree ^{:doc "Predicate: is this value an HFQL object?
+  (hfql? (hfql identity 1)) := true
+"}
+  hfql? co/hfql?)
+
+(declare unchunk-seq)
+(defn navigable
+  "Attach a custom navigation function to a collection via metadata, controlling how HFQL resolves individual items of the collection.
+  (navigable (fn [index entity-id] (d/entity *db* entity-id)) '(42 43 44))"
+  [nav-fn object]
+  (vary-meta (unchunk-seq object) assoc `hyperfiddle.hfql2.protocols/-nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
+
+(defn hfql*
+  "Build an HFQL tree from a pre-analyzed AST. Useful to build or edit HFQL
+  expressions at runtime. Prefer the `hfql` macro for normal use."
+  [analyzed-hfql] (unfoldT hfql-coalgebra analyzed-hfql))
+
+(defmacro hfql
+  "Compile an HFQL query into a navigable object, optionally seeding it with data.
+  (hfql inc)                ; can't be navigated yet: missing a seed value.
+  (hfql inc 1)              ; ready to navigate
+  (seed {'% 1} (hfql inc))  ; equivalent
+"
+  ([hfql-form] `(hfql* (ana/hfql ~hfql-form)))
+  ([hfql-form x] `(seed {~''% (right ~x)} (hfql ~hfql-form))))
+
+;; ── Internal Predicates & Helpers ────────────────────────────────────
+;; Structural predicates and framework plumbing used by interpreter.cljc,
+;; navigator6, and hfql2 internals. Public but for advanced usage only.
+
+;; AST type predicates (lifted through HFQLT metadata)
 (defpointfree pull-has-star?   (comp ast/pull-has-star?   meta))
 (defpointfree partial?         (comp ast/partial?         meta))
 (defpointfree pull?            (comp ast/pull?            meta))
@@ -66,33 +152,44 @@
 (defpointfree node-type         (comp ast/node-type         meta))
 (defpointfree recursion-point?  (comp ast/recursion-point?  meta))
 (defpointfree recursive-child?  (comp ast/recursive-child?  meta))
-(defpointfree fullfilled? (some-fn seeded? (complement partial?)))
-(defpointfree hfql? co/hfql?)
 
-(declare unchunk-seq)
-(defn navigable [nav-fn object]
-  (vary-meta (unchunk-seq object) assoc `hyperfiddle.hfql2.protocols/-nav (#?(:clj bound-fn, :cljs fn) [_coll key value] (nav-fn key value))))
+;; Scope helpers
+(defpointfree seeded? (comp (flip contains? '%) scope))
+(defn update-scope "Like `clojure.core/update` for the current HFQL scope."
+  [stepT f & args]
+  (seed (apply f (scope stepT) args) stepT))
 
+(defpointfree ^:no-doc static-next-steps (comp ::co/static-children meta)) ; unseeded children, no IO. Structural shape fallback for empty collections.
+(defpointfree ^{:no-doc true, :doc "State if an HFQL point is ready to be be navigated. An HFQL point can be navigated if:
+  - it is seeded,
+  - or no seed is needed – we call such points \"total\", as in non-partial. "}
+  fullfilled? (some-fn seeded? (complement partial?)))
+
+;; Search/filter tagging (filtered, filtered? are Human API — defined here for load order)
 (defn- safe-vary-meta [object f & args]
   (if (has-meta? object)
     (apply vary-meta object f args)
     object))
 
-(defn filtered [object] (safe-vary-meta object assoc ::filtered true))
-(defn filtered? [object] (::filtered (meta object)))
+(defn filtered
+  "Mark a collection as having been filtered (e.g. by custom userland query).
+HFQL will disable automatic in-memory search:
+  - to respect user's custom filtering,
+  - so not to filter twice (perfs).
+  The collection must support metadata.
+"
+  [coll] (safe-vary-meta coll assoc ::filtered true))
 
-(defn hfql* [analyzed-hfql] (unfoldT hfql-coalgebra analyzed-hfql))
+(defn filtered?
+  "Predicate: has this collection been marked as filtered?"
+  [object] (::filtered (meta object)))
 
+;; HFQL construction (non-macro paths)
 (defn build-hfql
+  "Advanced use case: build an HFQL object at runtime. Please use the `hfql` macro instead."
   ([hfql-expression] (build-hfql {} hfql-expression))
   ([&env hfql-expression]
    (unfoldT hfql-coalgebra (ana/analyze (or &env {}) hfql-expression))))
-
-(defmacro hfql
-  ([hfql-form] `(hfql* (ana/hfql ~hfql-form)))
-  ([hfql-form x] `(seed {~''% (right ~x)} (hfql ~hfql-form))))
-
-
 
 (tests
   (set! *print-namespace-maps* false)
@@ -376,13 +473,14 @@
 
 ;; ── Navigator API ────────────────────────────────────────────────────
 ;; Functions consumed by navigator6. Public but not part of the human-facing API.
-;; Stable enough for navigator to depend on. Should have docstrings.
+;; Stable enough for navigator to depend on.
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Sitemap / Dynamic HFQL expression manipulation ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn wrap-in-pull [stepT]
+(defn ^:no-doc wrap-in-pull "Turn (hfql inc) into (hfql [inc]). Builds a new instance. Loses eventual cached IO."
+  [stepT]
   (seed (scope stepT)
     (hfql* (ana/wrap-in-pull (meta stepT)))))
 
@@ -434,7 +532,14 @@
                          (let [[_fn ?name] (::ast/form attrs)]
                            (if (symbol? ?name) `(~'fn ~?name ~'...) '(fn anonymous ...))))))))
 
-(defn symbolic-edge [hfqlT]
+(defn symbolic-edge
+  "Return a semantic symbolic representation of an HFQL point.
+  (symbolic-edge (hfql :user/name)) := :user/name
+  (symbolic-edge (hfql {:user/address [:address/street]})) := :user/address
+  (symbolic-edge (hfql {(clojure.java.io/file \".\") [.getName]})) := '(clojure.java.io/file \".\")
+  (symbolic-edge (hfql ^{::as 'add-1} inc)) := 'add-1
+  "
+  [hfqlT]
   (when hfqlT
     (symbolic-edge* (extract (meta hfqlT)))))
 
@@ -453,14 +558,17 @@
       (symbolic-edge* attrs))))
 
 (defn- resolved-symbolic-edge
-  "HFQLT-level resolved-symbolic-edge — mirrors symbolic-edge but resolves."
+  "Like `symbolic-edge`, but resolves symbols for the environment.
+  (def alice 42)
+  (resolved-symbolic-edge (hfql (user-profile alice))) := '(user-profile 42)
+  "
   [hfqlT]
   (when hfqlT
     (resolved-symbolic-edge* (meta hfqlT))))
 
 ;; PERF: Eager — `into #{}` forces children-a for the dedup set, then `into (vec ...)`
 ;; forces both seqs again. A lazy alternative (concat + memoized edge-set) would defer
-;; materialization, but callers use `nth` on the result which requires a vector.
+;; materialization.
 (defn- merge-hfqlt-children
   "Merge two sequences of HFQLT children by resolved-symbolic-edge. Left-biased."
   [children-a children-b]
@@ -524,7 +632,7 @@
     (co/->hfqlT (assoc merged-rose ::co/scope merged-scope)
                 merged-store)))
 
-(defn union
+(defn union                             ; For advanced use cases (expert level).
   "Monoidal union of HFQL expressions at the CofreeT level.
   Merges children by symbolic-edge (left-biased).
   Preserves all interpreter metadata and cached Store computations."
@@ -596,7 +704,9 @@
       (call-matches? symbolic-edge (normalize-edge child-edge))
       )))
 
-(defn- find-child-by [pred hfqlT]
+;; TODO find-child-by, find-child, find-cell-by.* should all be refactored into an `index` accessor of a representable functors.
+
+(defn- find-child-by [pred hfqlT]                               ; Human API
   (->> (unwrap hfqlT)
     (eduction
       #?(:clj (halt-when (fn [_] (.isInterrupted (Thread/currentThread))))
@@ -604,7 +714,7 @@
       (filter pred))
     (first)))
 
-(defn- find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT))
+(defn- find-child [symbolic-edge hfqlT] (find-child-by (partial child-matches? symbolic-edge) hfqlT)) ; Human API
 
 (def id (comp ast/node-id meta))
 
@@ -620,7 +730,7 @@
   ([columnT rowT]
    (find-cell-by-column* columnT (unwrap rowT))))
 
-(defn find-cell-by-symbolic-column "Lookup a column in a row by its symbolic form." ; TODO isn't that somewhat a duplicate of find-child?
+(defn find-cell-by-symbolic-column "Lookup a column in a row by its symbolic form." ; Human API — TODO isn't that somewhat a duplicate of find-child?
   ([symbolic-column] (partial find-cell-by-symbolic-column symbolic-column))
   ([symbolic-column rowT]
    (when symbolic-column
@@ -650,9 +760,16 @@
     (catch #?(:clj Throwable, :cljs :default) t
       (left t))))
 
-(defn hfql-resolve [symbolic-object-constructor] (unwrap! (hfql-resolve* symbolic-object-constructor)))
+(defn hfql-resolve
+  "Dual of `identify`. Resolve a symbolic constructor produced by `identify` to its original runtime object, throwing on failure.
+  E.g. (hfql-resolve '(clojure.java.io/file \".\")) := #java.io.File[\".\" 0x12345]."
+  [symbolic-object-constructor] (unwrap! (hfql-resolve* symbolic-object-constructor))) ; Human API
 
-(defn identifiable [identify-fn object]
+(defn identifiable
+  "Teaches HFQL how to identify an object by attaching a custom identification function via metadata.
+  (identifiable (fn [file] (list 'clojure.java.io/file (.getAbsolutePath file))) my-file).
+  "
+  [identify-fn object]                                          ; Human API
   (vary-meta object assoc `hyperfiddle.hfql2.protocols/-identify (#?(:clj bound-fn*, :cljs identity) identify-fn))) ; #?(:clj bound-fn* :cljs identity)
 
 #?(:clj
@@ -661,22 +778,22 @@
        (or (extends? proto atype)
          (boolean (some #(extends-protocol? proto %) (bases atype)))))))
 
-(defn identifiable? [object]
+(defn identifiable? "State if HFQL knows how to identify a given object." [object]
   (or (and (has-meta? object) (contains? (meta object) `hyperfiddle.hfql2.protocols/-identify))
     #?(:clj (extends-protocol? Identifiable (#?(:clj class, :cljs type) object))
        :cljs (and (not (nil? object))
                (object? object)
                (satisfies? Identifiable object)))))
 
-(defn identify
-"Produces a symbolic identity for `obj`, or nil if `obj` does not explicitly
-implement `Identifiable`. Serializable and uniquely resolvable symbolic
-identities should be favored.
-All values being self-identical, `(or (identify x) x)` always yields a valid
-identifier, though it might not be serializable."
-  [obj]
-  (when (identifiable? obj)
-    (hyperfiddle.hfql2.protocols/-identify obj)))
+(defn identify                                                  ; Human API
+"Produces a symbolic identity for `object`, or nil if `object` does not
+explicitly implement `Identifiable`. A symbolic identity value should be
+serializable and uniquely resolvable to the extent possible. All values being
+self-identical, `(or (identify x) x)` always yields a valid identifier, though
+it might not be serializable."
+  [object]
+  (when (identifiable? object)
+    (hyperfiddle.hfql2.protocols/-identify object)))
 
 #?(:clj
    (tests
@@ -778,14 +895,27 @@ identifier, though it might not be serializable."
      Suggestable
      (-suggest [_] (hfql [.getClassName .getMethodName .getFileName .getLineNumber .isNativeMethod .getModuleName .getModuleVersion .getClassLoaderName]))))
 
-(defmulti -suggest type)
+(defmulti -suggest-dispatch type)
+(defmethod -suggest-dispatch :default [type] type)
+(defmulti -suggest -suggest-dispatch)
 
 (defn suggest* [object]
   (try (right (-suggest (original-object object)))
        (catch #?(:clj Throwable, :cljs :default) err
          (left err))))
 
-(defn suggest [object] (unwrap! (suggest* object)))
+(defn suggest                         ; Human API
+  "Return an HFQL instance describing possible navigation onto the given `object`.
+  Used by UIs to draw columns for runtime objects.
+
+  Extensible on any object by implementing `-suggest` of the
+  `hyperfiddle.hfql2.protocols/Suggestable` protocol or extending the
+  `hyperfiddle.hfql2/-suggest` multimethod. Protocol implementation should be
+  favored, unless finer grained dispatch is needed: the multimethod has
+  precedence over the protocol.
+
+  `-suggest` must return an HFQL instance."
+  [object] (unwrap! (suggest* object)))
 
 (defn- suggest-map [object]
   ;; TODO render the type in UI if the map-like object is of an interesting type (e.g. IRecords)
@@ -1008,7 +1138,10 @@ identifier, though it might not be serializable."
 ;; Safe comparison protocol - prevents blowup on infinite lazy seqs and uncomparable objects.
 ;; Collections return [type-name, count-or-max] for grouping by type + safe ordering by size.
 ;; Unknown objects return type name only (never the raw object).
-(defn comparable [object] (hyperfiddle.hfql2.protocols/-comparable object))
+(defn comparable
+  "Return a sort-friendly representation of an object (string, number, or [type count] for collections).
+  Extensible on any object by implementing `hyperfiddle.hfql2.protocols/ComparableRepresentation`."
+  [object] (hyperfiddle.hfql2.protocols/-comparable object))    ; Human API
 
 (extend-protocol ComparableRepresentation
   nil (-comparable [_] nil)
@@ -1080,6 +1213,7 @@ identifier, though it might not be serializable."
         (map? object) (or (::ast/type object) (type object))
         :else (type object)))
 
+;; TODO missing docstring
 (defmulti describe describe-dispatch-fn)
 (defmethod describe :default [_] nil)
 (defmethod describe ::ast/symbol         [stepT] (extract (meta stepT)))
@@ -1118,6 +1252,7 @@ identifier, though it might not be serializable."
   #?(:clj (apply clojure.core/format fmt args)
      :cljs (apply gstring/format fmt args)))
 
+;; TODO missing docstring
 (defmulti describe-formatted describe-dispatch-fn)
 (defmethod describe-formatted :default [_] "")
 
@@ -1157,8 +1292,14 @@ identifier, though it might not be serializable."
   (describe-formatted (get dustingetz.namespace-explorer/sitemap `all-ns))
   )
 
-(defpointfree parent (comp ::parent meta))
-(defn set-parent [childT parentT] (vary-meta childT assoc ::parent parentT))
+(defpointfree ^{:doc "Given an HFQL object, return it's parent, if any.
+
+(def q (hfql [:a])))
+(= q (parent (first (next-steps q)))) := true
+"}
+  parent (comp ::parent meta))
+
+(defn ^:no-doc set-parent [childT parentT] (vary-meta childT assoc ::parent parentT))
 (defpointfree multiplicity-many? (comp ast/multiplicity-many? meta))
 
 (defn- lookup
@@ -1426,7 +1567,25 @@ identifier, though it might not be serializable."
 
 ;;; Safe in-memory search
 
-(defn search-matches [object needle] (hyperfiddle.hfql2.protocols/search-matches object needle))
+(defn search-matches "State if a given object matches a given `needle` object, usually a string. E.g.:
+  (search-matches \"hello\" \"ll\") := true
+  (search-matches :hello \"ll\") := true
+  (search-matches 'hello \"ll\") := true
+  (search-matches true \"ru\") := true
+
+  Extensible on any object by implementing `hyperfiddle.hfql2.protocols/Searchable`.
+
+  Default behavior:
+  Will scan collections in O(n) with the following constraints:
+  - only lookup of for a maximum of `*search-max-collection-size*` items – default 100.
+  - only search `*search-max-depth*` levels deep – default 3.
+
+  Will only match on the first `*search-max-str-len*` characters of a string – default 200.
+  All `hyperfiddle.hfql2.protocols/*search-max-...` parameters are customizable with `binding`.
+
+  Implementations must respect thread interruption.
+  "
+  [object needle] (hyperfiddle.hfql2.protocols/search-matches object needle))
 
 (defn- safe-str-match
   "Match a string against needle, truncating to MAX-STR-LEN."
