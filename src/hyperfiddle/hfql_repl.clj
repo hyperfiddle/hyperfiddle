@@ -45,7 +45,7 @@
   "Describe a route: its type, whether it's partial, and its columns."
   [route-sym]
   (when-let [stepT (get (current-sitemap) route-sym)]
-    (let [m (hfql/metas stepT)
+    (let [m (extract (meta stepT))
           type (::ana/type m)
           edges (::ana/symbolic-edges m)
           partial? (::ana/partial m)]
