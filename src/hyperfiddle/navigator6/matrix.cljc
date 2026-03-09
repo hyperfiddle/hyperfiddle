@@ -95,18 +95,18 @@
               (when (e/server (some? columnT))
                 (let [form (e/server (str (shorten (hfql/symbolic-edge columnT))))]
                   (e/client
-                    (dom/th (dom/props {:scope :col, :style {:--cell-index col-index}})
+                    (dom/th (dom/props {:scope :col, :style {:--cell-index col-index, :cursor "pointer"}})
                       (dom/span (dom/props {:class "column-name"}) (dom/text form)
                         (e/server (rendering/RenderTooltip ::hfql/ColumnHeaderTooltip nil columnT nil)))
-                      (dom/span
+                      (dom/span ; visual-only sort indicator (arrows)
                         (dom/props {:class "sort-handle"
-                                    :title "Sort"
                                     :data-sort-order (str (e/server (column-sort-order columnT sort/*sort-spec*)))
-                                    :disabled sort/*disabled?*})
-                        (let [!direction (atom (cycle ['. '< '>])) ; ASC first — matches spreadsheet convention
-                              direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
-                              [t err] (e/Token direction)]
-                          (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]])))))))))))))))
+                                    :disabled sort/*disabled?*}))
+                      ;; Sort click handler on <th> — whole header is the click target
+                      (let [!direction (atom (cycle ['. '< '>])) ; ASC first — matches spreadsheet convention
+                            direction (dom/On "click" (fn [_event] (first (swap! !direction rest))) nil)
+                            [t err] (e/Token direction)]
+                        (e/Reconcile (e/When t [t [`sort/Sort! (e/server (utils/Delay columnT)) direction]]))))))))))))))
 
 #?(:cljs
    (defn- dispatch-event! [direction ^js node type detail]

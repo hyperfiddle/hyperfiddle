@@ -286,7 +286,6 @@ table.matrix thead tr th .sort-handle{
     width: 1lh;
     aspect-ratio: 1;
 
-    cursor: pointer;
     transform: scaleX(60%) scaleY(80%);
     --carret-color: #2f3237;
 }
