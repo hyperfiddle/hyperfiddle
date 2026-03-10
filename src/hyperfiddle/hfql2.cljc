@@ -1114,7 +1114,7 @@ it might not be serializable."
                       (let [suggested? (set/difference (children-ids item-suggestion) (children-ids hfqlT))]
                         (hoistHfqlT (fn [ast] (assoc ast ::suggested (boolean (suggested? (ast/node-id ast)))))
                           (union hfqlT item-suggestion)))
-                      (update-scope DEFAULT-SUGGESTION (constantly (scope hfqlT)))))
+                      (update-scope LEAF-SUGGESTION (constantly (scope hfqlT)))))
                   (pull? hfqlT) hfqlT
                   (pull? suggestedT) (update-scope suggestedT (constantly (scope hfqlT)))
                   :else hfqlT
