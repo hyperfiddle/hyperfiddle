@@ -160,7 +160,9 @@
 
 (defn- indirect-method-call? [sym]
   (and (simple-symbol? sym)
-    (str/starts-with? (name sym) ".")))
+    (let [n (name sym)]
+      (and (str/starts-with? n ".")
+           (not (str/starts-with? n ".."))))))  ; `..` and `...` are not method calls
 
 (defn- direct-method-call? [sym]
   (and (qualified-symbol? sym)
@@ -169,6 +171,17 @@
 (defn- static-method-call? [sym]
   (and (qualified-symbol? sym)
     (not (str/starts-with? (name sym) "."))))
+
+(defn ^:no-doc macro-or-special-symbol?
+  "True if this symbol AST node represents a macro or compiler special form.
+   Uses the var already stored in the AST by the analyzer — no runtime `resolve`.
+   For static AST (compile-time), node-var is the actual Var → `:macro` metadata works.
+   For dynamic AST (runtime), node-var is a quoted form → `var?` is false, returns false.
+   Dynamic keys are fine: the raw symbol is IFn and does map lookup via the `call` path."
+  [ast-node]
+  (or (special-symbol? (ast/form ast-node))
+      (let [v (ast/node-var ast-node)]
+        (and (var? v) (:macro (meta v))))))
 
 (defn- method-call? [sym]
   (or (indirect-method-call? sym)

@@ -251,6 +251,7 @@
   [ast-node]
   (case (ast/node-type ast-node)
     ::ast/quoted-var (ast/node-value ast-node)
+    ::ast/symbol (ast/form ast-node)            ; macro symbols routed here — use the raw symbol
     (ana/unquote* (ast/node-value ast-node))))
 
 (defn- io-operation
@@ -316,20 +317,18 @@
 
 (declare seed)
 
-;; Quote any form that would be misinterpreted as HFQL syntax
-;; when used as a runtime-discovered pull key.
+;; Quote forms that collide with HFQL syntax when used as runtime-discovered pull keys.
 ;; Numbers look like recursion limits, `*` looks like star-pull, `...` looks like recursion.
+;; Macros and special forms are handled in the coalgebra via macro-or-special-symbol?.
 (defn- disambiguate-from-hfql-syntax [form]
   (cond
-    (nat-int? form) (list 'quote form)
-    (= '* form)     (list 'quote form)
-    (= '... form)   (list 'quote form)
-    (= '.. form)    (list 'quote form)
-    :else            form))
+    (nat-int? form)    (list 'quote form)
+    (#{'* '...} form)  (list 'quote form)
+    :else              form))
 (defn- undisambiguate-from-hfql-syntax [form]
   (if (and (ana/quoted? form)
            (let [inner (second form)]
-             (or (nat-int? inner) (#{'* '... '..} inner))))
+             (or (nat-int? inner) (#{'* '...} inner))))
     (ana/unquote* form)
     form))
 
@@ -547,7 +546,9 @@ Pulling on non-maps (non associative) is perfectly fine.
   (let [children (unwrap ast-node)
         transform
         (case (ast/node-type ast-node)
-          ::ast/symbol        (comp (leaf ast-node) (focus-arguments ast-node) call)
+          ::ast/symbol        (if (ana/macro-or-special-symbol? ast-node)
+                                (comp (leaf ast-node) focus-% getter)
+                                (comp (leaf ast-node) (focus-arguments ast-node) call))
           ::ast/quoted-symbol (comp (leaf ast-node) focus-% getter)
           ::ast/keyword       (comp (leaf ast-node) focus-% getter)
           ::ast/string        (comp (leaf ast-node) focus-% getter)
