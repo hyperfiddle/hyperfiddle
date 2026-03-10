@@ -324,11 +324,12 @@
     (nat-int? form) (list 'quote form)
     (= '* form)     (list 'quote form)
     (= '... form)   (list 'quote form)
+    (= '.. form)    (list 'quote form)
     :else            form))
 (defn- undisambiguate-from-hfql-syntax [form]
   (if (and (ana/quoted? form)
            (let [inner (second form)]
-             (or (nat-int? inner) (#{'* '...} inner))))
+             (or (nat-int? inner) (#{'* '... '..} inner))))
     (ana/unquote* form)
     form))
 
