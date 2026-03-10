@@ -12,8 +12,8 @@
                              :connection "scm:git:git://github.com/hyperfiddle/hyperfiddle.git"
                              :developerConnection "scm:git:ssh://git@github.com/hyperfiddle/hyperfiddle.git"}
 
- :hyperfiddle/imported-demos {}
- :deps/prep-lib {:alias :build :fn prep :ensure "target/classes"}
+ ;; :hyperfiddle/imported-demos {}
+ ;; :deps/prep-lib {:alias :build :fn prep :ensure "target/classes"}
  :paths ["src" "resources" "target/classes"]
 
  :deps {org.clojure/clojure {:mvn/version "1.12.3"}
