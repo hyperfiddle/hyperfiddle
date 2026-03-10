@@ -316,10 +316,21 @@
 
 (declare seed)
 
-(defn- disambiguate-nums-from-recursion [form] (ana/quote-nat-ints form))
-(defn- undisambiguate-nums-from-recursion [form] (if (and (ana/quoted? form) (nat-int? (second form)))
-                                                   (ana/unquote* form)
-                                                   form))
+;; Quote any form that would be misinterpreted as HFQL syntax
+;; when used as a runtime-discovered pull key.
+;; Numbers look like recursion limits, `*` looks like star-pull, `...` looks like recursion.
+(defn- disambiguate-from-hfql-syntax [form]
+  (cond
+    (nat-int? form) (list 'quote form)
+    (= '* form)     (list 'quote form)
+    (= '... form)   (list 'quote form)
+    :else            form))
+(defn- undisambiguate-from-hfql-syntax [form]
+  (if (and (ana/quoted? form)
+           (let [inner (second form)]
+             (or (nat-int? inner) (#{'* '...} inner))))
+    (ana/unquote* form)
+    form))
 
 (defn- pull-peek-at-immediate-kids! [env kidsT]
   ;; Unless I'm mistaken, this is only a test convenience utility.
@@ -332,7 +343,7 @@
   ;; which may be no different from of test utility?
   (try
     (either/right
-      (into {} (map pair (fmap (comp undisambiguate-nums-from-recursion symbolic-edge meta) kidsT)
+      (into {} (map pair (fmap (comp undisambiguate-from-hfql-syntax symbolic-edge meta) kidsT)
                  (->> kidsT
                    (fmap (seed env))
                    (fmap runCofreeT)
@@ -371,7 +382,7 @@ Pulling on non-maps (non associative) is perfectly fine.
           (key (first associative)) ; type guard: fail fast if not map entries
           (->> associative
             (map key) ; do not use `keys` here. `doall` doesn't work as expected on it. See following RCF.
-            (map disambiguate-nums-from-recursion))
+            (map disambiguate-from-hfql-syntax))
           (catch #?(:clj Throwable, :cljs :default) _ ()))))))
 
 (tests
