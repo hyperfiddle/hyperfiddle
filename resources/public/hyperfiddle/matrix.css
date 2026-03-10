@@ -216,22 +216,14 @@ table.matrix[role=radiogroup]{
     }
     tr:has(input[type=radio]:is(:checked,[aria-busy=true])){
         color: var(--row-text-color);
-        /*
-          Setting border-radius on cells is prefered over:
-            - border-radius on tr: not supported
-            - clip-path: clips overflowing content - e.g. tooltips
-            - pseudo-element as background: allocates layers
-            - mask-image on background: CPU bound - may impact scroll perfs
-              - border-radius is 100% GPU
-        */
-        
-        th:first-child{
+        /* tr has display:grid (subgrid), so border-radius works directly —
+           clips the row's own background, children still overflow for tooltips */
+        border-radius: var(--item-selected-border-radius);
+        /* Sticky row-handle has its own opaque background (for horizontal scroll),
+           so it needs matching left-side rounding to not cover the tr's corners */
+        th[scope=row] {
             border-top-left-radius: var(--item-selected-border-radius);
             border-bottom-left-radius: var(--item-selected-border-radius);
-        }
-        td:last-child{
-            border-top-right-radius: var(--item-selected-border-radius);
-            border-bottom-right-radius: var(--item-selected-border-radius);
         }
         a{
             color: inherit;
@@ -239,13 +231,17 @@ table.matrix[role=radiogroup]{
     }
     
     tr:has(input[type=radio]:checked:not([aria-busy=true])){
-        th, td {
+        background: var(--row-background-color);
+        /* Sticky row-handle must stay opaque during horizontal scroll —
+           otherwise content behind it bleeds through */
+        th[scope=row] {
            background: var(--row-background-color);
         }
     }
     tr:has(input[type=radio][aria-busy=true]:checked){
         --row-background-color: var(--color-pending);
-        th, td {
+        background: var(--row-background-color);
+        th[scope=row] {
             background: var(--row-background-color);
         }
     }
