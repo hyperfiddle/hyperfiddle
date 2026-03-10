@@ -87,7 +87,7 @@
 }
 
 .navigation-card__chrome input[type="search"]:disabled {
-  background-color: whitesmoke;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
