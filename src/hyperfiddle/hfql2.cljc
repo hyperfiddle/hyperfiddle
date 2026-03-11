@@ -1067,58 +1067,67 @@ it might not be serializable."
 ;; (all rows rediscover the same schema). Associative views pay it once at RenderMatrix level.
 ;; Lazy alternative: compute suggestions once at collection level, share across rows.
 ;; Blocked on heterogeneous collections (varying attrs per entity).
+(defn- resolve-star-pull
+  "When the static tree is [*] (pull-all), discover concrete columns from the
+  runtime value by sampling the first item. Returns a concrete pull HFQLT or nil.
+  Wrapped in try-catch: sampling can fail on objects with side-effectful
+  methods (e.g. Jetty connectors deadlock when reflected during request handling)."
+  [hfqlT]
+  (try
+    (let [coll (from-right nil (value-at-point hfqlT))]
+      (cond
+        (multiplicity-many-value? coll)
+        (when-let [sample (first coll)]
+          (let [s (from-right nil (suggest* sample))]
+            (cond
+              ;; Suggestion is a concrete pull (not [*] itself) — use it directly.
+              ;; E.g. Java objects → [type .method1 .method2 ...], records → [:field1 :field2 ...]
+              ;; Maps return [*] from suggest-map, which would no-op in union — rejected here.
+              (and s (pull? s) (not (pull-has-star? s))) s
+              ;; Map-like sample — materialize keys as explicit columns.
+              (imap? sample) (build-hfql (vec (keys sample))))))
+        ;; Value is already a single map (e.g. {*} traversal fanned out
+        ;; a collection of maps, [*] sees one map directly)
+        (imap? coll)
+        (build-hfql (vec (keys coll)))))
+    (catch #?(:clj Throwable, :cljs :default) _ nil)))
+
+(defn- mark-suggested
+  "Mark each node in hfqlT with ::suggested based on whether its id is in suggested-ids."
+  [suggested-ids hfqlT]
+  (hoistHfqlT (fn [ast] (assoc ast ::suggested (boolean (suggested-ids (ast/node-id ast)))))
+    hfqlT))
+
 (let [children-ids (comp set (fmap id) ::co/static-children meta)]
   (defn augment-with-suggestions! [hfqlT]
     (when hfqlT
       (-> (if-let [suggestedT (suggest-at-point! hfqlT)]
-            (if (-> (::default (extract (meta suggestedT)))    ; default was suggested
-                  (and (pull-has-star? hfqlT)) ; but static expression has a *
-                  (and (> 1 (count (children-ids hfqlT))))) ; so if there's more static children than just *, skip rendering defaults
+            (if (-> (::default (extract (meta suggestedT)))
+                  (and (pull-has-star? hfqlT))
+                  (and (> 1 (count (children-ids hfqlT)))))
               hfqlT
-              (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))
-                    hfqlT-type (node-type hfqlT)
-                    suggestedT-type (node-type suggestedT)]
+              (let [suggested? (set/difference (children-ids suggestedT) (children-ids hfqlT))]
                 (cond
                   (empty? suggested?) hfqlT
 
-                  (= ::ast/pull hfqlT-type suggestedT-type)
-                  (hoistHfqlT (fn [ast]
-                                (assoc ast ::suggested (boolean (suggested? (ast/node-id ast)))))
-                    (union hfqlT suggestedT))
-                  (and (pull? hfqlT)
-                    (= '[*] (ast/form (meta hfqlT))))
-                  ;; [*] pull but suggestion isn't a pull (e.g. collection → traversal).
-                  ;; Sample first item to discover per-item columns (e.g. Java methods).
-                  ;; Wrapped in try-catch: sampling can fail on objects with side-effectful
-                  ;; methods (e.g. Jetty connectors deadlock when reflected during request handling).
-                  (let [item-suggestion
-                        (try
-                          (let [coll (from-right nil (value-at-point hfqlT))]
-                            (cond
-                              (multiplicity-many-value? coll)
-                              (when-let [sample (first coll)]
-                                (let [s (from-right nil (suggest* sample))]
-                                  (cond
-                                    ;; FIXME: ::ana/pull and ::ana/type were wrong qualifiers (always-false).
-                                    ;; Fixing to ::ast/pull and ::ast/type changes suggestion merging behavior
-                                    ;; for maps — suggest-map returns [*] pull which produces different symbolic
-                                    ;; edges than (build-hfql (keys sample)). Needs careful redesign.
-                                    (and s (= ::ana/pull (::ana/type (extract (meta s))))) s
-                                    (imap? sample) (build-hfql (vec (keys sample))))))
-                              ;; value-at-point is already a map (e.g. {*} traversal fanned out
-                              ;; a collection of maps, [*] sees one map directly)
-                              (imap? coll)
-                              (build-hfql (vec (keys coll)))))
-                          (catch #?(:clj Throwable, :cljs :default) _ nil))]
-                    (if (and item-suggestion (pull? item-suggestion))
-                      (let [suggested? (set/difference (children-ids item-suggestion) (children-ids hfqlT))]
-                        (hoistHfqlT (fn [ast] (assoc ast ::suggested (boolean (suggested? (ast/node-id ast)))))
-                          (union hfqlT item-suggestion)))
-                      (update-scope LEAF-SUGGESTION (constantly (scope hfqlT)))))
+                  ;; Both are pulls — merge children, mark new ones as suggested
+                  (and (pull? hfqlT) (pull? suggestedT))
+                  (mark-suggested suggested? (union hfqlT suggestedT))
+
+                  ;; [*] pull but suggestion isn't a pull — resolve [*] from runtime value
+                  (and (pull? hfqlT) (= '[*] (ast/form (meta hfqlT))))
+                  (if-let [resolved (resolve-star-pull hfqlT)]
+                    (let [suggested? (set/difference (children-ids resolved) (children-ids hfqlT))]
+                      (mark-suggested suggested? (union hfqlT resolved)))
+                    (update-scope LEAF-SUGGESTION (constantly (scope hfqlT))))
+
+                  ;; Static is an explicit pull (not [*]) — user specified columns, keep them
                   (pull? hfqlT) hfqlT
+
+                  ;; Static isn't a pull, suggestion is — adopt suggestion's structure with static's scope
                   (pull? suggestedT) (update-scope suggestedT (constantly (scope hfqlT)))
-                  :else hfqlT
-                  )))
+
+                  :else hfqlT)))
             hfqlT)
         (set-parent (parent hfqlT))))))
 
