@@ -22,7 +22,8 @@
   (.mkdirs (io/file "target/classes")))
 
 (defn build
-  ([opts] (build (build/create-basis :aliases [:release]) opts))
+  ([{:keys [aliases] :or {aliases [:release]} :as opts}]
+   (build (build/create-basis :aliases aliases) opts))
   ([basis opts]
    (clean basis opts)
    (let [{:keys [class-dir src-dirs] :as opts} (build/defaults basis opts)]

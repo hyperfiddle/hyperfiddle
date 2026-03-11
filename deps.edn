@@ -40,4 +40,6 @@
                                 org.clojure/tools.namespace {:mvn/version "1.5.0"}
                                 com.datomic/peer            {:mvn/version "1.0.7469"}}} ; nav-datomic, datomic-contrib2
            :release {:override-deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-b5ceeefc9"}
-                                     com.hyperfiddle/hyperfiddle-contrib {:mvn/version "v0-alpha-bcc21af7"}}}}}
+                                     com.hyperfiddle/hyperfiddle-contrib {:mvn/version "v0-alpha-bcc21af7"}}}
+           :latest {:override-deps {com.hyperfiddle/electric {:mvn/version "latest-SNAPSHOT"}
+                                    com.hyperfiddle/hyperfiddle-contrib {:mvn/version "latest-SNAPSHOT"}}}}}
