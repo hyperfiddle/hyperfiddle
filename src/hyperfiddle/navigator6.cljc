@@ -22,7 +22,8 @@
             [hyperfiddle.ct.either :refer [either right left? from-left from-right]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
-            [contrib.assert :refer [is]])
+            [contrib.assert :refer [is]]
+            #?(:clj [clojure.tools.logging :as log]))
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
 (e/declare ^:dynamic *navigation-depth*)
@@ -96,12 +97,15 @@
   (let [either-value ((glitch-guard hfql/nav*) hfqlT)
         value (either identity identity either-value)
         associative? (associative-value? value)
-        ;; suggest-and-graft handles the happy path (Right). For errors (Left),
-        ;; we render the error as a value instead of silently returning nil.
-        stepT (or ((glitch-guard suggest-and-graft) hfqlT)
-                (when (left? either-value)
-                  (-> (hfql/hfql [*] (right (from-left nil either-value)))
-                    ((glitch-guard hfql/set-parent) hfqlT))))]
+        ;; Errors (Left) skip suggestion — exceptions aren't meaningful values to
+        ;; suggest columns from, and suggest-and-graft would graft onto the static
+        ;; sitemap context (wrong selection targets). Error path severs the tree.
+        stepT (#(if (left? either-value)
+                  (-> (hfql/hfql [*] (from-left nil either-value))
+                    ((glitch-guard hfql/set-parent) hfqlT)
+                    ;; Flag error so RenderMatrix applies red-table CSS (matrix.cljc:333).
+                    (vary-meta assoc ::hfql/error (from-left nil either-value)))
+                  ((glitch-guard suggest-and-graft) hfqlT)))]
     (if (some? stepT)
       (e/fn [_] (RenderMatrix stepT :associative? associative?))
       (e/fn [& _]))))
@@ -109,10 +113,12 @@
 (e/defn ResolveRenderer [hfqlT]
   (e/server
     (e/Reconcile
-      (case (e/Offload #((glitch-guard effective-render-type) hfqlT))
-        ;; Structured node (pull or star) — the outer step (possibly a traversal wrapper) is
-        ;; passed to RenderMatrix. hfql/nav inside RenderMatrix executes any traversal IO.
-        ;; pull → associative (single object, transposed), star → not associative (collection).
+      ;; IO errors (e.g. *db* nil) are silently converted to empty collections
+      ;; by the interpreter's star/pull traversal. Check nav* first: if Left,
+      ;; return ::left so the default branch (SuggestAndRender) renders a red table.
+      (case (e/Offload #(if (some-> hfqlT hfql/nav* left?)
+                           ::left
+                           ((glitch-guard effective-render-type) hfqlT)))
         ::pull (e/fn [stepT] (RenderMatrix stepT :associative? true))
         ::star (e/fn [stepT] (RenderMatrix stepT :associative? false))
         ::recursion-end (e/Reconcile (SuggestAndRender hfqlT))
@@ -126,6 +132,11 @@
      (with-bindings bindings
        (let [selectable-point (hyperfiddle.navigator6.selection2/find-selectable-point current-point)]
          (or (and (some? selectable-point)
+               (not (left? (hfql/nav* current-point))) ;; IO errors skip static tree (children have ::hfql/select
+                                                       ;; pointing to sitemap targets like attribute-entity-detail).
+                                                       ;; Fall through to suggest-and-graft which discovers exception
+                                                       ;; properties for drill-down as plain data.
+                                                       ;; nav* result is cached by mem-reader — this is a cache hit.
                (hyperfiddle.navigator6.selection2/resolve-selection-coordinates
                  selectable-point
                  symbolic-selection-coordinates))
@@ -151,9 +162,12 @@
   (e/client
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
       (let [id (e/server (with-bindings* (or e/*bindings* {}) ; Inject bindings must be active before thunk forcing
-                           (fn [] (hash [((glitch-guard hfql/id) stepT) ; HACK
-                                         (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
-                                         ]))))]
+                           (fn [] (try (hash [((glitch-guard hfql/id) stepT) ; HACK
+                                              (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
+                                              ])
+                                       (catch Throwable t
+                                         #?(:clj (log/warn t "Navigate* id computation failed"))
+                                         (object-level-identity stepT))))))]
         (rebooting id ; glitch guard
           (let [sitemap (e/server (e/Snapshot sitemap))
                 stepT (e/server (e/Snapshot stepT))]
@@ -162,25 +176,38 @@
                 (with-local-state ::state/route ; injects *local-state and interpret state write commands
                   (with-local-search ::search   ; injects *local-search and interpret search commands
                     (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                      (e/server #(do #_(prn "coords:" %) ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
+                      (e/server #(try ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)
+                                      (catch Throwable t
+                                        #?(:clj (log/warn t "Selection resolution failed"))
+                                        nil)))
                       ;; Hoist next-childT above e/amb so NavigationCard can receive has-child?.
                       ;; This lets the three-state checkbox (indeterminate/checked/unchecked) know
                       ;; the positional default before the user interacts.
-                      (let [next-childT (e/server (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))]
+                      (let [next-childT (e/server
+                                        ((fn []
+                                           (try (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection)
+                                                (catch #?(:clj Throwable :cljs :default) t
+                                                  #?(:clj (log/warn t "find-next-navigable-point failed"))
+                                                  nil)))))]
                         (e/amb
                           ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
                           ;; NavigationCard renders into the display:contents div, becoming a
                           ;; direct child of .Browser alongside child cards.
                           (NavigationCard *navigation-depth* (e/server (some? next-childT))
                             (e/fn []
-                              (e/call (ResolveRenderer stepT) ; call renderer for current point
-                                ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
-                                ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
-                                ;; See plans/associative-search-cell-recomputation.md for full analysis.
-                                (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
-                                                             (dissoc e/*bindings* (find-var `search/*local-search))
-                                                             e/*bindings*))]
-                                            ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings))))))
+                              ;; Inject e/*bindings* into HFQL scope BEFORE ResolveRenderer.
+                              ;; ResolveRenderer forces nav* (e/Offload, thread pool) — the HFQL
+                              ;; scope must already contain hfql/*bindings* so the interpreter's
+                              ;; bound-fn* can bind *db* etc. on the worker thread.
+                              ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
+                              ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
+                              ;; See plans/associative-search-cell-recomputation.md for full analysis.
+                              (let [injected (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
+                                                                         (dissoc e/*bindings* (find-var `search/*local-search))
+                                                                         e/*bindings*))]
+                                                         ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings)))]
+                                (e/call (ResolveRenderer injected)
+                                  injected))))
                           ;; Branch 2: child navigation — sibling of card, gets full viewport width.
                           ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
                           ;; this card's with-local-selection clears selection → child unmounts.

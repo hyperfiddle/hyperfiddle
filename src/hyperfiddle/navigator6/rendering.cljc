@@ -305,5 +305,8 @@
 (e/defn Step-Title [stepT]
   (dom/span
     (dom/props {:class "title"
-                :data-tooltip (e/server (table-title-tooltip-content stepT))})
+                :data-tooltip (e/server ((fn [] (try (table-title-tooltip-content stepT)
+                                                     (catch Throwable t
+                                                       (log/warn t "table-title-tooltip-content failed")
+                                                       nil)))))})
     (dom/text (e/server (render-step-title stepT selection/*parent-selection-symbolic)))))
