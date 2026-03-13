@@ -152,6 +152,7 @@
 (defpointfree node-type         (comp ast/node-type         meta))
 (defpointfree recursion-point?  (comp ast/recursion-point?  meta))
 (defpointfree recursive-child?  (comp ast/recursive-child?  meta))
+(defpointfree traversal-only-recursion? (comp co/traversal-only-recursion? meta))
 
 ;; Scope helpers
 (defpointfree seeded? (comp (flip contains? '%) scope))
@@ -1310,6 +1311,16 @@ it might not be serializable."
 
 (defn ^:no-doc set-parent [childT parentT] (vary-meta childT assoc ::parent parentT))
 (defpointfree multiplicity-many? (comp ast/multiplicity-many? meta))
+
+(defn wrap-traversal-in-pull
+  "Wrap an HFQLT traversal in a synthetic pull to provide a selectable row.
+  Used by the navigator when a traversal-only recursive form has no natural pull.
+  Unlike `wrap-in-pull` (which re-analyzes a leaf), this wraps the existing AST
+  node directly — preserving the recursion structure."
+  [hfqlT]
+  ;; seed takes (env, t) — env first, so we can't use -> threading for it.
+  (-> (seed (scope hfqlT) (unfoldT hfql-coalgebra (ast/->pull [(meta hfqlT)])))
+    (set-parent (parent hfqlT))))
 
 (defn- lookup
   "Given an HFQL step object, lookup for a symbolic point in the reachable HFQL scope.

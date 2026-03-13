@@ -247,7 +247,7 @@
      (and (selection-point? point)
        (cell? point)
        (or (hfql/identifiable? (from-right nil (hfql/value-at-point (hfql/parent point))))
-         (not (hfql/multiplicity-many? (hfql/parent (hfql/parent point)))))
+         (not (some-> point hfql/parent hfql/parent hfql/multiplicity-many?))) ;; nil grandparent = root level = multiplicity-one
        (symbolic-column? (symbolize-form point)) ; ensure column is representable (e.g. arbitrary object as a key in a map is not URL-representable)
        (pair (symbolize-form point) `(hfql/current-point)))
      ;; Selected point is not identifiable.
@@ -613,7 +613,11 @@
          ;; Traversal case, eventually recursive.
          (and (hfql/traversal? current-point)
            (or (and (not (hfql/multiplicity-many? current-point))
-                 (find-selectable-point current-point (first (hfql/next-steps current-point))))
+                 ;; Traversal-only recursion has no natural pull — wrap the
+                 ;; recursion target in a synthetic pull to provide a selectable row.
+                 (if (hfql/traversal-only-recursion? current-point)
+                   (hfql/wrap-traversal-in-pull current-point)
+                   (find-selectable-point current-point (first (hfql/next-steps current-point)))))
              ;; The fact that a traversal is itself tagged as multiplicity many conflates it with the pull-many case.
              ;; It forces us to reproduce the `1.` logic for traversals.
              ;; Maybe traversal's implementation should change and maybe we can separate traversing from fan-out.
@@ -696,8 +700,10 @@
     (first (hfql/next-steps _traversal-case-recursive-syntactically-infinite)))
   := true
 
-  (find-selectable-point _traversal-case-recursive-syntactically-infinite)
-  := nil
+  ;; Previously nil (no selectable point existed). Now we synthesize a pull
+  ;; wrapping the traversal, giving the navigator a row to render.
+  (hfql/pull? (find-selectable-point _traversal-case-recursive-syntactically-infinite))
+  := true
 
   ;; advanced recursivity case, find selectable point THROUGH recursivity
   (def _recursive-case-select-upwards (hfql/hfql [{:a ...}] {:a {:a 1}}))

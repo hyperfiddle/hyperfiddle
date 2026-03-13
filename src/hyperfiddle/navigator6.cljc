@@ -57,7 +57,11 @@
     (hfql/pull? hfqlT) ::pull
     (hfql/traversal? hfqlT) (if (hfql/multiplicity-many? hfqlT)
                               (if (recursion-end? hfqlT) ::recursion-end ::star)
-                              (effective-render-type (first (hfql/next-steps hfqlT))))
+                              ;; Recursive traversals have self-similar children — no inner
+                              ;; pull/star to find. Route to SuggestAndRender instead of SO.
+                              (if (hfql/recursion-point? hfqlT)
+                                nil
+                                (effective-render-type (first (hfql/next-steps hfqlT)))))
     :else nil))
 
 (defn- associative-value?

@@ -245,6 +245,11 @@
       stepT)
     (and (hfql/recursion-end?! stepT) ; runs IO, but IO will run anyway as part of this rendering phase.
       stepT)
+    ;; Recursive traversals: don't descend into recursive children — their
+    ;; nav* computes the NEXT level's pull result (one level too deep).
+    ;; The current traversal's own nav* gives the correct cell value.
+    (and (hfql/recursion-point? stepT)
+      stepT)
     (first (unwrap stepT))
     stepT))
 

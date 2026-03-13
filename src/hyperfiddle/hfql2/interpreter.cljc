@@ -451,7 +451,21 @@ Pulling on non-maps (non associative) is perfectly fine.
 
 (defn- insert-at [index collA collB] (concat (take index collA) collB (drop index collA)))
 
-(defn- find-recursion-point [hfql]
+(defn traversal-only-recursion?
+  "True if this AST node is a recursion-point whose lineage (self included,
+  up to the recursion target) contains only traversals — no pull. Uses the
+  same partial-ancestor walk as find-recursion-target."
+  [ast-node]
+  (and (ast/recursion-point? ast-node)
+    ;; Walk self + ancestors up to the recursion target (same lineage as
+    ;; find-recursion-target). If any node is a pull, the navigator can
+    ;; use it as a selectable row and there's no cycle problem.
+    (let [lineage (->> (iterate ::parent ast-node)
+                    (take-while some?)
+                    (take-while ast/partial?))]
+      (every? ast/traversal? lineage))))
+
+(defn- find-recursion-target [hfql]
   (let [ancestors (->> (iterate ::parent hfql)
                     (take-while some?)
                     (take-while ast/partial?))
@@ -463,7 +477,7 @@ Pulling on non-maps (non associative) is perfectly fine.
   the recursion root and return it with a decremented limit. Returns nil if the
   limit is exhausted."
   [hfql limit-source]
-  (let [recursion-root (find-recursion-point hfql)
+  (let [recursion-root (find-recursion-target hfql)
         limit (or (ast/recursion-limit recursion-root)
                   (ast/recursion-limit limit-source)
                   0)]
@@ -568,7 +582,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                               (pair (thunk (try (ensure-either (resolve '% env))
                                                (catch #?(:clj Throwable :cljs :default) err
                                                  (either/left err))))
-                                    [(find-recursion-point ast-node)]))))
+                                    [(find-recursion-target ast-node)]))))
           ::ast/pull
           (constantly
             (mem-reader
