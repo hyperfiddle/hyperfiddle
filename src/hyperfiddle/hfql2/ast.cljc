@@ -17,7 +17,10 @@
 (s/def ::type #{::star ::recur ::literal ::keyword ::string ::symbol
                 ::var ::quoted-var ::pull ::runtime-value ::quoted-symbol ::lambda ::call ::traversal})
 (s/def ::form any?)            ; the original source form as read by the analyzer
-(s/def ::lexical-env (s/map-of symbol? any?)) ; symbol->value bindings captured at analysis time
+(s/def ::lexical-env (s/map-of (s/or :symbol symbol?       ; runtime CLJ: plain symbol keys
+                                     :keyword keyword?     ; CLJS &env: keyword keys (:context, :locals, etc.)
+                                     :quoted-form seq?)    ; analysis time CLJ: (quote sym) for code emission
+                               any?))
 ;; ::partial removed — now a derived predicate, see `partial?` defmulti below.
 (s/def ::id int?)              ; content-derived hash, see `compute-node-id`
 ;; ::symbolic-edge removed — now a fully derived accessor, see `symbolic-edge` below.
@@ -28,7 +31,8 @@
 (s/def ::resolved-runtime-value any?) ; the value obtained by resolving this node's form (e.g. the function
                                       ; object for a symbol, the var for a var ref). Only present on nodes where
                                       ; resolution produces something distinct from the form itself.
-(s/def ::var (s/nilable var?))  ; the Clojure var backing this node, if any. E.g. a symbol resolving to lexical scope won't have a var.
+(s/def ::var (s/nilable (s/or :resolved var?    ; runtime: actual var after macro expansion
+                              :symbolic seq?))) ; analysis time: code form like (var identity)
 (s/def ::parameters sequential?) ; symbolic parameter list (symbols like ['db '%])
 (s/def ::arguments sequential?)  ; runtime argument values provided at a call site
 ;; ::children removed — tree structure lives in RoseTree. Use `unwrap` to access children.
@@ -350,7 +354,8 @@
    & {:keys [metadata lexical-env]}]
   (finalize (cond-> (merge metadata {::type ::call, ::form form
                                       ::resolved-runtime-value value, ::var var
-                                      ::parameters parameters, ::arguments arguments
+                                      ::parameters (or parameters ()) ; zero-arity calls destructure to nil
+                                      ::arguments (or arguments ())
                                       ::form-resolved form-resolved})
               lexical-env (assoc ::lexical-env lexical-env))
             ()))

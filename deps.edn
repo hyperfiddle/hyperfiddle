@@ -35,7 +35,9 @@
                                           "dustingetz\\.nav-datomic"
                                           "dustingetz\\.pg-sakila"]}
                   :jvm-opts    ["-Dhyperfiddle.rcf.generate-tests=true"
-                                "-XX:-OmitStackTraceInFastThrow"]
+                                "-XX:-OmitStackTraceInFastThrow"
+                                "-Dclojure.spec.compile-asserts=true"  ; compile s/assert forms in
+                                "-Dclojure.spec.check-asserts=true"]   ; and enable runtime checking
                   :extra-deps  {cider/cider-nrepl          {:mvn/version "0.58.0"} ; tested values match REPL's pretty-printed representation.
                                 org.clojure/tools.namespace {:mvn/version "1.5.0"}
                                 com.datomic/peer            {:mvn/version "1.0.7469"}}} ; nav-datomic, datomic-contrib2
