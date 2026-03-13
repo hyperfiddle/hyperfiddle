@@ -387,4 +387,7 @@
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
                     ;; For associative views, actual row count = 1 (single data row).
                     ;; entries-count is the property count — used for display only.
-                    (Matrix effective-columnsT (#(if associative? 1 entries-count)) rowsT :associative? associative?)))))))))))
+                    (Matrix effective-columnsT (#(if associative? 1 entries-count)) rowsT :associative? associative?)))))))
+        ;; Check filtered? on the collection VALUE (source of truth), not on children seq metadata.
+        ;; The children seq lost ::filtered metadata when unfoldT switched to lazy-seq.
+        ::search/filtered? (e/server (e/Offload #(either (constantly false) hfql/filtered? (hfql/nav* stepT))))))))

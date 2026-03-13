@@ -40,10 +40,10 @@
 
 
 (e/defn Filtered
-  [pred rows-count rowTs columnTs Body & {::keys [limit] :or {limit 10000}}]
+  [pred rows-count rowTs columnTs Body & {::keys [limit filtered?] :or {limit 10000}}]
   (e/client
     (let [filtered (e/server (e/Reconcile (cond
-                                            (e/Reconcile (and (not (hfql/filtered? rowTs)) (< rows-count limit)))
+                                            (e/Reconcile (and (not filtered?) (< rows-count limit)))
                                             (Offload #(pred *server-pretty rowTs columnTs *local-search) {:label 'in-memory-search})
                                             :else
                                             (with-meta (take limit rowTs) (meta rowTs)))))]
