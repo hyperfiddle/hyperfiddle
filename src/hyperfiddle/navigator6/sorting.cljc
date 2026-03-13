@@ -1,6 +1,6 @@
 (ns hyperfiddle.navigator6.sorting
   (:require #?(:clj [clojure.tools.logging :as log])
-            [contrib.data]
+            [dustingetz.data]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
@@ -186,7 +186,7 @@
       :post [(every? hfql/symbolic-edge childrenT) #_(= (count %) (count childrenT))]}
      (let [static-keys (distinct (map hfql/symbolic-edge childrenT))
            static-keyset (set static-keys)
-           [static-children dynamic-children] (contrib.data/group-by-pred (comp boolean static-keyset hfql/symbolic-edge) childrenT)
+           [static-children dynamic-children] (dustingetz.data/group-by-pred (comp boolean static-keyset hfql/symbolic-edge) childrenT)
            static-map (into {} (map (juxt hfql/symbolic-edge identity)) static-children)]
        #_(prn {'static-keys static-keys
              'static-kvs static-children

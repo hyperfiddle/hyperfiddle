@@ -3,8 +3,8 @@
   (:refer-clojure :exclude [set pop])
   (:require
    [clojure.core :as cc]
-   [contrib.data]
-   [contrib.sexpr-router :as sexpr]
+   [dustingetz.data]
+   [dustingetz.sexpr-router :as sexpr]
    [hyperfiddle.electric3 :as e :refer [$]]
    [hyperfiddle.electric3-contrib :as ex]
    [hyperfiddle.electric-dom3 :as dom]
@@ -62,7 +62,7 @@
   (over (comp (key-lens :foo) (key-lens :bar)) inc {:foo {:bar 1}}) := {:foo {:bar 2}}
 )
 
-(defn pad [n coll] (vec (contrib.data/pad (max n (count coll)) nil coll)))
+(defn pad [n coll] (vec (dustingetz.data/pad (max n (count coll)) nil coll)))
 
 (defn rest-lens
   "Return a lens focusing on and setting the rest of a seq (cdr). The rest of a

@@ -2,7 +2,7 @@
   (:require [clojure.string :as str]
             [clojure.pprint :refer [cl-format]]
             #?(:clj [clojure.tools.logging :as log])
-            [contrib.data :refer [realize #?(:clj array?)]]
+            [dustingetz.data :refer [realize #?(:clj array?)]]
             [dustingetz.str :as strx]
             [geoffreygaillard.debug-tools :refer [debug-exceptions]]
             [hyperfiddle.electric-dom3 :as dom]

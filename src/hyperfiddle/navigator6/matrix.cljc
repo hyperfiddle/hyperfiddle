@@ -1,8 +1,8 @@
 (ns hyperfiddle.navigator6.matrix
   (:require
    [clojure.math :as math]
-   [contrib.data :refer [clamp]]
-   [contrib.missionary-contrib :as mx]
+   [dustingetz.data :refer [clamp]]
+   [dustingetz.missionary-contrib :as mx]
    [hyperfiddle.electric-dom3 :as dom]
    [hyperfiddle.electric-forms5 :as forms]
    [hyperfiddle.electric-scroll0 :refer [Scroll-window IndexRing #?(:cljs resize-observer)]]

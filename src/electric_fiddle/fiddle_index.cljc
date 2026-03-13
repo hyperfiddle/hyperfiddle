@@ -1,5 +1,5 @@
 (ns electric-fiddle.fiddle-index ; TODO merge into hyperfiddle.entrypoint
-  (:require [contrib.data :refer [subgroup-by]]
+  (:require [dustingetz.data :refer [subgroup-by]]
             [dustingetz.str :refer [includes-str?]]
             [dustingetz.treelister3 :refer [treelist]]
             [hyperfiddle.electric3 :as e]

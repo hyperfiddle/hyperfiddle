@@ -1,7 +1,7 @@
 (ns hyperfiddle.hfql2.analyzer
   (:require [clojure.core :as cc]
-            [contrib.data :refer [realize update-existing]]
-            [contrib.walk :refer [prewalk postwalk]]
+            [dustingetz.data :refer [realize update-existing]]
+            [dustingetz.walk :refer [prewalk postwalk]]
             [hyperfiddle.hfql2.analyzer.lambda :refer [lambda?]]
             [hyperfiddle.hfql2 :as-alias hfql]
             [hyperfiddle.hfql2.ast :as ast]

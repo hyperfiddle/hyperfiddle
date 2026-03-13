@@ -9,10 +9,10 @@
 
             [hyperfiddle.ui.tooltip :as tooltip]
             [hyperfiddle.token-zoo0 :as tok] ; replace with e/Token + (always t)
-            [contrib.css :as cssx]
-            [contrib.assert :as ca]
-            [contrib.data :as datax]
-            [contrib.debug :as dbg]
+            [dustingetz.css :as cssx]
+            [dustingetz.check :as ca]
+            [dustingetz.data :as datax]
+            [dustingetz.debug :as dbg]
             [dustingetz.str :as strx]
             [missionary.core :as m]
             [clojure.datafy :refer [nav]]
@@ -455,7 +455,7 @@
            :post [(every? map-entry? %) (= (count %) (count kvs))]}
           (let [static-keys (map hfql/unwrap pullspec)
                 static-keyset (set static-keys)
-                [static-kvs dynamic-kvs] (contrib.data/group-by-pred (comp boolean static-keyset key) kvs)
+                [static-kvs dynamic-kvs] (dustingetz.data/group-by-pred (comp boolean static-keyset key) kvs)
                 static-map (into {} static-kvs)]
             (concat (keep (fn [pullspec-key] (find static-map (hfql/unwrap pullspec-key))) static-keys)
               (?sort-by key (remove (comp some? static-keyset key) dynamic-kvs))))))

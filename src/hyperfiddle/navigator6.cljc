@@ -13,8 +13,8 @@
             [hyperfiddle.navigator6.selection2 :as selection2]
             [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
             [hyperfiddle.navigator6.utils :as utils :refer [in rebooting glitch-guard]]
-            [contrib.css :as cssx]
-            [contrib.data :refer [#?(:clj array?)]]
+            [dustingetz.css :as cssx]
+            [dustingetz.data :refer [#?(:clj array?)]]
             [hyperfiddle.hfql2.utils :refer [imap?]]
             [dustingetz.str :as strx]
             [dustingetz.loader :as loader :refer [Offload]]
@@ -22,7 +22,7 @@
             [hyperfiddle.ct.either :refer [either right left? from-left from-right]]
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
-            [contrib.assert :refer [is]]
+            [dustingetz.check :refer [is]]
             #?(:clj [clojure.tools.logging :as log]))
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 

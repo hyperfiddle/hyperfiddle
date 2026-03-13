@@ -3,7 +3,7 @@
             [hyperfiddle.electric-dom3 :as dom]
             [hyperfiddle.router5 :as r]
             [hyperfiddle.hfql2 :as hfql]
-            [contrib.data :refer [filter-vals]]
+            [dustingetz.data :refer [filter-vals]]
             [hyperfiddle.navigator6.utils :refer [rebooting freezing]]))
 
 (e/declare apps)

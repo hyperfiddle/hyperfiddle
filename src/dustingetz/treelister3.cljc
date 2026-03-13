@@ -3,7 +3,7 @@ treeseq recursion scheme which supports ergonomic search, i.e. retaining interme
 for any matching leaves"
   (:require dustingetz.str
             [hyperfiddle.rcf :refer [tests]]
-            [contrib.debug :as dbg]
+            [dustingetz.debug :as dbg]
             [clojure.string :as str]))
 
 (defn data-children [x]

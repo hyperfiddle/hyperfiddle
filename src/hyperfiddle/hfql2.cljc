@@ -6,7 +6,7 @@
    [clojure.datafy]
    [clojure.pprint :refer [cl-format]]
    [clojure.set :as set]
-   [contrib.data :refer [iterator? enumeration? array? to-seq]]
+   [dustingetz.data :refer [iterator? enumeration? array? to-seq]]
    [dustingetz.str :as strx]
    [hyperfiddle.rcf :refer [tests]]
    [hyperfiddle.ct.monoid :refer [mappend]]

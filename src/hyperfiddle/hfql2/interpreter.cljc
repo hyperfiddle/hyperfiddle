@@ -71,7 +71,7 @@
 "
   (:refer-clojure :exclude [extend resolve meta bound-fn*])
   (:require
-   [contrib.data :as cd :refer [group-by-pred]]
+   [dustingetz.data :as cd :refer [group-by-pred]]
    #?(:clj [clojure.tools.logging :as log])
    [hyperfiddle.ct.functor :refer [Functor fmap]]
    [hyperfiddle.ct.pair :refer [pair]]

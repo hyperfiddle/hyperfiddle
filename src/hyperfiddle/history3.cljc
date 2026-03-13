@@ -3,7 +3,7 @@
   (:require
    [clojure.edn :as edn]
    [clojure.string :as str]
-   [contrib.cljs-target :refer [do-browser]]
+   [dustingetz.cljs-target :refer [do-browser]]
    [hyperfiddle.rcf :as rcf :refer [tests % tap with]]
    [hyperfiddle.electric3 :as e]
    )

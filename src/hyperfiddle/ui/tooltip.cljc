@@ -2,7 +2,7 @@
   (:require
    [hyperfiddle.electric3 :as e]
    [hyperfiddle.electric-dom3 :as dom]
-   [contrib.css :refer [css-slugify]]
+   [dustingetz.css :refer [css-slugify]]
    [clojure.string :as str]
    #?(:cljs [goog.style :refer [getTransformedSize getPageOffset]])
    #?(:cljs [goog.dom :refer [isElement]])))

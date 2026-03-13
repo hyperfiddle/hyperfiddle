@@ -14,7 +14,7 @@
             [hyperfiddle.navigator6.utils :as utils]
             [dustingetz.loader :refer [Offload]]
             [missionary.core :as m]
-            [contrib.missionary-contrib :as mx])
+            [dustingetz.missionary-contrib :as mx])
   #?(:cljs (:require-macros [hyperfiddle.navigator6.search :refer [with-local-search]])))
 
 (e/declare ^:dynamic *local-search)
