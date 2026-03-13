@@ -155,7 +155,17 @@
     (either/either? %) %
     :else (either/right %)))
 
-(def ^:private focus-% (local (thunked (comp ensure-either (resolve '%)))))
+;; Force the scope thunk inside try-catch so focus-% always yields Either. The
+;; idiomatic functional approach would be `(local (thunked (comp
+;; ensure-either (resolve '%))))`, but it would make ensure-either wrap a
+;; throwing thunk in fmap — deferring the throw past io-operation's =<< callback
+;; try-catch.
+(def ^:private focus-%
+  (local (thunked (fn [env]
+                    (try
+                      (ensure-either (force-thunk (resolve '% env)))
+                      (catch #?(:clj Exception :cljs :default) err
+                        (either/left err)))))))
 
 (defn resolve-arguments
   ([ast-node] (partial resolve-arguments ast-node))
@@ -268,7 +278,7 @@
          (fn [v]
            (try
              (either/right (xform (f v)))
-             (catch #?(:clj Throwable, :cljs :default) err
+             (catch #?(:clj Exception, :cljs :default) err
                (either/left err)))))))))
 
 (defn- getter [ast-node]
@@ -587,19 +597,23 @@ Pulling on non-maps (non associative) is perfectly fine.
           (constantly
             (mem-reader
               (fn [env]
-                (let [{:keys [ordered-kids recur-point]} (resolve-pull-children children (get env '%))]
-                  (pair (thunk
-                          (->> ordered-kids
-                            (map (unfoldT hfql-coalgebra))
-                            (pull-peek-at-immediate-kids! env)))
-                    (->>
-                      (mappend
-                        ordered-kids
-                        (if recur-point
-                          (recursion-children ast-node recur-point ast/mark-recursive-child)
-                          []))
-                      ;; map (not mapv) — lazy children for large pull-star collections
-                      (map (link-parent ast-node))))))))
+                (try
+                  (let [{:keys [ordered-kids recur-point]} (resolve-pull-children children (get env '%))]
+                    (pair (thunk
+                            (->> ordered-kids
+                              (map (unfoldT hfql-coalgebra))
+                              (pull-peek-at-immediate-kids! env)))
+                      (->>
+                        (mappend
+                          ordered-kids
+                          (if recur-point
+                            (recursion-children ast-node recur-point ast/mark-recursive-child)
+                            []))
+                        ;; map (not mapv) — lazy children for large pull-star collections
+                        (map (link-parent ast-node)))))
+                  ;; Reader fn can't throw — maintains nav*'s Either-return invariant.
+                  (catch #?(:clj Exception :cljs :default) err
+                    (pair (thunk (either/left err)) []))))))
           ::ast/traversal
           (let [lexical-symbol? (and (ast/symbol-node? (ast/edge ast-node))
                                      (not (fn? (ast/node-value (ast/edge ast-node)))))
@@ -1294,3 +1308,34 @@ Pulling on non-maps (non associative) is perfectly fine.
   ":default — present value is NOT substituted"
   (-values (seed {'% {:b 7}} (-hfql [[:b ::hfql/default 42]])))
   := '({:b 7} 7))
+
+;; ── nav* safety: throwing scope → Left, never throw ──────────────────────────
+;; nav* = force-thunk ∘ extract. The error boundary in ResolveRenderer relies on
+;; this invariant: nav* must always return Either, never throw. These tests
+;; exercise it with a raw throwing thunk in '% scope — they should return Left.
+
+(defn- nav* "nav* = force-thunk ∘ extract" [hfqlT] (force-thunk (extract hfqlT)))
+
+(tests
+  "nav* returns Left on getter with throwing scope"
+  (let [bad-scope {'% (thunk (throw (ex-info "scope error" {})))}]
+    (left? (nav* (seed bad-scope (-hfql :a))))
+    := true))
+
+(tests
+  "nav* returns Left on pull with throwing scope"
+  (let [bad-scope {'% (thunk (throw (ex-info "scope error" {})))}]
+    (left? (nav* (seed bad-scope (-hfql [*]))))
+    := true))
+
+(tests
+  "nav* returns Left on traversal with throwing scope"
+  (let [bad-scope {'% (thunk (throw (ex-info "scope error" {})))}]
+    (left? (nav* (seed bad-scope (-hfql {* inc}))))
+    := true))
+
+(tests
+  "nav* returns Left on call with throwing scope"
+  (let [bad-scope {'% (thunk (throw (ex-info "scope error" {})))}]
+    (left? (nav* (seed bad-scope (-hfql inc))))
+    := true))
