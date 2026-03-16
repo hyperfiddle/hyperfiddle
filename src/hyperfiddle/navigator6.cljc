@@ -1,6 +1,5 @@
 (ns hyperfiddle.navigator6
-  (:require #?(:clj [clojure.edn :as edn])
-            #?(:clj [clojure.walk])
+  (:require #?(:clj [clojure.walk])
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.api :as hf]
@@ -222,9 +221,9 @@
                               (e/fn []
                                 (let [is-partial? (e/server (hfql/partial? stepT))]
                                   (e/amb
-                                    ;; Parameter form — only for partial calls needing `%`
-                                    (when is-partial? (arg/ArgInput!))
-                                    ;; Inject e/*bindings* into HFQL scope + seed unbound param from arg text.
+                                    ;; Parameter form — one field per call arg (free=editable, bound=disabled)
+                                    (when is-partial? (arg/ArgInput! (e/server (hfql/form-parameters stepT))))
+                                    ;; Inject e/*bindings* into HFQL scope + seed unbound params from arg map.
                                     ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
                                     ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns.
                                     ;; See plans/associative-search-cell-recomputation.md for full analysis.
@@ -232,17 +231,18 @@
                                                                                (dissoc e/*bindings* (find-var `search/*local-search))
                                                                                e/*bindings*))
                                                                    stepT ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings)
-                                                                   ;; Seed the first unbound param (%, path, etc.) from arg text.
-                                                                   ;; Symbols in the EDN (e.g. *db*) resolve against e/*bindings*.
-                                                                   ;; IIFE wraps try/catch (Electric doesn't support try/catch natively).
-                                                                   stepT (if-some [text arg/*arg]
-                                                                           (if-some [resolved (#(try (resolve-symbols-in-edn
-                                                                                                      (edn/read-string text) e/*bindings*)
-                                                                                                    (catch Exception _ nil)))]
-                                                                             (if-some [param (first (hfql/unbound-params stepT))]
-                                                                               (hfql/update-scope stepT assoc param (right resolved))
-                                                                               stepT)
-                                                                             stepT)
+                                                                   ;; Seed all unbound params from the arg map.
+                                                                   ;; *arg is {sym parsed-edn, ...} — already parsed client-side.
+                                                                   ;; resolve-symbols-in-edn still runs per value for *db* etc.
+                                                                   stepT (if (and (some? arg/*arg) (map? arg/*arg))
+                                                                           (#(try
+                                                                               (reduce-kv
+                                                                                 (fn [st sym raw-val]
+                                                                                   (let [resolved (resolve-symbols-in-edn raw-val e/*bindings*)]
+                                                                                     (hfql/update-scope st assoc sym (right resolved))))
+                                                                                 stepT
+                                                                                 arg/*arg)
+                                                                               (catch Exception _ stepT)))
                                                                            stepT)]
                                                                stepT))]
                                       (e/call (ResolveRenderer injected)

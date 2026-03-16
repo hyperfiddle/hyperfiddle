@@ -25,13 +25,16 @@
   ;; `update` doesn't work, route is a lazyseq (?)
   (e/Reconcile
     (case (router/Navigate! ['. (take (inc *depth) (apply update-state ::route router/route *depth f args))])
-      [::forms/ok])))
+      ;; Return the success sentinel — not [::forms/ok] (vector) which the
+      ;; Interpreter wouldn't recognize and would pass through as a truthy
+      ;; error value to the token ack.
+      ::forms/ok)))
 
 (e/defn HandleUpdateState! [f & args]
   ;; `update` doesn't work, route is a lazyseq (?)
   (e/Reconcile
     (case (router/ReplaceState! ['. (apply update-state ::route router/route *depth f args)])
-      [::forms/ok])))
+      ::forms/ok)))
 
 (e/defn WithLocalRouteState [Body]
   (e/client

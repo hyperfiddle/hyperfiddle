@@ -180,6 +180,39 @@
                 (::ast/parameters attributes)))
       '(%))))
 
+(defn form-parameters
+  "Ordered parameter descriptors for rendering the parameter form.
+   Each entry: {:name sym, :free? bool, :display-value str-or-nil}.
+   Call nodes: one per simple-symbol arg, preserving call order.
+   Non-call nodes: [{:name '%, :free? true}].
+   Bound params include :display-value — the default value stringified.
+   Resolved by calling the expr fn with empty scope (falls back to the
+   captured default: var value for globals, lexical value for let-bindings)."
+  [hfqlT]
+  (let [ast (meta hfqlT)
+        ;; Traversals delegate partiality to their edge (same as unbound-params)
+        ast (if (ast/traversal? ast) (ast/edge ast) ast)]
+    (if (ast/call? ast)
+      (let [attributes (extract ast)
+            lenv (::ast/lexical-env attributes)
+            params (::ast/parameters attributes)
+            ;; ::arguments are compiled expr fns at runtime (fn [env] → value)
+            args (::ast/arguments attributes)]
+        (into []
+              (comp (filter (fn [[p _]] (simple-symbol? p)))
+                    (map (fn [[p arg-fn]]
+                           (let [free? (not (or (contains? lenv p)
+                                                (contains? lenv (list 'quote p))))]
+                             (cond-> {:name p :free? free?}
+                               ;; Bound params: call expr fn with empty scope to get default
+                               (not free?)
+                               (assoc :display-value
+                                 #?(:clj (try (pr-str (arg-fn {}))
+                                              (catch Throwable _ (str p)))
+                                    :cljs (str p))))))))
+              (map vector params args)))
+      [{:name '% :free? true}])))
+
 (defn fullfilled?
   "True if an HFQL point is ready to be navigated — all unbound parameters
    have values in scope. Non-partial steps are always fulfilled."
