@@ -206,6 +206,65 @@
     0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
 
+/* ───────────────────────────────────────────────────────────────────────
+   Parameter form — textarea + submit for partial HFQL calls (e.g. d/query).
+   Renders in the card body above the matrix.
+   ─────────────────────────────────────────────────────────────────────── */
+.parameter-form {
+  padding: 0.5em;
+  border-bottom: 1px solid #e5e5e5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+
+.parameter-form__input {
+  display: flex;
+  flex-direction: column;
+}
+
+.parameter-form__textarea {
+  font-family: 'Consolas', 'Monaco', 'Menlo', monospace;
+  font-size: 0.8125em;
+  line-height: 1.5;
+  padding: 0.5em;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  resize: vertical;
+  min-height: 5em;
+  background: #fafafa;
+  color: #333;
+}
+.parameter-form__textarea:focus {
+  border-color: #4a90d9;
+  outline: none;
+  background: white;
+}
+
+.parameter-form__submit {
+  align-self: flex-end;
+  padding: 0.25em 1em;
+  font-size: 0.8125em;
+  font-weight: 500;
+  color: white;
+  background: #4a90d9;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.parameter-form__submit:hover {
+  background: #357abd;
+}
+.parameter-form__submit:active {
+  background: #2a6099;
+}
+
+/* Chrome grid: when search is absent (partial cards), let title expand */
+.navigation-card__chrome:not(:has(input[type="search"])) {
+  grid-template-columns: 1fr auto 5.5ch 1.75em;
+}
+
 /* Close-button hover preview — gray out everything that will disappear on close.
    Current card is lightly dimmed (still "yours"), children heavily (collateral). */
 .hyperfiddle-navigation-card:has(.navigation-card__close-button:hover) {

@@ -334,7 +334,8 @@
     ;; Title in chrome bar — CSS grid-area places it in the "title" slot
     (in utils/*card-chrome*
       (rendering/Step-Title stepT))
-    (let [_ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
+    (let [is-partial? (e/server (hfql/partial? stepT))
+          _ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
           ;; Renders directly into matrix-view body (checkboxes wrap naturally via CSS)
           picker-columnsT (e/server (when-not associative? (ColumnPicker stepT)))
           stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
@@ -379,9 +380,10 @@
                           (dom/text (#(let [[l r] (if associative? ["{" "}"] ["[" "]"])]
                                         (str l entries-count r)))))))
             (e/amb
-              ;; Search in chrome bar — alone so SetSearch! command propagates cleanly
-              (in utils/*card-chrome*
-                (search/SearchInput! disabled-search-sort-because-a-row-is-selected))
+              ;; Search in chrome bar — skip for partial cards (arg form replaces search)
+              (when-not is-partial?
+                (in utils/*card-chrome*
+                  (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
               (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server effective-rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
