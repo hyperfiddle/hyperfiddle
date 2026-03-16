@@ -161,10 +161,32 @@
   (seed (apply f (scope stepT) args) stepT))
 
 (defpointfree ^:no-doc static-next-steps (comp ::co/static-children meta)) ; unseeded children, no IO. Structural shape fallback for empty collections.
-(defpointfree ^{:no-doc true, :doc "State if an HFQL point is ready to be be navigated. An HFQL point can be navigated if:
-  - it is seeded,
-  - or no seed is needed – we call such points \"total\", as in non-partial. "}
-  fullfilled? (some-fn seeded? (complement partial?)))
+(defn unbound-params
+  "Return the sequence of parameter symbols that are unbound for this HFQL point.
+   For call nodes: simple symbols absent from lexical-env.
+   For all others: (%) — the universal point-value convention.
+   Purely static — derived from the AST, not the scope. Safe to call reactively
+   without creating a dependency on seed/scope changes."
+  [hfqlT]
+  (let [ast (meta hfqlT)
+        ;; Traversals delegate partiality to their edge (same as partial?)
+        ast (if (ast/traversal? ast) (ast/edge ast) ast)]
+    (if (ast/call? ast)
+      (let [attributes (extract ast)
+            lenv (::ast/lexical-env attributes)]
+        (filter (fn [p] (and (simple-symbol? p)
+                             (not (or (contains? lenv p)
+                                      (contains? lenv (list 'quote p))))))
+                (::ast/parameters attributes)))
+      '(%))))
+
+(defn fullfilled?
+  "True if an HFQL point is ready to be navigated — all unbound parameters
+   have values in scope. Non-partial steps are always fulfilled."
+  [hfqlT]
+  (or (not (partial? hfqlT))
+      (let [point-scope (scope hfqlT)]
+        (every? #(contains? point-scope %) (unbound-params hfqlT)))))
 
 ;; Search/filter tagging (filtered, filtered? are Human API — defined here for load order)
 (defn- safe-vary-meta [object f & args]

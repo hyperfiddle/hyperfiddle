@@ -296,7 +296,9 @@
           {:post [(or (string? %) (nil? %))]}
           (when stepT
             (-> (hfql/describe-formatted stepT)
-              (str "\n\n" (format-query-meta (meta (hfql/nav stepT))))
+              ;; hfql/nav throws on unbound params — skip for partial steps.
+              (str "\n\n" (when (hfql/fullfilled? stepT)
+                            (format-query-meta (meta (hfql/nav stepT)))))
               (str/trim)
               (strx/blank->nil)))))
 

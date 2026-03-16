@@ -552,7 +552,17 @@
   their parameters. Traversals derive from their edge."
   node-type)
 (defmethod partial? :default [_] true)
-(defmethod partial? ::call [node] (boolean (some #{'%} (::parameters (extract node)))))
+;; A call is partial if any simple-symbol param is absent from lexical-env.
+;; Qualified symbols are always constants (handled by expr), so only simple-symbols
+;; contribute to partiality. Checks both raw and quoted key formats — the analyzer
+;; stores quoted keys `(quote sym)`, unit tests may use raw symbol keys.
+(defmethod partial? ::call [node]
+  (let [a (extract node)
+        lenv (::lexical-env a)]
+    (boolean (some (fn [p] (and (simple-symbol? p)
+                                (not (or (contains? lenv p)
+                                         (contains? lenv (list 'quote p))))))
+               (::parameters a)))))
 (defmethod partial? ::traversal [node] (partial? (edge node)))
 
 (defn leaf?
@@ -849,8 +859,9 @@
    ))
 
 (tests
- "->call non-partial"
- (let [n (->call '(inc 42) inc #'inc '(x) '(42) 'clojure.core/inc)]
+ "->call non-partial — x is in lexical-env, so call is fully bound"
+ (let [n (->call '(inc 42) inc #'inc '(x) '(42) 'clojure.core/inc
+                 :lexical-env {'x 42})]
    (valid-node? n) := true
    (call? n) := true
    (partial? n) := false

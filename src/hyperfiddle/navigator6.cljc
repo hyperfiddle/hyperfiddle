@@ -1,5 +1,7 @@
 (ns hyperfiddle.navigator6
-  (:require [hyperfiddle.electric3 :as e]
+  (:require #?(:clj [clojure.edn :as edn])
+            #?(:clj [clojure.walk])
+            [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.api :as hf]
             [hyperfiddle.hfql2 :as hfql]
@@ -9,6 +11,7 @@
             [hyperfiddle.navigator6.rendering :as rendering]
             [hyperfiddle.navigator6.state :as state :refer [with-local-state]]
             [hyperfiddle.navigator6.search :as search :refer [with-local-search]]
+            [hyperfiddle.navigator6.arg :as arg :refer [with-local-arg]]
             [hyperfiddle.navigator6.selection :as selection :refer [with-local-selection]]
             [hyperfiddle.navigator6.selection2 :as selection2]
             [hyperfiddle.navigator6.matrix :refer [RenderMatrix]]
@@ -27,6 +30,25 @@
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
 (e/declare ^:dynamic *navigation-depth*)
+
+#?(:clj
+   (defn- resolve-symbols-in-edn
+     "Walk parsed EDN and replace symbols that match bound dynamic vars in
+      `bindings` (e/*bindings*) with their current values. This lets the user
+      write `*db*` in a textarea and have it resolve to the actual database."
+     [edn bindings]
+     (clojure.walk/postwalk
+       (fn [form]
+         (if (symbol? form)
+           (if-some [[_ v] (some (fn [[var-obj val]]
+                                   (when (and (var? var-obj)
+                                              (= (symbol (name (symbol var-obj))) form))
+                                     [var-obj val]))
+                              bindings)]
+             v
+             form)
+           form))
+       edn)))
 
 (defn- augment-scope-with-%-from-route-args [args stepT]
   (if (seq args)
@@ -163,7 +185,9 @@
     (dom/div (dom/props {:style {:display :contents}}) ; HACK – presence of this div circumvent a crash where `mount-point` will call "parent.appendChild(nil)"
       (let [id (e/server (with-bindings* (or e/*bindings* {}) ; Inject bindings must be active before thunk forcing
                            (fn [] (try (hash [((glitch-guard hfql/id) stepT) ; HACK
-                                              (object-level-identity ((glitch-guard hfql/value-at-point) stepT)) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
+                                              ;; Partial steps can't execute — use nil as identity component.
+                                              (when ((glitch-guard hfql/fullfilled?) stepT)
+                                                (object-level-identity ((glitch-guard hfql/value-at-point) stepT))) ; HACK to compensate for 𝓞(1) selection always hydrating the first instance of a multiplicity many result TODO revise.
                                               ])
                                        (catch Throwable t
                                          #?(:clj (log/warn t "Navigate* id computation failed"))
@@ -175,50 +199,65 @@
               (e/When ((complement (fnil zero? 0)) id) ; guard navigate on nil
                 (with-local-state ::state/route ; injects *local-state and interpret state write commands
                   (with-local-search ::search   ; injects *local-search and interpret search commands
-                    (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                      (e/server #(try ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)
-                                      (catch Throwable t
-                                        #?(:clj (log/warn t "Selection resolution failed"))
-                                        nil)))
-                      ;; Hoist next-childT above e/amb so NavigationCard can receive has-child?.
-                      ;; This lets the three-state checkbox (indeterminate/checked/unchecked) know
-                      ;; the positional default before the user interacts.
-                      (let [next-childT (e/server
-                                        ((fn []
-                                           (try (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection)
-                                                (catch #?(:clj Throwable :cljs :default) t
-                                                  #?(:clj (log/warn t "find-next-navigable-point failed"))
-                                                  nil)))))]
-                        (e/amb
-                          ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
-                          ;; NavigationCard renders into the display:contents div, becoming a
-                          ;; direct child of .Browser alongside child cards.
-                          (NavigationCard *navigation-depth* (e/server (some? next-childT))
-                            (e/fn []
-                              ;; Inject e/*bindings* into HFQL scope BEFORE ResolveRenderer.
-                              ;; ResolveRenderer forces nav* (e/Offload, thread pool) — the HFQL
-                              ;; scope must already contain hfql/*bindings* so the interpreter's
-                              ;; bound-fn* can bind *db* etc. on the worker thread.
-                              ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
-                              ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns (e.g. .listFiles).
-                              ;; See plans/associative-search-cell-recomputation.md for full analysis.
-                              (let [injected (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
-                                                                         (dissoc e/*bindings* (find-var `search/*local-search))
-                                                                         e/*bindings*))]
-                                                         ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings)))]
-                                (e/call (ResolveRenderer injected)
-                                  injected))))
-                          ;; Branch 2: child navigation — sibling of card, gets full viewport width.
-                          ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
-                          ;; this card's with-local-selection clears selection → child unmounts.
-                          (e/Reconcile
-                            (e/When (e/server (some? next-childT))
-                              (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
-                                        selection/*parent-selection selection/*local-selection
-                                        *navigation-depth* (inc *navigation-depth*)]
-                                (utils/InterceptCommand `selection/CloseCard!
-                                  (e/fn [_] [`selection/SetSelection! [nil (e/fn [])]])
-                                  (Navigate* sitemap next-childT))))))))))))))))))
+                    (with-local-arg ::arg       ; injects *arg and interpret SetArg! commands
+                      (with-local-selection ::selection ; injects *local-selection and interpret selection commands
+                        (e/server #(try ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)
+                                        (catch Throwable t
+                                          #?(:clj (log/warn t "Selection resolution failed"))
+                                          nil)))
+                        ;; Hoist next-childT above e/amb so NavigationCard can receive has-child?.
+                        ;; This lets the three-state checkbox (indeterminate/checked/unchecked) know
+                        ;; the positional default before the user interacts.
+                        (let [next-childT (e/server
+                                            ((fn []
+                                               (try (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection)
+                                                    (catch #?(:clj Throwable :cljs :default) t
+                                                      #?(:clj (log/warn t "find-next-navigable-point failed"))
+                                                      nil)))))]
+                          (e/amb
+                            ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
+                            ;; NavigationCard renders into the display:contents div, becoming a
+                            ;; direct child of .Browser alongside child cards.
+                            (NavigationCard *navigation-depth* (e/server (some? next-childT))
+                              (e/fn []
+                                (let [is-partial? (e/server (hfql/partial? stepT))]
+                                  (e/amb
+                                    ;; Parameter form — only for partial calls needing `%`
+                                    (when is-partial? (arg/ArgInput!))
+                                    ;; Inject e/*bindings* into HFQL scope + seed unbound param from arg text.
+                                    ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
+                                    ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns.
+                                    ;; See plans/associative-search-cell-recomputation.md for full analysis.
+                                    (let [injected (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
+                                                                               (dissoc e/*bindings* (find-var `search/*local-search))
+                                                                               e/*bindings*))
+                                                                   stepT ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings)
+                                                                   ;; Seed the first unbound param (%, path, etc.) from arg text.
+                                                                   ;; Symbols in the EDN (e.g. *db*) resolve against e/*bindings*.
+                                                                   ;; IIFE wraps try/catch (Electric doesn't support try/catch natively).
+                                                                   stepT (if-some [text arg/*arg]
+                                                                           (if-some [resolved (#(try (resolve-symbols-in-edn
+                                                                                                      (edn/read-string text) e/*bindings*)
+                                                                                                    (catch Exception _ nil)))]
+                                                                             (if-some [param (first (hfql/unbound-params stepT))]
+                                                                               (hfql/update-scope stepT assoc param (right resolved))
+                                                                               stepT)
+                                                                             stepT)
+                                                                           stepT)]
+                                                               stepT))]
+                                      (e/call (ResolveRenderer injected)
+                                        injected))))))
+                            ;; Branch 2: child navigation — sibling of card, gets full viewport width.
+                            ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
+                            ;; this card's with-local-selection clears selection → child unmounts.
+                            (e/Reconcile
+                              (e/When (e/server (some? next-childT))
+                                (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
+                                          selection/*parent-selection selection/*local-selection
+                                          *navigation-depth* (inc *navigation-depth*)]
+                                  (utils/InterceptCommand `selection/CloseCard!
+                                    (e/fn [_] [`selection/SetSelection! [nil (e/fn [])]])
+                                    (Navigate* sitemap next-childT)))))))))))))))))))
 
 (e/defn NavigationCard [depth has-child? Body]
   (e/client

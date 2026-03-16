@@ -12,7 +12,7 @@
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [hyperfiddle.ct.rose-tree :refer [rose-tree coiter]]
             [clojure.string :as str])
-  #?(:cljs (:require-macros [hyperfiddle.hfql2.analyzer :refer [hfql resolve-direct-method resolve-static-method]])))
+  #?(:cljs (:require-macros [hyperfiddle.hfql2.analyzer :refer [hfql expr resolve-direct-method resolve-static-method]])))
 
 (deftype OptionsFormWrap [inner])
 
@@ -157,6 +157,63 @@
       hfql)))
 
 (defn- lexical? [env sym] (contains? env sym))
+
+(defn- globally-resolvable?
+  "True if `sym` resolves to a global var/class in the current namespace.
+   CLJ only — CLJS symbol resolution requires cljs.analyzer (heavy machinery).
+   In CLJS, all non-lexical simple symbols become HFQL parameters.
+
+   FIXME: This breaks a golden rule of HFQL — \"don't call eval, don't call resolve\".
+   We tolerate it as a pragmatic compromise because the alternative (runtime ns-resolve
+   in emitted code) is worse: CLJ-only, heavier, and still a form of resolve. A proper
+   fix would require a mechanism to naturally resolve simple symbols without reflection,
+   which Clojure's compilation model does not provide. Revisit if cljs.analyzer
+   integration becomes viable or if a convention-based approach (e.g. ^:param metadata)
+   is adopted."
+  [env sym]
+  ;; Reader conditional because cljs.core/resolve is a macro with different semantics
+  ;; (requires quoted literal symbol). In CLJS, this fn is never called with a truthy
+  ;; result anyway (the &env check catches it), but the code must still compile.
+  #?(:clj  (and (not (:js-globals env))
+                 (some? (resolve sym)))
+     :cljs false))
+
+;; ─── Expr: generalized symbol resolution for HFQL call arguments ────────────
+;; Each call argument becomes an Expr — a plain fn `env → value` emitted by this
+;; macro. Resolution order: HFQL env (dynamic scope from Store) → lexical → global.
+;; Algebraically a Reader monad (env → value); kept as plain fn for simplicity.
+(defmacro expr
+  [form]
+  (cond
+    ;; Qualified → HFQL env shadows, var/natural fallback.
+    ;; CLJ: (deref (var ...)) to avoid capturing dynamic rebindings.
+    ;; CLJS: no `var` special form, natural resolution only.
+    (qualified-symbol? form)
+    (if (:js-globals &env)
+      `(fn [env#] (get env# '~form ~form))
+      `(fn [env#] (get env# '~form (deref (var ~form)))))
+
+    ;; Simple symbol in lexical scope → HFQL env shadows, :or captures lexical/global
+    (and (simple-symbol? form) (contains? &env form))
+    `(fn [{:syms [~form] :or {~form ~form}}] ~form)
+
+    ;; Simple symbol, globally resolvable (CLJ only) → same as qualified.
+    ;; The macro-time `globally-resolvable?` check ensures (var ~form) will compile.
+    ;; Emitted code uses natural Clojure resolution via (var ...), like var-resolver.
+    (and (simple-symbol? form) (globally-resolvable? &env form))
+    `(fn [env#] (get env# '~form (deref (var ~form))))
+
+    ;; Simple symbol, not resolvable → HFQL env only, throw if absent.
+    ;; This is the parameter case: %, path, query, etc.
+    (simple-symbol? form)
+    `(fn [env#]
+       (if (contains? env# '~form)
+         (get env# '~form)
+         (throw (ex-info (str "Unbound HFQL parameter: " '~form) {:sym '~form}))))
+
+    ;; Literal / non-symbol → constant
+    :else
+    `(fn [~'_] ~form)))
 
 (defn- indirect-method-call? [sym]
   (and (simple-symbol? sym)
@@ -343,7 +400,10 @@
                                        (ast/->lambda form '(%))))
                    ::ast/call      (let [[f & params] form]
                                      (ast/->call form f (var-resolver env f) params
-                                       (replace {'% ''%} params) (resolver env f)))
+                                       ;; Each arg becomes an `(expr p)` macro call — evaluated at
+                                       ;; runtime as part of the (list ...) form from -escape.
+                                       (map (fn [p] `(expr ~p)) params)
+                                       (resolver env f)))
                    ::ast/pull      (ast/->pull children)
                    ::ast/traversal (let [edge-form (fst form)
                                          cont-node (first children)]
@@ -355,11 +415,16 @@
                                            :lexical-env (or (not-empty (ast/lexical-env edge-node))
                                                           (lexical-bindings-map env)))))))
            lenv  (lexical-bindings-map env)
+           ;; Lexical + globally-resolvable symbols go into lenv.
+           ;; Qualified symbols are constants via expr (deref var / natural resolution).
+           ;; Unresolvable simple-symbols are HFQL parameters — excluded from lenv.
            lenv  (if (= ::ast/call ftype)
                    (let [[_f & params] form
-                         ps (remove #{'%} params)]
-                     (merge lenv (zipmap (map quote-form (filter symbol? ps))
-                                   (filter symbol? ps))))
+                         ps (filter #(and (simple-symbol? %)
+                                      (or (lexical? env %)
+                                          (globally-resolvable? env %)))
+                              params)]
+                     (merge lenv (zipmap (map quote-form ps) ps)))
                    lenv)]
        (cond-> (ast/set-metadata node (meta form))
          (not (#{::ast/traversal ::ast/keyword ::ast/string} ftype)) (ast/set-lexical-env lenv))))))

@@ -168,24 +168,32 @@
                         (either/left err)))))))
 
 (defn resolve-arguments
+  "Resolve arguments for a callable node.
+   For ::call nodes: arguments are Expr fns (env → value) from the `expr` macro.
+   For symbol/var/runtime-value/lambda: no ::arguments, resolve parameters from env."
   ([ast-node] (partial resolve-arguments ast-node))
   ([ast-node env]
    (try
-     (let [args (mapv (fn [parameter argument]
-                        (if (symbol? parameter)
-                          (let [resolved (try (either/right (ensure-either (resolve parameter env)))
-                                              (catch #?(:clj Throwable, :cljs :default) err
-                                                (either/left err)) )]
-                            (either/either
-                              either/left
-                              (fn [b] (if (= '% parameter) (force-thunk b) b))
-                              resolved))
-                          (if (= ::unbound argument)
-                            (either/left (ex-info "Unbound function argument" {:parameter parameter}))
-                            (either/right argument))))
-                  (ast/parameters ast-node) (concat (ast/arguments ast-node) (repeat ::unbound)))]
-       (either/sequenceEither args))
-     (catch #?(:clj Throwable, :cljs :default) err
+     (let [arguments (ast/arguments ast-node)]
+       (if (seq arguments)
+         ;; Expr fn arguments (::call nodes) — each argument is an env → value fn.
+         (let [args (mapv (fn [expr-fn]
+                            (try (ensure-either (force-thunk (expr-fn env)))
+                              (catch #?(:clj Throwable :cljs :default) err
+                                (either/left err))))
+                      arguments)]
+           (either/sequenceEither args))
+         ;; Legacy path: symbol/var/runtime-value/lambda nodes have no ::arguments.
+         ;; Resolve parameters from env directly (all expect single `%` argument).
+         (let [args (mapv (fn [parameter]
+                            (if (symbol? parameter)
+                              (try (ensure-either (force-thunk (resolve parameter env)))
+                                (catch #?(:clj Throwable :cljs :default) err
+                                  (either/left err)))
+                              (either/right parameter)))
+                      (ast/parameters ast-node))]
+           (either/sequenceEither args))))
+     (catch #?(:clj Throwable :cljs :default) err
        (either/left err)))))
 
 (def ^:private focus-arguments (comp local thunked resolve-arguments))
@@ -198,12 +206,17 @@
         parameters (ast/parameters edge)]
     (case (ast/node-type edge)
       ::ast/star nil ; star is syntax, not a named edge
-      ::ast/call (cons (first form)
-                   (map (fn [parameter argument]
-                          (if (or (:symbolic (meta parameter)) (:symbolic (meta argument)))
-                            parameter
-                            argument))
-                     parameters (unwrap-either (resolve-arguments edge env))))
+      ;; Partial calls show symbolic form with parameter names (display concern).
+      ;; Non-partial calls resolve and substitute arguments.
+      ::ast/call (if (ast/partial? edge)
+                   form
+                   (cons (first form)
+                     (map (fn [parameter argument]
+                            (if (or (:symbolic (clojure.core/meta parameter))
+                                    (:symbolic (clojure.core/meta argument)))
+                              parameter
+                              argument))
+                       parameters (unwrap-either (resolve-arguments edge env)))))
       ::ast/symbol (cond
                        point-free? form
                        :else (list form (unwrap-either (force-thunk (resolve '% env '%))))) ; introduce a point
