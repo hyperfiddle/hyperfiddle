@@ -380,10 +380,9 @@
                           (dom/text (#(let [[l r] (if associative? ["{" "}"] ["[" "]"])]
                                         (str l entries-count r)))))))
             (e/amb
-              ;; Search in chrome bar — skip for partial cards (arg form replaces search)
-              (when-not is-partial?
-                (in utils/*card-chrome*
-                  (search/SearchInput! disabled-search-sort-because-a-row-is-selected)))
+              ;; Search in chrome bar — always present, even for partial cards
+              (in utils/*card-chrome*
+                (search/SearchInput! disabled-search-sort-because-a-row-is-selected))
               (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server effective-rowsT)
                 (e/fn [rowsT]
                   (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]

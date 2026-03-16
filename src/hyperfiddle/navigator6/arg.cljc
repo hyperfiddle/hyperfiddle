@@ -63,17 +63,24 @@
                 (e/for [{:keys [name free? display-value]} (e/diff-by :name params)]
                   (let [kw (keyword name)
                         input-id (random-uuid)]
-                    ;; dt with label — electric-forms.css shows red star for required fields
-                    (dom/dt (dom/label (dom/props {:for input-id}) (dom/text (str name))))
+                    ;; dt with label + tooltip (like matrix column headers)
+                    (dom/dt (dom/label (dom/props {:for input-id
+                                                   :title (if free?
+                                                            (str name)
+                                                            (str name " = " display-value))})
+                                       (dom/text (str name))))
                     ;; dd with input — sequential after dt (NOT e/amb)
                     (dom/dd
                       (if free?
-                        ;; Editable — EDN parse with per-field validation via forms5.
-                        ;; :required true → electric-forms.css shows "Required" when empty.
-                        ;; parse-edn is a regular defn (not e/fn) so try/catch works.
+                        ;; Editable — textarea for EDN input that can grow beyond one line.
+                        ;; :as :textarea renders <textarea> via Input!, rows=1 default.
+                        ;; Bypass Textarea! wrapper — its & rest forwarding breaks
+                        ;; Electric's get-destructure-map (conj on a map error).
                         (Input! kw (get form-v kw)
+                          :as :textarea
                           :id input-id
                           :required true
+                          :rows 1
                           :placeholder (str "EDN value for " name)
                           :Parse (e/fn [s]
                                    (if (str/blank? s)

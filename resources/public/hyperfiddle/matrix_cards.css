@@ -222,6 +222,97 @@
   font-size: 0.8125em;
 }
 
+/* dd column layout — error message (dd::after) appears below input */
+.parameter-form dd {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Textareas — styled like the chrome search box for visual cohesion.
+   rows=1 in HTML gives single-line default, field-sizing auto-grows. */
+.parameter-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+  border-radius: 0.33em;
+  background-color: white;
+  outline: none;
+  transition: border-color 0.15s;
+  font-size: 0.8125em;
+  padding: 0.25em 0.5em;
+  resize: vertical;
+  field-sizing: content; /* auto-size to content — progressive enhancement */
+}
+.parameter-form textarea:focus {
+  border-color: #aaa;
+}
+
+/* Red border on invalid textarea (parse error or empty required) */
+.parameter-form textarea:invalid {
+  border-color: crimson;
+}
+
+/* Error message below textarea — forms5 SetValidity sets data-errormessage
+   on the textarea, .setCustomValidity makes it :invalid.
+   dd::after renders the error via --error-message CSS var from electric-forms.css.
+   Display as block so it wraps below the input, not beside it. */
+.parameter-form dd::after {
+  display: block;
+  margin-top: 0.25em;
+}
+
+/* Disabled inputs (bound params) — match textarea styling with muted background */
+.parameter-form input:disabled {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+  border-radius: 0.33em;
+  background-color: #f5f5f5;
+  font-size: 0.8125em;
+  padding: 0.25em 0.5em;
+}
+
+/* Form layout — flex-wrap lets dl take full width, button wraps right-aligned */
+.parameter-form form {
+  display: flex;
+  flex-wrap: wrap;
+}
+.parameter-form dl {
+  width: 100%;
+}
+
+/* Run button — right-aligned, simple border style (like pre-forms5 original).
+   Override forms5 status colors — parameter form is local UI. */
+.parameter-form [type=submit] {
+  margin-left: auto;
+  margin-top: 0.5em;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0.25em 1em;
+  font-size: 0.8125em;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.parameter-form [type=submit]:hover:not(:disabled) {
+  background-color: #f5f5f5;
+  border-color: #aaa;
+}
+.parameter-form [type=submit]:disabled {
+  background-color: #f4f4f6;
+  color: #6d6d6d;
+  cursor: not-allowed;
+}
+/* Suppress forms5 loud status colors — keep it neutral */
+.parameter-form [type=submit][aria-busy=true] { background: white; }
+.parameter-form [type=submit][aria-invalid=true] { background: white; }
+.parameter-form [type=submit][data-tx-status=accepted]:not([aria-disabled]) { background: white; }
+
+/* Hide form-level errormessage — field-level dd::after errors are sufficient */
+.parameter-form [data-role=errormessage] {
+  display: none;
+}
+
 /* Chrome grid: when search is absent (partial cards), let title expand */
 .navigation-card__chrome:not(:has(input[type="search"])) {
   grid-template-columns: 1fr auto 5.5ch 1.75em;
