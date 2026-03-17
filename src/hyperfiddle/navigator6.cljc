@@ -149,6 +149,24 @@
   (hfql/update-scope stepT update `hfql/*bindings* merge e-bindings))
 
 #?(:clj
+   (defn- seed-step-with-args
+     "Seed unbound HFQL parameters from the arg map into stepT's scope.
+      Needed in two places: resolve-fn (selection resolution on click) and
+      NavigationCard body (rendering). Without this the resolve-fn operates
+      on the raw stepT and partial calls fail with 'Unbound HFQL parameter'."
+     [stepT arg-map bindings]
+     (if (and (some? arg-map) (map? arg-map))
+       (try
+         (reduce-kv
+           (fn [st sym raw-val]
+             (let [resolved (resolve-symbols-in-edn raw-val bindings)]
+               (hfql/update-scope st assoc sym (right resolved))))
+           stepT
+           arg-map)
+         (catch Exception _ stepT))
+       stepT)))
+
+#?(:clj
    (defn- resolve-selection-coordinates [current-point symbolic-selection-coordinates bindings]
      (with-bindings bindings
        (let [selectable-point (hyperfiddle.navigator6.selection2/find-selectable-point current-point)]
@@ -200,7 +218,12 @@
                   (with-local-search ::search   ; injects *local-search and interpret search commands
                     (with-local-arg ::arg       ; injects *arg and interpret SetArg! commands
                       (with-local-selection ::selection ; injects *local-selection and interpret selection commands
-                        (e/server #(try ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)
+                        ;; Seed stepT with arg/*arg before selection resolution —
+                        ;; otherwise partial calls (e.g. d/query) fail with
+                        ;; "Unbound HFQL parameter" because the raw stepT
+                        ;; has no arg bindings in its scope yet.
+                        (e/server #(try (let [stepT (seed-step-with-args stepT arg/*arg e/*bindings*)]
+                                          ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*))
                                         (catch Throwable t
                                           #?(:clj (log/warn t "Selection resolution failed"))
                                           nil)))
@@ -234,16 +257,7 @@
                                                                    ;; Seed all unbound params from the arg map.
                                                                    ;; *arg is {sym parsed-edn, ...} — already parsed client-side.
                                                                    ;; resolve-symbols-in-edn still runs per value for *db* etc.
-                                                                   stepT (if (and (some? arg/*arg) (map? arg/*arg))
-                                                                           (#(try
-                                                                               (reduce-kv
-                                                                                 (fn [st sym raw-val]
-                                                                                   (let [resolved (resolve-symbols-in-edn raw-val e/*bindings*)]
-                                                                                     (hfql/update-scope st assoc sym (right resolved))))
-                                                                                 stepT
-                                                                                 arg/*arg)
-                                                                               (catch Exception _ stepT)))
-                                                                           stepT)]
+                                                                   stepT (seed-step-with-args stepT arg/*arg e/*bindings*)]
                                                                stepT))]
                                       (e/call (ResolveRenderer injected)
                                         injected))))))
