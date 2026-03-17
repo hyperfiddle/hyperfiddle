@@ -241,7 +241,7 @@
   font-size: 0.8125em;
   padding: 0.25em 0.5em;
   resize: vertical;
-  field-sizing: content; /* auto-size to content — progressive enhancement */
+  field-sizing: content; /* auto-size to content — Chrome/Edge only, Firefox fallback is rows=1 */
 }
 .parameter-form textarea:focus {
   border-color: #aaa;
@@ -277,7 +277,11 @@
   display: flex;
   flex-wrap: wrap;
 }
-.parameter-form dl {
+.parameter-form form dt {
+    display: flex;
+    align-items: center;
+}
+.parameter-form form dl {
   width: 100%;
 }
 

@@ -7,7 +7,8 @@
             [edamame.core :as edn]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms5 :refer [Form! Input! SubmitButton!]]
+            [hyperfiddle.electric-forms5 :refer [Form! SubmitButton!]]
+            [hyperfiddle.ui.codemirror-forms5 :refer [EdnInput!]]
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.navigator6.utils :as utils])
   #?(:cljs (:require-macros [hyperfiddle.navigator6.arg :refer [with-local-arg]])))
@@ -72,15 +73,11 @@
                     ;; dd with input — sequential after dt (NOT e/amb)
                     (dom/dd
                       (if free?
-                        ;; Editable — textarea for EDN input that can grow beyond one line.
-                        ;; :as :textarea renders <textarea> via Input!, rows=1 default.
-                        ;; Bypass Textarea! wrapper — its & rest forwarding breaks
-                        ;; Electric's get-destructure-map (conj on a map error).
-                        (Input! kw (get form-v kw)
-                          :as :textarea
+                        ;; Editable — CodeMirror with EDN syntax highlighting.
+                        ;; Drop-in for Input! inside Form! via forms5 token bridge.
+                        (EdnInput! kw (get form-v kw)
                           :id input-id
                           :required true
-                          :rows 1
                           :placeholder (str "EDN value for " name)
                           :Parse (e/fn [s]
                                    (if (str/blank? s)

@@ -1,0 +1,73 @@
+/* codemirror-forms5 — CodeMirror wrapper for forms5 transactional inputs.
+   Wrapper is a transparent layout container — no role attribute.
+   CM's .cm-content already carries role="textbox" + aria-multiline="true".
+   State communicated via ARIA attributes (aria-invalid, aria-busy, aria-required). */
+
+.codemirror-forms5 {
+  position: relative;       /* for hidden proxy input positioning */
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+  border-radius: 0.33em;
+  background-color: white;
+  overflow: hidden;          /* clip CM's internal overflow within card layout */
+  transition: border-color 0.15s;
+}
+
+/* CM's contenteditable grows unbounded — contain: inline-size on the parent dd
+   gives it a definite width so the editor respects the grid column boundary. */
+form:has(> .codemirror-forms5)
+, form *:has(> .codemirror-forms5) {
+  contain: inline-size;
+}
+
+/* Error message — electric-forms.css sets --error-message on inner elements
+   (input, [role=radiogroup]), not on dd itself. Since we put data-errormessage
+   on the dd (because dd::after renders it), bridge the variable here. */
+dd[data-errormessage]:has(.codemirror-forms5) {
+  --error-message: attr(data-errormessage);
+}
+
+/* Focus ring — matches textarea:focus from matrix_cards.css */
+.codemirror-forms5:focus-within {
+  border-color: #aaa;
+}
+
+/* Invalid — crimson border via ARIA state + hidden proxy :invalid */
+.codemirror-forms5:has(:invalid),
+.codemirror-forms5[aria-invalid="true"] {
+  border-color: crimson;
+}
+
+/* CM editor — compact sizing for parameter form fields */
+.codemirror-forms5 .cm-editor {
+  font-size: 0.8125em;
+}
+
+/* Remove CM's default focus outline — wrapper handles focus indication */
+.codemirror-forms5 .cm-editor.cm-focused {
+  outline: none;
+}
+
+/* Compact padding matching textarea styling */
+.codemirror-forms5 .cm-editor .cm-content {
+  padding: 0.25em 0.5em;
+}
+
+/* Let wrapper handle overflow (for card collapse animation compat) */
+.codemirror-forms5 .cm-editor .cm-scroller {
+  overflow: visible;
+}
+
+/* Dirty state — override forms5's yellow background (too loud on a large editor).
+   Use yellow border instead. In error+dirty: keep bottom border crimson,
+   yellow on top/left/right so both states are visible. */
+.codemirror-forms5[aria-busy="true"] {
+  background-color: white;
+  border-color: gold;
+}
+.codemirror-forms5[aria-busy="true"][aria-invalid="true"],
+.codemirror-forms5[aria-busy="true"]:has(:invalid) {
+  border-color: gold;
+  border-bottom-color: crimson;
+}
