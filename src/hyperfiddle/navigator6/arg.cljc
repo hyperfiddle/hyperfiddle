@@ -7,23 +7,81 @@
             [edamame.core :as edn]
             [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-dom3 :as dom]
-            [hyperfiddle.electric-forms5 :refer [Form! SubmitButton!]]
+            [hyperfiddle.electric-forms5 :as forms :refer [Form! SubmitButton!]]
+            [hyperfiddle.ednish :as ednish]
+            [hyperfiddle.hfql2.utils :refer [has-meta?]]
+            [hyperfiddle.router5 :as router]
             [hyperfiddle.ui.codemirror-forms5 :refer [EdnInput!]]
             [hyperfiddle.navigator6.state :as state]
             [hyperfiddle.navigator6.utils :as utils])
   #?(:cljs (:require-macros [hyperfiddle.navigator6.arg :refer [with-local-arg]])))
 
-;; Committed arg values from route state — nil until user submits.
-;; Map of {symbol parsed-edn-value} for multi-param, or nil.
+;; Committed arg values — stored in sessionStorage (not URL) to avoid
+;; ednish encoding issues with Jetty 12. Map of {symbol parsed-edn-value}.
 (e/declare ^:dynamic *arg)
+
+;; ── SessionStorage helpers ──────────────────────────────────────────
+;; Args bypass the URL path but use EDNish encoding for consistency
+;; (and to benefit from ~edn metadata preservation).
+
+#?(:cljs
+   (defn- read-session-storage [k]
+     (when-let [s (.getItem js/sessionStorage k)]
+       (try (first (ednish/parse s)) (catch :default _ nil)))))
+
+#?(:cljs
+   (defn- write-session-storage [k v]
+     (if (some? v)
+       (.setItem js/sessionStorage k (ednish/serialize v))
+       (.removeItem js/sessionStorage k))))
+
+#?(:cljs
+   (defn- setup-session-sync!
+     "Sync atom changes to sessionStorage. add-watch on same key is idempotent."
+     [!atom storage-key]
+     (add-watch !atom ::session-sync
+       (fn [_ _ _ v] (write-session-storage storage-key v)))))
+
+#?(:cljs
+   (defn- teardown-session-sync! [!atom]
+     (remove-watch !atom ::session-sync)))
+
+#?(:cljs
+   (defn- gc-and-init!
+     "Keeps the arg value stable across route changes while avoiding garbage keys.
+      Route change (prev non-nil): migrate current value to new key, remove old key.
+      First mount / refresh (prev nil): restore from sessionStorage."
+     [!prev-key !arg storage-key]
+     (let [prev @!prev-key]
+       (when (not= prev storage-key)
+         (if prev
+           ;; Route changed within session — migrate value to new key, GC old.
+           (do (.removeItem js/sessionStorage prev)
+               (write-session-storage storage-key @!arg))
+           ;; First mount (or refresh) — restore from sessionStorage.
+           (reset! !arg (read-session-storage storage-key)))
+         (reset! !prev-key storage-key)))))
+
+;; ── WithLocalArg ────────────────────────────────────────────────────
 
 (e/defn WithLocalArg [state-key Body]
   (e/client
-    (binding [*arg (get state/*local-state state-key)]
-      (->> (Body)
-        (utils/InterceptCommand `SetArg!
-          ;; value is a map {sym edn-val} from the multi-field form
-          (e/fn [[_ value]] [`state/UpdateState! assoc state-key value]))))))
+    ;; Storage key scoped by depth + focused route segment — prevents
+    ;; different cards from colliding in sessionStorage.
+    (let [storage-key (str "hf-arg-" state/*depth "-" (hash router/route))
+          !prev-key (atom nil)
+          !arg (atom nil)
+          arg (e/watch !arg)]
+      ;; Side effects in let body — Electric lazy let only realizes bindings
+      ;; that are referenced downstream; body expressions are sampled by implicit do.
+      (gc-and-init! !prev-key !arg storage-key)
+      (setup-session-sync! !arg storage-key)
+      (e/on-unmount #(teardown-session-sync! !arg))
+      (binding [*arg arg]
+        ;; Interpreter handles SetArg! locally (atom reset + ack).
+        ;; Unrecognized commands pass through unchanged.
+        (forms/Interpreter {`SetArg! (e/fn [value] (reset! !arg value) ::forms/ok)}
+          (Body))))))
 
 (defmacro with-local-arg [state-key & body]
   `(WithLocalArg ~state-key (e/fn [] ~@body)))
@@ -35,6 +93,25 @@
   (try (edn/parse-string s)
        (catch #?(:clj Exception :cljs :default) e
          (ex-info (str "Invalid EDN: " #?(:clj (ex-message e) :cljs (.-message e))) {}))))
+
+(defn- parse-edn-field
+  "Parse EDN string, attaching original as metadata so EDNish preserves
+   user formatting across URL roundtrips (see ::ednish/edn)."
+  [s]
+  (when-not (str/blank? s)
+    (let [parsed (parse-edn s)]
+      (if (instance? #?(:clj Throwable :cljs js/Error) parsed)
+        parsed
+        (cond-> parsed
+          (has-meta? parsed) (with-meta {::ednish/edn s}))))))
+
+(defn- unparse-edn-field
+  "Prefer user's original string (from ::ednish/edn metadata) over pr-str,
+   so formatting survives URL roundtrips."
+  [v]
+  (if (some? v)
+    (or (::ednish/edn (meta v)) (pr-str v))
+    ""))
 
 (e/defn ArgInput!
   "Multi-field parameter form for partial HFQL calls.
@@ -79,11 +156,8 @@
                           :id input-id
                           :required true
                           :placeholder (str "EDN value for " name)
-                          :Parse (e/fn [s]
-                                   (if (str/blank? s)
-                                     nil ;; empty = not yet filled
-                                     (parse-edn s)))
-                          :Unparse (e/fn [v] (if (some? v) (pr-str v) "")))
+                          :Parse (e/fn [s] (parse-edn-field s))
+                          :Unparse (e/fn [v] (unparse-edn-field v)))
                         ;; Bound param — disabled input showing resolved default value.
                         ;; display-value is the pr-str'd default from the expr closure.
                         ;; Returns (e/amb) = nothing, so MergeEdits ignores this frame.
