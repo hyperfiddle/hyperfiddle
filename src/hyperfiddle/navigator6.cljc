@@ -235,8 +235,23 @@
                                                (try (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection)
                                                     (catch #?(:clj Throwable :cljs :default) t
                                                       #?(:clj (log/warn t "find-next-navigable-point failed"))
-                                                      nil)))))]
-                          (e/amb
+                                                      nil)))))
+                              ;; Injected stepT — hoisted so nav-err? Offload and ResolveRenderer
+                              ;; share the same Store object → mem-reader cache hit on second nav*.
+                              ;; Excludes *local-search* for ::pull views to avoid cascade cache bust
+                              ;; on search changes (see plans/associative-search-cell-recomputation.md).
+                              injected (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
+                                                                    (dissoc e/*bindings* (find-var `search/*local-search))
+                                                                    e/*bindings*))
+                                                       stepT ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings)
+                                                       stepT (seed-step-with-args stepT arg/*arg e/*bindings*)]
+                                                   stepT))
+                              ;; Reboot key: error state of injected step. When nav* flips Left↔Right,
+                              ;; rebooting destroys NavigationCard (including chrome div) — bypasses
+                              ;; Electric mount-point cleanup bug where redirected chrome DOM persists.
+                              nav-err? (e/server (e/Offload #(some-> injected hfql/nav* left?)))]
+                          (rebooting nav-err?
+                           (e/amb
                             ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
                             ;; NavigationCard renders into the display:contents div, becoming a
                             ;; direct child of .Browser alongside child cards.
@@ -246,21 +261,8 @@
                                   (e/amb
                                     ;; Parameter form — one field per call arg (free=editable, bound=disabled)
                                     (when is-partial? (arg/ArgInput! (e/server (hfql/form-parameters stepT))))
-                                    ;; Inject e/*bindings* into HFQL scope + seed unbound params from arg map.
-                                    ;; For associative views (::pull), exclude *local-search* from HFQL scope injection.
-                                    ;; Otherwise, search changes re-seed the HFQLT → cascade cache bust → IO reruns.
-                                    ;; See plans/associative-search-cell-recomputation.md for full analysis.
-                                    (let [injected (e/server (let [bindings (#(if (= ::pull ((glitch-guard effective-render-type) stepT))
-                                                                               (dissoc e/*bindings* (find-var `search/*local-search))
-                                                                               e/*bindings*))
-                                                                   stepT ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings)
-                                                                   ;; Seed all unbound params from the arg map.
-                                                                   ;; *arg is {sym parsed-edn, ...} — already parsed client-side.
-                                                                   ;; resolve-symbols-in-edn still runs per value for *db* etc.
-                                                                   stepT (seed-step-with-args stepT arg/*arg e/*bindings*)]
-                                                               stepT))]
-                                      (e/call (ResolveRenderer injected)
-                                        injected))))))
+                                    (e/call (ResolveRenderer injected)
+                                      injected)))))
                             ;; Branch 2: child navigation — sibling of card, gets full viewport width.
                             ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
                             ;; this card's with-local-selection clears selection → child unmounts.
@@ -271,7 +273,7 @@
                                           *navigation-depth* (inc *navigation-depth*)]
                                   (utils/InterceptCommand `selection/CloseCard!
                                     (e/fn [_] [`selection/SetSelection! [nil (e/fn [])]])
-                                    (Navigate* sitemap next-childT)))))))))))))))))))
+                                    (Navigate* sitemap next-childT))))))))))))))))))))
 
 (e/defn NavigationCard [depth has-child? Body]
   (e/client
