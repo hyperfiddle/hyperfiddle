@@ -95,12 +95,19 @@
 
 (defmulti encode-dispatch type)
 (defmethod encode-dispatch :default [object]
-  (cond (seq? object) ::seq
-        :else (type object)))
+  (cond
+    ;; Any value carrying its original EDN string as metadata → preserve as ~edn tag.
+    ;; (meta x) is safe on both CLJ/CLJS — returns nil for non-IMeta objects.
+    (::edn (meta object)) ::edn-preserved
+    (seq? object) ::seq
+    :else (type object)))
 
 (defmulti encode encode-dispatch)
 (defmethod encode :default [object] (-encode object))
 (defmethod encode ::seq [object] (encode-seq object))
+;; Emit ~edn,'original-string' — preserves user formatting across URL roundtrips.
+(defmethod encode ::edn-preserved [object]
+  (encode-tagged-value 'edn (::edn (meta object))))
 
 (defprotocol Encodable
   (-encode [object]))
@@ -240,7 +247,21 @@
     sym
     (symbol (namespace `_) (name sym))))
 
-(def ^:private INTERNAL-DATA-READERS {'vec #'vec, 'map #'decode-map, 'set #'set})
+;; Local copy — ednish is foundational, can't depend on hfql2.utils.
+(defn- has-meta? [o]
+  #?(:clj  (instance? clojure.lang.IObj o)
+     :cljs (satisfies? IWithMeta o)))
+
+(defn- decode-edn
+  "Decode ~edn tagged value: parse the preserved string back to EDN,
+   reattach it as metadata so the next Unparse recovers the user's formatting."
+  [s]
+  (let [parsed (edn/read-string s)]
+    (if (has-meta? parsed)
+      (with-meta parsed {::edn s})
+      parsed)))
+
+(def ^:private INTERNAL-DATA-READERS {'vec #'vec, 'map #'decode-map, 'set #'set, 'edn #'decode-edn})
 
 (def ^:dynamic *constructors* {})
 
@@ -331,6 +352,16 @@
   (parse (serialize  #uuid "4380248c-4db9-4ec5-8cc5-31b982768290")) := '(#uuid "4380248c-4db9-4ec5-8cc5-31b982768290")
   (parse (serialize true)) := '(true)
   (parse (serialize false)) := '(false)
+
+  "~edn preserves user formatting across URL roundtrips"
+  (let [s "{:find  [?e ...]\n :in    $\n :where [[?e :db/ident]]}"
+        m (with-meta (edn/read-string s) {::edn s})]
+    ;; encode emits ~edn,'...' instead of ~map,(...)
+    (str/starts-with? (serialize m) "~edn,") := true
+    ;; round-trip preserves data equality
+    (first (parse (serialize m))) := (edn/read-string s)
+    ;; round-trip preserves the original string as metadata
+    (::edn (meta (first (parse (serialize m))))) := s)
   )
 
 (tests
