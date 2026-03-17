@@ -67,11 +67,19 @@
                              (if waiting?
                                cm-v
                                (str (Unparse v))))
-                parsed-v (Parse unparsed-v)]
+                parsed-v (Parse unparsed-v)
+                ;; Track last v synced to CM — detects no-op commits where v didn't
+                ;; change (= ignores metadata). Without this, whitespace-only edits
+                ;; revert on commit because (Unparse unchanged-v) produces the old string.
+                !synced-v (atom ::not-synced)]
             (CMSetValidity dom/node parent-node parsed-v)
-            ;; Controlled value writeback — only when form is clean.
-            ;; IIFE: !cm is nil for one frame before CM mounts (atom starts nil).
-            (when-not dirty? (#(some-> !cm (cm/cm-set! unparsed-v))))
+            ;; Controlled value writeback — only when form is clean AND v actually changed.
+            ;; identical? detects no-op commits: if v is the same object reference,
+            ;; the commit didn't propagate (= work-skipped), so keep user's CM text.
+            (when-not dirty?
+              (#(when (and (some? !cm) (not (identical? v @!synced-v)))
+                  (reset! !synced-v v)
+                  (cm/cm-set! !cm unparsed-v))))
             ;; ARIA state on wrapper (CM's .cm-content already has role="textbox")
             (dom/props {:aria-required (#(when % true) required)
                         :aria-invalid  (#(when % true) error?)
