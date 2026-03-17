@@ -9,7 +9,73 @@
     [hyperfiddle.electric3 :as e]
     [hyperfiddle.electric-dom3 :as dom]
     [hyperfiddle.electric-forms5 :as forms5 :refer [Identity tx-error?]]
-    [missionary.core :as m]))
+    [missionary.core :as m]
+    #?@(:cljs [["@codemirror/lint" :refer [linter]]
+               [edamame.core :refer [parse-string]]])))
+
+;; ── EDN Linter ──────────────────────────────────────────────────────────
+;; Runs inside CM6's lint infrastructure — parses the document on each change
+;; via edamame and maps parse errors to inline diagnostics (wavy red underline).
+;; Adapted from scratch/src/edn_view/linter.cljs.
+#?(:cljs
+   (defn- edn-locate
+     "Convert edamame's {:row :col} error position to CM's {:from :to} byte offsets.
+      Falls back to start-of-doc if position info is missing."
+     [^js state err]
+     (let [{:keys [row col]} (ex-data err)
+           doc-len (.. state -doc -length)]
+       (if (and row col)
+         ;; edamame's col is 1-based; CM's doc offsets are 0-based.
+         (let [pos (min (+ (.. state -doc (line row) -from) (dec col)) doc-len)
+               ;; Strategy: try Lezer first, fall back to token scan.
+               ;; Lezer gives accurate spans when the tree is locally well-formed,
+               ;; but returns multi-line root/error nodes when it's not.
+               ^js node (.. state -tree (resolveInner pos 1))
+               nfrom (.-from node)
+               nto   (.-to node)
+               ;; Trust Lezer only if the node stays on one line — multi-line nodes
+               ;; are error-recovery artifacts that span far beyond the actual token.
+               tight? (and (< nfrom nto)
+                        (= (.. state -doc (lineAt nfrom) -number)
+                           (.. state -doc (lineAt (dec nto)) -number)))]
+           (if tight?
+             {:from nfrom :to nto}
+             ;; Lezer can't help — scan from error pos to next EDN delimiter.
+             (let [text (.. state -doc (toString))
+                   delim? #{\space \tab \newline \return \, \( \) \[ \] \{ \}}
+                   end (loop [i pos]
+                         (if (>= i doc-len) doc-len
+                           (if (and (> i pos) (delim? (.charAt text i)))
+                             i (recur (inc i)))))]
+               {:from pos :to (max (inc pos) end)})))
+         ;; No position info — highlight first char as a fallback marker.
+         {:from 0 :to (min 1 doc-len)}))))
+
+#?(:cljs
+   (defn- edn-lint
+     "CM6 lint source: parse doc as EDN, return diagnostics array."
+     [^js state]
+     (let [doc (.. state -doc (toString))]
+       (if (or (empty? doc) (re-matches #"\s*" doc))
+         #js[]  ; blank input — nothing to lint
+         (try (parse-string doc)
+              #js[]  ; valid EDN — no errors
+              (catch :default e
+                (let [{:keys [from to]} (edn-locate state e)]
+                  #js[#js{:from     from
+                          :to       to
+                          :severity "error"
+                          :source   "EDN"
+                          :message  (ex-message e)}])))))))
+
+#?(:cljs
+   (defonce edn-linter
+     ;; defonce — stable across hot reloads so CM doesn't re-register the extension.
+     (linter (fn [^js view] (edn-lint (.-state view))))))
+
+;; Hoisted outside e/defn — reader conditionals inside Electric code
+;; cause DAG misalignment between CLJ and CLJS compilation.
+(def ^:private edn-extensions #?(:cljs [edn-linter] :clj []))
 
 ;; Validation bridge — CM has no native form element, so .setCustomValidity()
 ;; can't be called on CM's contenteditable. A hidden proxy <input> carries
@@ -51,7 +117,9 @@
         (dom/props {:class "codemirror-forms5" :id id})
         (when-some [[!cm >cm-v] (e/input (cm/codemirror {:parent dom/node
                                                        :inline true
-                                                       :readonly readonly}))]
+                                                       :readonly readonly
+                                                       ;; Inline EDN linter — wavy red underline at parse errors.
+                                                       :extensions edn-extensions}))]
           ;; m/reductions turns discrete >cm-v into continuous signal for e/Token.
           ;; ::no-edit sentinel = "no user edit yet" — on? predicate filters it out.
           (let [cm-v (e/input (m/relieve {} (m/reductions {} ::no-edit >cm-v)))
