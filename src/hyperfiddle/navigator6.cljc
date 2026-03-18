@@ -293,8 +293,13 @@
                                                                     (catch #?(:clj Throwable :cljs :default) _ nil))
                                                                '(hfql/current-point))))]
                                   (e/amb
-                                    ;; Parameter form — one field per call arg (free=editable, bound=disabled)
-                                    (when is-partial? (arg/ArgInput! (e/server (hfql/form-parameters stepT))))
+                                    ;; Parameter form — one field per call arg (free=editable, bound=disabled).
+                                    ;; Skip when % is the only param — implicit body value, not user-facing.
+                                    (when is-partial?
+                                      (let [params (e/server (hfql/form-parameters stepT))]
+                                        (when-not (e/server (and (= 1 (count params))
+                                                                 (= '% (:name (first params)))))
+                                          (arg/ArgInput! params))))
                                     ;; (i) metadata pill in card chrome — navigates to (meta value) on click.
                                     ;; Dispatches [meta row-form] as selection coordinates.
                                     ;; The resolve-fn detects `meta` and synthesizes a child card.
