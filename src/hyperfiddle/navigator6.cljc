@@ -427,11 +427,15 @@
                                       nil {}))]
               (e/When t [t [`selection/CloseCard!]])))
 
-          ;; Content area — commands from Body propagate through e/amb
+          ;; Content area — commands from Body propagate through e/amb.
+          ;; Inner wrapper ensures the grid always has 1 child — the 0fr→1fr
+          ;; collapse animation breaks with multiple children (padding inflates
+          ;; implicit grid rows past 0).
           (dom/div
             (dom/props {:class "navigation-card__content"})
-            (binding [utils/*card-chrome* chrome]
-              (Body))))))))
+            (dom/div
+              (binding [utils/*card-chrome* chrome]
+                (Body)))))))))
 
 
 ;;;;;;;;;;;;;;;;
