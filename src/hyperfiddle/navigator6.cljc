@@ -191,6 +191,7 @@
                  selectable-from-suggested
                  symbolic-selection-coordinates))))))))
 
+
 (defn- object-level-identity [obj]
   #?(:clj (System/identityHashCode obj)
      :cljs (goog/getUid obj)))
@@ -222,8 +223,29 @@
                         ;; otherwise partial calls (e.g. d/query) fail with
                         ;; "Unbound HFQL parameter" because the raw stepT
                         ;; has no arg bindings in its scope yet.
+                        ;; clojure.core/meta checked first: selection2's resolve always
+                        ;; returns the row-point fallback (even when cell isn't found),
+                        ;; so the `or` fallback in resolve-selection-coordinates is
+                        ;; unreachable. Metadata synthesis must run before normal resolution.
                         (e/server #(try (let [stepT (seed-step-with-args stepT arg/*arg e/*bindings*)]
-                                          ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*))
+                                          (or (when (= 'clojure.core/meta (first %))
+                                                ;; Must inject bindings into HFQL scope — the resolve-fn's
+                                                ;; stepT only has args seeded, not bindings. Without this,
+                                                ;; hfql/nav can't resolve *db* and the query fails.
+                                                (let [stepT ((glitch-guard (flip inject-dynamic-bindings)) stepT (or e/*bindings* {}))]
+                                                  (with-bindings (or e/*bindings* {})
+                                                    ;; Create (hfql meta) and forward the parent scope —
+                                                    ;; the tree applies clojure.core/meta to % from parent,
+                                                    ;; giving it a proper form for title derivation.
+                                                    (when ((glitch-guard hfql/fullfilled?) stepT)
+                                                      ;; Pass nav result as body — the hfql macro binds it as %,
+                                                      ;; so (meta %) resolves naturally. The form `clojure.core/meta`
+                                                      ;; gives point-symbolic-name a proper title.
+                                                      (let [nav-result ((glitch-guard hfql/nav) stepT)]
+                                                        (when (not-empty (dissoc (meta nav-result)
+                                                                                :hyperfiddle.hfql2.protocols/obj))
+                                                          (hfql/hfql clojure.core/meta nav-result)))))))
+                                              ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
                                         (catch Throwable t
                                           #?(:clj (log/warn t "Selection resolution failed"))
                                           nil)))
@@ -257,10 +279,36 @@
                             ;; direct child of .Browser alongside child cards.
                             (NavigationCard *navigation-depth* (e/server (some? next-childT))
                               (e/fn []
-                                (let [is-partial? (e/server (hfql/partial? stepT))]
+                                (let [is-partial? (e/server (hfql/partial? stepT))
+                                      ;; Metadata pill — appears when the result carries Clojure metadata.
+                                      ;; hfql/nav is memoized (mem-reader) — cache hit after RenderMatrix's Offload.
+                                      has-meta? (e/server (#(try (when ((glitch-guard hfql/fullfilled?) injected)
+                                                                   (some? (not-empty
+                                                                            (dissoc (meta ((glitch-guard hfql/nav) injected))
+                                                                                    :hyperfiddle.hfql2.protocols/obj))))
+                                                                 (catch #?(:clj Throwable :cljs :default) _ false))))
+                                      ;; Row coordinate for meta selection — uses selection2 for proper identification
+                                      meta-row (e/server (#(or (try (when-some [selectable (selection2/find-selectable-point injected)]
+                                                                      (second (selection2/symbolic-selection-coordinates selectable nil)))
+                                                                    (catch #?(:clj Throwable :cljs :default) _ nil))
+                                                               '(hfql/current-point))))]
                                   (e/amb
                                     ;; Parameter form — one field per call arg (free=editable, bound=disabled)
                                     (when is-partial? (arg/ArgInput! (e/server (hfql/form-parameters stepT))))
+                                    ;; (i) metadata pill in card chrome — navigates to (meta value) on click.
+                                    ;; Dispatches [meta row-form] as selection coordinates.
+                                    ;; The resolve-fn detects `meta` and synthesizes a child card.
+                                    (when has-meta?
+                                      (in utils/*card-chrome*
+                                        (dom/div
+                                          (dom/props {:class "meta-pill"})
+                                          (dom/text "(i)")
+                                          (let [[t _err] (e/Token (dom/On "click"
+                                                                    (fn [^js e]
+                                                                      (.stopPropagation e) ; don't toggle card collapse
+                                                                      true)
+                                                                    nil {}))]
+                                            (e/When t [t [`state/ReplaceState! assoc ::selection ['clojure.core/meta meta-row]]])))))
                                     (e/call (ResolveRenderer injected)
                                       injected)))))
                             ;; Branch 2: child navigation — sibling of card, gets full viewport width.
@@ -376,15 +424,6 @@
             (dom/props {:class "navigation-card__content"})
             (binding [utils/*card-chrome* chrome]
               (Body))))))))
-
-
-;; (e/defn RenderMeta [stepT]
-;;   (e/server
-;;     (when-some [m ((glitch-guard (comp extract meta)) stepT)]
-;;       (dom/details
-;;         (dom/props {:open true})
-;;         (dom/summary (dom/text "Meta"))
-;;         (dom/pre (dom/text (strx/pprint-str m)))))))
 
 
 ;;;;;;;;;;;;;;;;

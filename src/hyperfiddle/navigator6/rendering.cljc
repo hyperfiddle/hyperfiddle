@@ -292,15 +292,12 @@
 
 
 
+;; Metadata removed from tooltip — now accessible via (i) pill in card chrome
+;; (see navigator6.cljc, resolve-fn meta fallback + meta-pill).
 #?(:clj (defn- table-title-tooltip-content [stepT]
           {:post [(or (string? %) (nil? %))]}
           (when stepT
-            (-> (hfql/describe-formatted stepT)
-              ;; hfql/nav throws on unbound params — skip for partial steps.
-              (str "\n\n" (when (hfql/fullfilled? stepT)
-                            (format-query-meta (meta (hfql/nav stepT)))))
-              (str/trim)
-              (strx/blank->nil)))))
+            (strx/blank->nil (hfql/describe-formatted stepT)))))
 
 (defn- render-step-title [stepT *parent-selection-symbolic] (selection2/point-symbolic-name stepT *parent-selection-symbolic))
 

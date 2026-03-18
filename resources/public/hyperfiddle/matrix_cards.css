@@ -109,6 +109,21 @@
   color: #666;
 }
 
+/* (i) metadata pill — appears when the result carries Clojure metadata.
+   Clicking navigates to a child card showing (meta value). */
+.navigation-card__chrome:has(.meta-pill) {
+  grid-template-columns: 1fr auto auto 5.5ch 1.75em;
+  grid-template-areas: "title search meta pill close";
+}
+.navigation-card__chrome .meta-pill {
+  grid-area: meta;
+  cursor: pointer;
+  color: #888;
+  font-size: 0.75em;
+  user-select: none;
+}
+.navigation-card__chrome .meta-pill:hover { color: #333; }
+
 /* Close button */
 .navigation-card__close-button {
   grid-area: close;
