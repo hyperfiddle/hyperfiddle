@@ -11,7 +11,9 @@
     [hyperfiddle.electric-forms5 :as forms5 :refer [Identity tx-error?]]
     [missionary.core :as m]
     #?@(:cljs [["@codemirror/lint" :refer [linter]]
-               [edamame.core :refer [parse-string]]])))
+               ["@codemirror/view" :as view]
+               [edamame.core :refer [parse-string]]
+               [nextjournal.clojure-mode :as cm-clj]])))
 
 ;; ── EDN Linter ──────────────────────────────────────────────────────────
 ;; Runs inside CM6's lint infrastructure — parses the document on each change
@@ -73,9 +75,36 @@
      ;; defonce — stable across hot reloads so CM doesn't re-register the extension.
      (linter (fn [^js view] (edn-lint (.-state view))))))
 
+;; Keyboard-layout-agnostic bracket auto-pairing via inputHandler.
+;; Nextjournal's close-brackets uses keymap bindings ({:key "["}), which
+;; fail on non-US layouts where [ { may need Alt/Gr — CM sees Alt+key ≠ key.
+;; inputHandler receives the actual character regardless of modifiers,
+;; and only fires when keymap didn't handle the event — no double-pairing
+;; on US keyboards where the keymap-based close-brackets already works.
+#?(:cljs
+   (def ^:private auto-pair-brackets
+     (.of (.-inputHandler view/EditorView)
+       (fn [^js view from to text]
+         (if-some [close (get {"[" "]" "{" "}"} text)]
+           (if (= from to)
+             (do (.dispatch view
+                   #js{:changes #js{:from from :to to :insert (str text close)}
+                       :selection #js{:anchor (inc from)}})
+               true)
+             false)
+           false)))))
+
 ;; Hoisted outside e/defn — reader conditionals inside Electric code
 ;; cause DAG misalignment between CLJ and CLJS compilation.
-(def ^:private edn-extensions #?(:cljs [edn-linter] :clj []))
+(def ^:private edn-extensions
+  #?(:cljs [;; Clojure-aware editing: bracket match, auto-close, auto-indent on Enter.
+            ;; .slice(1) skips syntax — already in inline-extensions via (cm-clj/syntax).
+            (.slice cm-clj/default-extensions 1)
+            ;; Paredit keybindings: Tab→indent, Enter→newline+indent, structural nav.
+            (.of view/keymap cm-clj/complete-keymap)
+            auto-pair-brackets
+            edn-linter]
+     :clj []))
 
 ;; Validation bridge — CM has no native form element, so .setCustomValidity()
 ;; can't be called on CM's contenteditable. A hidden proxy <input> carries
