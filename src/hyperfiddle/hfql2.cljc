@@ -1080,6 +1080,7 @@ it might not be serializable."
      (and (some? object)
           (not (instance? clojure.lang.IObj object))
           (not (string? object))
+          (not (keyword? object)) ; Keyword doesn't implement IObj but is a Clojure scalar, not a Java object
           (not (number? object))
           (not (boolean? object))
           (not (char? object)))))
