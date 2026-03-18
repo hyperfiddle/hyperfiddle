@@ -301,8 +301,11 @@
                                     (when has-meta?
                                       (in utils/*card-chrome*
                                         (dom/div
-                                          (dom/props {:class "meta-pill"})
-                                          (dom/text "(i)")
+                                          (dom/props {:class "meta-pill"
+                                                      ;; Tooltip shows pretty-printed metadata for quick inspection
+                                                      :data-tooltip (e/server (rendering/format-query-meta
+                                                                               (meta ((glitch-guard hfql/nav) injected))))})
+                                          (dom/text "^meta")
                                           (let [[t _err] (e/Token (dom/On "click"
                                                                     (fn [^js e]
                                                                       (.stopPropagation e) ; don't toggle card collapse

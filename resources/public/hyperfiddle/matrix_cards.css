@@ -109,20 +109,31 @@
   color: #666;
 }
 
-/* (i) metadata pill — appears when the result carries Clojure metadata.
-   Clicking navigates to a child card showing (meta value). */
+/* ^meta pill — appears when the result carries Clojure metadata.
+   Clicking navigates to a child card showing (meta value).
+   Placed between title and search for discoverability. */
 .navigation-card__chrome:has(.meta-pill) {
   grid-template-columns: 1fr auto auto 5.5ch 1.75em;
-  grid-template-areas: "title search meta pill close";
+  grid-template-areas: "title meta search pill close";
 }
 .navigation-card__chrome .meta-pill {
   grid-area: meta;
+  display: flex;
+  place-content: center;
+  width: min-content;
+  min-width: 3ch;
+  background: oklch(52% 0.105 223.128);
+  padding: 0.2em 0.4375em;
+  border-radius: 0.75em;
   cursor: pointer;
-  color: #888;
-  font-size: 0.75em;
   user-select: none;
+  white-space: nowrap;
+  font-size: 0.75em;
+  color: white;
 }
-.navigation-card__chrome .meta-pill:hover { color: #333; }
+.navigation-card__chrome .meta-pill:hover {
+  background: oklch(58% 0.105 223.128);
+}
 
 /* Close button */
 .navigation-card__close-button {
