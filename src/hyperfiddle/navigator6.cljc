@@ -254,7 +254,10 @@
                         ;; the positional default before the user interacts.
                         (let [next-childT (e/server
                                             ((fn []
-                                               (try (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection)
+                                               ;; with-bindings needed so column-level identity
+                                               ;; resolution (hfql-resolve*) has access to *db* etc.
+                                               (try (with-bindings (or e/*bindings* {})
+                                                      (hyperfiddle.navigator6.selection2/find-next-navigable-point sitemap #_stepT selection/*local-selection))
                                                     (catch #?(:clj Throwable :cljs :default) t
                                                       #?(:clj (log/warn t "find-next-navigable-point failed"))
                                                       nil)))))

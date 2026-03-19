@@ -745,6 +745,32 @@ Pulling on non-maps (non associative) is perfectly fine.
       s
       (with-meta (take limit s) (clojure.core/meta coll)))))
 
+(defn- tag-hfqlt-identify
+  "If the AST node declares a column-level `-identify` function (from form/key
+   metadata via set-metadata), tag the HFQLT metadata RoseTree with a `-identify`
+   record extra. This makes the HFQLT itself Identifiable via extend-via-metadata.
+   The closure extracts the cell value and delegates to the AST-level function,
+   respecting three-tier precedence: value metadata > AST-level > value protocol."
+  [ast-node hfqlT]
+  (if-some [ast-identify-fn (get (extract ast-node) `hfqlp/-identify)]
+    (vary-meta hfqlT assoc `hfqlp/-identify
+      ;; Closure called by extend-via-metadata when (identify hfqlT) is invoked.
+      ;; Extracts the cell value from the HFQLT and delegates identification.
+      (fn [this]
+        (let [cofreeF      (extract (runCofreeT this))
+              either-value (force-thunk (headF cofreeF))
+              value        (either/either (constantly nil) identity either-value)]
+          (or
+            ;; Tiers 1+3: value is identifiable on its own (metadata or protocol)
+            (when (and (some? value)
+                    (or (and (has-meta? value)
+                          (contains? (clojure.core/meta value) `hfqlp/-identify))
+                      (satisfies? hfqlp/Identifiable value)))
+              (hfqlp/-identify value))
+            ;; Tier 2: column-level AST function
+            (ast-identify-fn value)))))
+    hfqlT))
+
 (defn unfoldT
   "Build an HFQLT navigator from an AST (rose tree) using a coalgebra.
   The coalgebra transforms each AST node into a Reader Env (Pair value children).
@@ -753,10 +779,11 @@ Pulling on non-maps (non associative) is perfectly fine.
   ([coalgebra] (partial unfoldT coalgebra))
   ([coalgebra ast-node]
    (let [step (coalgebra ast-node)] ; TODO should this move inside of the store's function below?
-     (->hfqlT (assoc ast-node ::static-children
-                (map (comp (unfoldT coalgebra) #(assoc % ::parent ast-node))
-                  (unwrap ast-node)))
-       (store
+     (tag-hfqlt-identify ast-node
+       (->hfqlT (assoc ast-node ::static-children
+                  (map (comp (unfoldT coalgebra) #(assoc % ::parent ast-node))
+                    (unwrap ast-node)))
+         (store
            (fn peek [scope]
              ;; IO issue: scope can change due to dynamic bindings (e.g. search
              ;; needle). Even if `step` is memoized, a new ->CofreeF will be
@@ -798,7 +825,7 @@ Pulling on non-maps (non associative) is perfectly fine.
                                    (-> (seed (assoc scope '% %) childT)
                                      (vary-meta assoc ::hfql/positional-index positional-index))))
                                (cd/to-seq forced)))))))))))
-           (ast/lexical-env ast-node))))))
+           (ast/lexical-env ast-node)))))))
 
 (defn seed
   "Sets the environment of an HFQLT instance. Any point of the tree can be re-seeded. Re-seeding busts cached IO."

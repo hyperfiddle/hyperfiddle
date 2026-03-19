@@ -738,7 +738,7 @@
   ;; - Navigation happens if the selected point either:
   ;;   - is tagged with `::navigator/select`
   ;;   - value-at-point is Identifiable
-  ;;   - value-at-point is not Identifiable by a column is  FIXME
+  ;;   - the HFQLT itself is Identifiable (column-level identity via AST metadata)
   ;; - If navigation happens, it may or may not happen on the select point itself.
   ;;   - Navigation happens on the selected point itself:
   ;;     - if all the followings are true:
@@ -770,9 +770,20 @@
                                          ))]
         (or
           ;; Navigation happens on the selected point:
-          (and #_(hfql/identifiable? (from-right nil (hfql/value-at-point selected-point))) ; not all points are Identifiable (e.g. maps) but can be navigated anyway using `hfql/current-point`'s DI.
-            (not (some? navigator-select-command))
-            selected-point)
+          (and (not (some? navigator-select-command))
+            (or
+              ;; Column-level identity: the HFQLT itself is Identifiable (tagged by
+              ;; interpreter when AST has hfqlp/-identify). Resolve the identity to
+              ;; an object and navigate to it — e.g. clicking a db/id cell navigates
+              ;; to the actual Datomic entity, not the scalar Long.
+              (when (hfql/identifiable? selected-point)
+                (let [symbolic-form (hfql/identify selected-point)
+                      resolved      (when symbolic-form (hfql/hfql-resolve* symbolic-form))]
+                  (when (and resolved (right? resolved))
+                    (-> (hfql/hfql [*] (from-right nil resolved))
+                      (hfql/set-parent selected-point)))))
+              ;; Default: navigate on selected point itself
+              selected-point))
           ;; Navigation doesn't happen on the selected point
           (and (some? navigator-select-command)
             (sitemap-lookup sitemap
