@@ -1324,9 +1324,15 @@ it might not be serializable."
 
 (defmethod describe-formatted ::ast/symbol [hfqlT]
   (let [desc (describe hfqlT)
-        form-resolved (or (::ast/form-resolved desc) (::ast/form desc))
-        var (::ast/var desc)]
-    (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" form-resolved (some-> var meta :arglists) (some-> var meta :doc))))
+        form (::ast/form desc)]
+    ;; If the form carries metadata (e.g. d/query result reshaping attaches
+    ;; the backing Datomic attribute), show it as the tooltip.
+    ;; Otherwise fall through to the standard resolved-form tooltip.
+    (if-let [m (not-empty (meta form))]
+      (pr-str m)
+      (let [form-resolved (or (::ast/form-resolved desc) form)
+            var (::ast/var desc)]
+        (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" form-resolved (some-> var meta :arglists) (some-> var meta :doc))))))
 
 (defmethod describe-formatted ::ast/keyword [hfqlT] (::ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/string  [hfqlT] (::ast/form (describe hfqlT)))
