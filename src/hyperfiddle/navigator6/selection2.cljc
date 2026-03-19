@@ -1036,6 +1036,10 @@
                        (and (some? parent-edge)
                          (nil? parent-symbolic-value)
                          (some? parent-selection-coordinates)
+                         ;; Skip when parent coords are positional — the entity's own identity
+                         ;; (outer symbolic-constructor-form) is more informative than (?a (nth % N)).
+                         ;; Falls through to line ~1070 which uses symbolize-value directly.
+                         (not (positional-symbolic-selection-coordinates? parent-selection-coordinates))
                          (let [[symbolic-column symbolic-constructor-form :as coords] parent-selection-coordinates]
                            (or
                              ;; Case where we select "hfql/current-point", a non-identifiable object only addressable by the current scope.
