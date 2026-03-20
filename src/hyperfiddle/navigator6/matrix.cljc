@@ -167,7 +167,7 @@
                     (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
               (e/server (rendering/Render* cellT)))))) ; :detail is the name of the spec-defined data slot. I didn't choose the name.
 
-(e/defn RowHandle [group-id row-index rowT]
+(e/defn RowHandle [group-id rowT]
   (dom/th (dom/props {:scope :row})
           (let [value-at-point (e/server ((glitch-guard some? either identity identity) ((glitch-guard hfql/value-at-point) rowT)))
                 GetRowT (e/server (utils/Delay rowT))
@@ -176,7 +176,11 @@
                             :name (str group-id))]
             (e/Reconcile
               (when token
-                (dispatch-event! :up dom/node (munge-str `Select!) [row-index GetRowT])
+                ;; Use HFQL positional index (position in original collection) instead of
+                ;; UI row-index (position in filtered/sorted view). Consistent with MatrixCell
+                ;; which uses row-positional-index-from-hfql-for-this-cell.
+                (dispatch-event! :up dom/node (munge-str `Select!)
+                  [(e/server (::hfql/positional-index (meta rowT))) GetRowT])
                 (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
           (e/amb)))
 
@@ -194,7 +198,7 @@
       ;; redundant IO + eager union. Associative views avoid this (line ~318 does it once).
       ;; Lazy alternative: lift suggestion computation to collection level, share across rows.
       (let [rowT (e/server (e/Offload #(hfql/augment-with-suggestions! rowT)))]
-        (RowHandle row-group-id row-index rowT)
+        (RowHandle row-group-id rowT)
         ;; Associative views show all discovered properties — no column filtering.
         ;; Collection views filter to ColumnPicker selection.
         (let [cellsT (e/server (e/Offload (fn [] (let [cellsT ((maybe unwrap) rowT)]
