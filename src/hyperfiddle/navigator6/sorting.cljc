@@ -16,7 +16,8 @@
             [hyperfiddle.rcf :refer [tests]]
             [dustingetz.loader :refer [Offload]]
             [missionary.core :as m]
-            ))
+            )
+  #?(:cljs (:require-macros [hyperfiddle.navigator6.sorting :refer [with-local-sort]])))
 
 (defn- compare-nils-last "Wrap a comparator such that nils are always sorted last."
   ([comparator] (partial compare-nils-last comparator))
@@ -137,17 +138,30 @@
 (e/declare ^:dynamic *disabled?*)
 (e/declare ^:dynamic *sort-spec*)
 
-(e/defn Sorted [disabled? rowsT Body]
-  (let [!sort-spec (e/server (atom [])) ; (e/Snapshot (DefaultSort rowsT)) ; will eagerly compute all cells in first column
+(e/defn Sorted
+  "Pure sort transform — reads *sort-spec* from with-local-sort binding,
+   *disabled?* is bound at Navigate* level."
+  [rowsT Body]
+  (let [sort-spec *sort-spec*]
+    (Body (e/server (Offload #(sort-rows-by-columns sort-spec rowsT) {:label 'sort})))))
+
+(e/defn WithLocalSort
+  "Manages sort state and intercepts Sort! commands. Sort spec uses a local
+   atom (not route state) because it contains HFQL tree nodes (non-serializable)."
+  [Body]
+  (let [!sort-spec (e/server (atom []))
         sort-spec (e/server (e/watch !sort-spec))]
-    (binding [*disabled?* disabled?
-              *sort-spec* (e/server sort-spec)]
-      #_(e/server (prn "sort-spec" sort-spec) nil)
-      (->> (Body (e/server (Offload #(sort-rows-by-columns sort-spec rowsT) {:label 'sort})))
-        (forms/Interpreter {`Sort! (e/fn [Getter direction]
-                                     (e/server ((constantly nil) direction Getter)) ; HACK must touch both args on server, otherwise the `case` do not run.
-                                     (case (e/server (reset! !sort-spec [[(Getter) direction]]) nil)
-                                       [::forms/ok]))})))))
+    (binding [*sort-spec* sort-spec]
+      (binding [e/*bindings* (e/server (assoc e/*bindings* (find-var `*sort-spec*) *sort-spec*))]
+        (->> (Body)
+          (forms/Interpreter {`Sort! (e/fn [Getter direction]
+                                       ;; HACK must touch both args on server, otherwise the `case` do not run.
+                                       (e/server ((constantly nil) direction Getter))
+                                       (case (e/server (reset! !sort-spec [[(Getter) direction]]) nil)
+                                         [::forms/ok]))}))))))
+
+(defmacro with-local-sort [& body]
+  `(WithLocalSort (e/fn [] ~@body)))
 
 (defn- -fsym [sexpr]
   (when (seq? sexpr)

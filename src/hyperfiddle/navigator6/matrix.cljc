@@ -332,67 +332,103 @@
 
 
 
-(e/defn RenderMatrix [stepT & {:keys [associative?]}]
+(defn- prepare-collection
+  "Find collection point, augment suggestions for associative views,
+   extract limit and children. Returns [coll-stepT limit children] or nil.
+   Single Offload instead of 4 reactive nodes — all sequential server-side Clojure."
+  [stepT associative?]
+  (when-some [coll-stepT (selection2/find-collection-point stepT)]
+    (let [coll-stepT (if associative?
+                       (or (hfql/augment-with-suggestions! coll-stepT) coll-stepT)
+                       coll-stepT)]
+      [coll-stepT
+       (::hfql/limit (extract (meta coll-stepT)) COLLECTION-LIMIT)
+       (unwrap coll-stepT)])))
+
+(defn- compute-search-axes
+  "Compute axis-dependent bindings from already-resolved values.
+   Associative views search columns; collection views search rows.
+   Single thunk instead of 4 reactive nodes — atomic evaluation prevents glitches."
+  [associative? picker-columnsT children coll-stepT]
+  (let [columnsT (or picker-columnsT children)
+        rowsT (if associative? [coll-stepT] children)]
+    {:columnsT columnsT
+     :rowsT rowsT
+     :search-items (if associative? columnsT rowsT)
+     :search-columnTs (when-not associative? columnsT)}))
+
+(defn- compute-effective-axes
+  "Post-filter: determine effective columns, rows, and entry count.
+   Associative views filter columns; collection views filter rows.
+   Single thunk instead of 3 reactive nodes."
+  [associative? filtered-items columnsT rowsT rowsT-count]
+  (let [eff-cols (if associative? filtered-items columnsT)
+        eff-rows (if associative? rowsT filtered-items)]
+    [eff-cols
+     eff-rows
+     (if associative? (count eff-cols) (bounded-count rowsT-count eff-rows))]))
+
+(e/defn PrepareMatrixData
+  "Data pipeline: nav → column selection → search filter → sort.
+   Renders ColumnPicker UI (checkboxes) into the parent DOM context.
+   Calls Body with prepared data: [coll-stepT columnsT sorted-rowsT entries-count limit]."
+  [stepT associative? Body]
+  ;; HFQL tree nodes are unserializable — each value must stay in its own
+  ;; e/server to avoid client-side destructuring (which triggers wire transfer).
+  ;; Batch functions run atomically on server; accessors extract from cached result.
+  (let [_ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
+        ;; ColumnPicker renders checkboxes into the matrix-view div
+        picker-columnsT (e/server (when-not associative? (ColumnPicker stepT)))
+        ;; Batch A: single Offload for find-collection-point + augment + limit + children
+        coll-data (e/server (e/Offload #(prepare-collection stepT associative?)))
+        coll-stepT (e/server (nth coll-data 0 nil))
+        limit (e/server (nth coll-data 1 COLLECTION-LIMIT))
+        children (e/server (nth coll-data 2 nil))
+        ;; Batch B: atomic axis computation — all fields update together on input change
+        search-axes (e/server (#(compute-search-axes associative? picker-columnsT children coll-stepT)))
+        columnsT (e/server (:columnsT search-axes))
+        rowsT (e/server (:rowsT search-axes))
+        search-items (e/server (:search-items search-axes))
+        search-columnTs (e/server (:search-columnTs search-axes))
+        rowsT-count (e/server (e/Offload #(if associative? 1 (bounded-count limit rowsT))))
+        search-items-count (e/server (#(if associative? (count columnsT) rowsT-count)))]
+    (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE associative?))
+      search-items-count
+      (e/server search-items)
+      (e/server search-columnTs)
+      (e/fn [filtered-items]
+        ;; Batch C: atomic post-filter axes — effective columns/rows/count
+        (let [eff-axes (e/server (#(compute-effective-axes associative? filtered-items columnsT rowsT rowsT-count)))
+              effective-columnsT (e/server (nth eff-axes 0))
+              effective-rowsT (e/server (nth eff-axes 1))
+              entries-count (e/server (nth eff-axes 2))]
+          (sort/Sorted (e/server effective-rowsT)
+            (e/fn [sorted-rowsT]
+              (Body coll-stepT effective-columnsT sorted-rowsT entries-count limit)))))
+      ;; Check filtered? on the collection VALUE (source of truth), not on children seq metadata.
+      ::search/filtered? (e/server (e/Offload #(either (constantly false) hfql/filtered? (hfql/nav* coll-stepT)))))))
+
+(e/defn RenderMatrix
+  "Pure rendering — title, count pill, search input, and Matrix table.
+   Data pipeline delegated to PrepareMatrixData."
+  [stepT & {:keys [associative?]}]
   (dom/div
     (dom/props {:class ["matrix-view" ({true "error"} (e/server (some? (::hfql/error ((glitch-guard meta) stepT)))))]})
-    ;; Title in chrome bar — CSS grid-area places it in the "title" slot
+    ;; Title in chrome bar
     (in utils/*card-chrome*
       (rendering/Step-Title stepT))
-    (let [is-partial? (e/server (hfql/partial? stepT))
-          _ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
-          ;; Renders directly into matrix-view body (checkboxes wrap naturally via CSS)
-          picker-columnsT (e/server (when-not associative? (ColumnPicker stepT)))
-          stepT (e/server ((glitch-guard selection2/find-collection-point) stepT))
-          ;; Associative views show all discovered properties — augment the pull
-          ;; so (unwrap stepT) returns suggested columns alongside explicit ones.
-          ;; Collection views handle this via ColumnPicker (line 263) instead.
-          stepT (e/server (e/Offload #(if associative?
-                                        (or (hfql/augment-with-suggestions! stepT) stepT)
-                                        stepT)))
-          limit (e/server (::hfql/limit (extract (meta stepT)) COLLECTION-LIMIT))
-          ;; For associative views: columns = pull children (now includes suggestions), row = the pull itself.
-          ;; The column IndexRing handles lazy pagination over properties.
-          ;; For collections: columns from ColumnPicker, rows from unwrapping the collection.
-          children (e/server ((glitch-guard unwrap) stepT))
-          columnsT (e/server (#(or picker-columnsT children)))
-          rowsT (e/server (#(if associative? [stepT] children)))
-          rowsT-count (e/server (e/Offload #(if associative? 1 (bounded-count limit rowsT))))
-          disabled-search-sort-because-a-row-is-selected (e/server (some? selection/*local-selection))
-          ;; ── Axis-dependent bindings ──────────────────────────────────────
-          ;; Associative views (single object) swap the search axis:
-          ;;   search filters COLUMNS (properties), rows are fixed at [stepT].
-          ;; Collection views keep the standard axis:
-          ;;   search filters ROWS (items), columns come from ColumnPicker.
-          search-items (e/server (#(if associative? columnsT rowsT)))
-          search-items-count (e/server (#(if associative? (count columnsT) rowsT-count)))
-          search-columnTs (e/server (#(when-not associative? columnsT)))]
-      (search/Filtered (e/server (search/eager-search-BIG-O-N-SQUARE associative?))
-        search-items-count
-        (e/server search-items)
-        (e/server search-columnTs)
-        (e/fn [filtered-items]
-          (let [;; For associative: filtered-items = filtered columns. For collection: filtered rows.
-                effective-columnsT (e/server (#(if associative? filtered-items columnsT)))
-                effective-rowsT (e/server (#(if associative? rowsT filtered-items)))
-                entries-count (e/server (#(if associative?
-                                            (count effective-columnsT)
-                                            (bounded-count rowsT-count effective-rowsT))))]
-            ;; Pill in chrome bar — outside e/amb so it doesn't mix with command flow
-            (in utils/*card-chrome*
-              (dom/div (dom/props {:class "count"})
-                (dom/span (dom/props {:data-tooltip (#(rendering/format-count entries-count limit associative?))})
-                          (dom/text (#(let [[l r] (if associative? ["{" "}"] ["[" "]"])]
-                                        (str l entries-count r)))))))
-            (e/amb
-              ;; Search in chrome bar — always present, even for partial cards
-              (in utils/*card-chrome*
-                (search/SearchInput! disabled-search-sort-because-a-row-is-selected))
-              (sort/Sorted disabled-search-sort-because-a-row-is-selected (e/server effective-rowsT)
-                (e/fn [rowsT]
-                  (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) stepT))]
-                    ;; For associative views, actual row count = 1 (single data row).
-                    ;; entries-count is the property count — used for display only.
-                    (Matrix effective-columnsT (#(if associative? 1 entries-count)) rowsT :associative? associative?)))))))
-        ;; Check filtered? on the collection VALUE (source of truth), not on children seq metadata.
-        ;; The children seq lost ::filtered metadata when unfoldT switched to lazy-seq.
-        ::search/filtered? (e/server (e/Offload #(either (constantly false) hfql/filtered? (hfql/nav* stepT))))))))
+    (PrepareMatrixData stepT associative?
+      (e/fn [coll-stepT columnsT sorted-rowsT entries-count limit]
+        ;; Count pill in chrome bar
+        (in utils/*card-chrome*
+          (dom/div (dom/props {:class "count"})
+            (dom/span (dom/props {:data-tooltip (#(rendering/format-count entries-count limit associative?))})
+                      (dom/text (#(let [[l r] (if associative? ["{" "}"] ["[" "]"])]
+                                    (str l entries-count r)))))))
+        (e/amb
+          ;; Search in chrome bar
+          (in utils/*card-chrome*
+            (search/SearchInput! sort/*disabled?*))
+          ;; Matrix rendering
+          (binding [rendering/*rowT (e/server ((glitch-guard selection2/find-selectable-point) coll-stepT))]
+            (Matrix columnsT (#(if associative? 1 entries-count)) sorted-rowsT :associative? associative?)))))))
