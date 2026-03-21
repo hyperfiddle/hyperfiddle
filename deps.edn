@@ -41,7 +41,7 @@
                   :extra-deps  {cider/cider-nrepl          {:mvn/version "0.58.0"} ; tested values match REPL's pretty-printed representation.
                                 org.clojure/tools.namespace {:mvn/version "1.5.0"}
                                 com.datomic/peer            {:mvn/version "1.0.7469"}}} ; nav-datomic, datomic-contrib2
-           :release {:override-deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-c581a9e72"}
+           :release {:override-deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-ba52d5892"}
                                      com.hyperfiddle/hyperfiddle-contrib {:mvn/version "v0-alpha-98692515b"}}}
-           :latest {:override-deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-c581a9e72"}
+           :latest {:override-deps {com.hyperfiddle/electric {:mvn/version "v3-alpha-ba52d5892"}
                                     com.hyperfiddle/hyperfiddle-contrib {:mvn/version "v0-alpha-98692515b"}}}}}
