@@ -167,32 +167,85 @@
                       (catch #?(:clj Exception :cljs :default) err
                         (either/left err)))))))
 
+(defn- hydrate-from-bindings
+  "Walk EDN, replacing symbols that match DI var names with their runtime values.
+   Only touches symbols — safe on any data structure (symbol? is O(1), = on symbols is safe).
+   Used as default ::hfql/defaults implementation to hydrate e.g. '*db* → <db>."
+  [edn bindings]
+  (clojure.walk/postwalk
+    (fn [form]
+      (if (symbol? form)
+        (if-some [[_ v] (some (fn [[var-obj val]]
+                                (when (and (var? var-obj)
+                                           (= (symbol (name (symbol var-obj))) form))
+                                  [var-obj val]))
+                          bindings)]
+          v
+          form)
+        form))
+    edn))
+
+(defn- resolve-arguments-defaults
+  "Two-step defaults pipeline for nodes with ::hfql/form-defaults or ::hfql/defaults.
+   1. form-defaults: read params from env, fill nils with symbolic defaults
+   2. defaults: hydrate symbolic → runtime (default: resolve DI symbols from scope)
+   Runs under with-bindings* so both fns can access DI vars."
+  [ast-node env form-defaults-fn defaults-fn]
+  (let [params   (ast/parameters ast-node)
+        bindings (get env `hfql/*bindings* {})
+        pipeline (fn []
+                   ;; Step 1: build {sym value-or-nil} from env, fill nils via form-defaults.
+                   (let [current  (into {} (map (fn [sym]
+                                                  [sym (try (let [v (force-thunk (resolve sym env))]
+                                                              (if (either? v)
+                                                                (either/either (constantly nil) identity v)
+                                                                v))
+                                                            (catch #?(:clj Throwable :cljs :default) _ nil))]))
+                                    params)
+                         symbolic (if form-defaults-fn (form-defaults-fn current) current)
+                         ;; Step 2: hydrate symbolic → runtime.
+                         hydrate  (or defaults-fn
+                                    (fn [m] (into {} (map (fn [[k v]]
+                                                            [k (hydrate-from-bindings v bindings)]))
+                                                 m)))]
+                     (hydrate symbolic)))
+        result   #?(:clj  (with-bindings* bindings pipeline)
+                     :cljs (pipeline))]
+    (either/right (mapv #(get result %) params))))
+
 (defn resolve-arguments
   "Resolve arguments for a callable node.
    For ::call nodes: arguments are Expr fns (env → value) from the `expr` macro.
-   For symbol/var/runtime-value/lambda: no ::arguments, resolve parameters from env."
+   For symbol/var/runtime-value/lambda: no ::arguments, resolve parameters from env.
+   When ::hfql/form-defaults or ::hfql/defaults is present, delegates to defaults pipeline."
   ([ast-node] (partial resolve-arguments ast-node))
   ([ast-node env]
    (try
-     (let [arguments (ast/arguments ast-node)]
-       (if (seq arguments)
-         ;; Expr fn arguments (::call nodes) — each argument is an env → value fn.
-         (let [args (mapv (fn [expr-fn]
-                            (try (ensure-either (force-thunk (expr-fn env)))
-                              (catch #?(:clj Throwable :cljs :default) err
-                                (either/left err))))
-                      arguments)]
-           (either/sequenceEither args))
-         ;; Legacy path: symbol/var/runtime-value/lambda nodes have no ::arguments.
-         ;; Resolve parameters from env directly (all expect single `%` argument).
-         (let [args (mapv (fn [parameter]
-                            (if (symbol? parameter)
-                              (try (ensure-either (force-thunk (resolve parameter env)))
-                                (catch #?(:clj Throwable :cljs :default) err
-                                  (either/left err)))
-                              (either/right parameter)))
-                      (ast/parameters ast-node))]
-           (either/sequenceEither args))))
+     (let [attrs            (extract ast-node)
+           form-defaults-fn (::hfql/form-defaults attrs)
+           defaults-fn      (::hfql/defaults attrs)]
+       (if (or form-defaults-fn defaults-fn)
+         (resolve-arguments-defaults ast-node env form-defaults-fn defaults-fn)
+         ;; Standard path: no defaults metadata.
+         (let [arguments (ast/arguments ast-node)]
+           (if (seq arguments)
+             ;; Expr fn arguments (::call nodes) — each argument is an env → value fn.
+             (let [args (mapv (fn [expr-fn]
+                                (try (ensure-either (force-thunk (expr-fn env)))
+                                  (catch #?(:clj Throwable :cljs :default) err
+                                    (either/left err))))
+                          arguments)]
+               (either/sequenceEither args))
+             ;; Legacy path: symbol/var/runtime-value/lambda nodes have no ::arguments.
+             ;; Resolve parameters from env directly (all expect single `%` argument).
+             (let [args (mapv (fn [parameter]
+                                (if (symbol? parameter)
+                                  (try (ensure-either (force-thunk (resolve parameter env)))
+                                    (catch #?(:clj Throwable :cljs :default) err
+                                      (either/left err)))
+                                  (either/right parameter)))
+                          (ast/parameters ast-node))]
+               (either/sequenceEither args))))))
      (catch #?(:clj Throwable :cljs :default) err
        (either/left err)))))
 

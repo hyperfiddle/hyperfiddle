@@ -213,6 +213,21 @@
               (map vector params args)))
       [{:name '% :free? true}])))
 
+(defn form-defaults
+  "Symbolic default parameter values for form initialization.
+   Reads ::hfql/form-defaults metadata — a fn {sym nil} → {sym symbolic-value}.
+   Returns serializable {sym value} or nil. Caller should ensure DI bindings
+   are active (form-defaults fn may access DI vars for computation)."
+  [stepT]
+  (let [form-defaults-fn (::form-defaults (extract (meta stepT)))]
+    (when form-defaults-fn
+      ;; Pass nil for all params — form starts empty, form-defaults fills in
+      ;; symbolic values (e.g. '{:args [*db*]}).
+      (let [params  (mapv :name (form-parameters stepT))
+            nil-map (into {} (map (fn [sym] [sym nil])) params)]
+        (try (form-defaults-fn nil-map)
+             (catch #?(:clj Throwable :cljs :default) _ nil))))))
+
 (defn fullfilled?
   "True if an HFQL point is ready to be navigated — all unbound parameters
    have values in scope. Non-partial steps are always fulfilled."

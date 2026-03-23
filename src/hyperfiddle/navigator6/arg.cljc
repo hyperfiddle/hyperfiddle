@@ -120,11 +120,11 @@
    Submit emits SetArg! with {sym parsed-edn, ...} map.
    Styling: relies on electric-forms.css (form dl grid, required indicators,
    submit button) — see that file for layout and validation CSS."
-  [params]
+  [params & {:keys [defaults]}]
   (e/client
     (dom/div (dom/props {:class "parameter-form"})
-      (let [;; Restore previously submitted values from route state
-            saved (or *arg {})
+      (let [;; Defaults as base layer, user-submitted values override.
+            saved (merge defaults *arg)
             ;; Initial form values — only free params participate in Form!
             ;; Keyword keys for forms5 field names (sym→kw conversion)
             initial (into {} (comp (filter :free?)

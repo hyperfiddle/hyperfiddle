@@ -1,6 +1,5 @@
 (ns hyperfiddle.navigator6
-  (:require #?(:clj [clojure.walk])
-            [hyperfiddle.electric3 :as e]
+  (:require [hyperfiddle.electric3 :as e]
             [hyperfiddle.electric-forms5 :as forms]
             [hyperfiddle.api :as hf]
             [hyperfiddle.hfql2 :as hfql]
@@ -30,25 +29,6 @@
   #?(:cljs (:require-macros hyperfiddle.navigator6)))
 
 (e/declare ^:dynamic *navigation-depth*)
-
-#?(:clj
-   (defn- resolve-symbols-in-edn
-     "Walk parsed EDN and replace symbols that match bound dynamic vars in
-      `bindings` (e/*bindings*) with their current values. This lets the user
-      write `*db*` in a textarea and have it resolve to the actual database."
-     [edn bindings]
-     (clojure.walk/postwalk
-       (fn [form]
-         (if (symbol? form)
-           (if-some [[_ v] (some (fn [[var-obj val]]
-                                   (when (and (var? var-obj)
-                                              (= (symbol (name (symbol var-obj))) form))
-                                     [var-obj val]))
-                              bindings)]
-             v
-             form)
-           form))
-       edn)))
 
 (defn- augment-scope-with-%-from-route-args [args stepT]
   (if (seq args)
@@ -155,13 +135,14 @@
       Needed in two places: resolve-fn (selection resolution on click) and
       NavigationCard body (rendering). Without this the resolve-fn operates
       on the raw stepT and partial calls fail with 'Unbound HFQL parameter'."
-     [stepT arg-map bindings]
+     [stepT arg-map]
      (if (and (some? arg-map) (map? arg-map))
        (try
+         ;; Seed raw values as-is. Hydration (e.g. '*db* → <db>) is the
+         ;; interpreter's job via ::hfql/defaults, not the navigator's.
          (reduce-kv
            (fn [st sym raw-val]
-             (let [resolved (resolve-symbols-in-edn raw-val bindings)]
-               (hfql/update-scope st assoc sym (right resolved))))
+             (hfql/update-scope st assoc sym (right raw-val)))
            stepT
            arg-map)
          (catch Exception _ stepT))
@@ -229,13 +210,13 @@
                           ;; returns the row-point fallback (even when cell isn't found),
                           ;; so the `or` fallback in resolve-selection-coordinates is
                           ;; unreachable. Metadata synthesis must run before normal resolution.
-                          (e/server #(try (let [stepT (seed-step-with-args stepT arg/*arg e/*bindings*)]
+                          (e/server #(try (let [;; Inject DI bindings into HFQL scope so the interpreter's
+                                                  ;; defaults pipeline can hydrate symbolic args (e.g. '*db* → <db>).
+                                                  ;; Must run before seed-step-with-args — same order as card body.
+                                                  stepT ((glitch-guard (flip inject-dynamic-bindings)) stepT (or e/*bindings* {}))
+                                                  stepT (seed-step-with-args stepT arg/*arg)]
                                             (or (when (= 'clojure.core/meta (first %))
-                                                  ;; Must inject bindings into HFQL scope — the resolve-fn's
-                                                  ;; stepT only has args seeded, not bindings. Without this,
-                                                  ;; hfql/nav can't resolve *db* and the query fails.
-                                                  (let [stepT ((glitch-guard (flip inject-dynamic-bindings)) stepT (or e/*bindings* {}))]
-                                                    (with-bindings (or e/*bindings* {})
+                                                  (with-bindings (or e/*bindings* {})
                                                       ;; Create (hfql meta) and forward the parent scope —
                                                       ;; the tree applies clojure.core/meta to % from parent,
                                                       ;; giving it a proper form for title derivation.
@@ -246,7 +227,7 @@
                                                         (let [nav-result ((glitch-guard hfql/nav) stepT)]
                                                           (when (not-empty (dissoc (meta nav-result)
                                                                              :hyperfiddle.hfql2.protocols/obj))
-                                                            (hfql/hfql clojure.core/meta nav-result)))))))
+                                                            (hfql/hfql clojure.core/meta nav-result))))))
                                               ((glitch-guard resolve-selection-coordinates) stepT % e/*bindings*)))
                                           (catch Throwable t
                                             #?(:clj (log/warn t "Selection resolution failed"))
@@ -271,7 +252,7 @@
                                                                       (dissoc e/*bindings* (find-var `search/*local-search))
                                                                       e/*bindings*))
                                                          stepT ((glitch-guard (flip inject-dynamic-bindings)) stepT bindings)
-                                                         stepT (seed-step-with-args stepT arg/*arg e/*bindings*)]
+                                                         stepT (seed-step-with-args stepT arg/*arg)]
                                                      stepT))
                                 ;; Reboot key: error state of injected step. When nav* flips Left↔Right,
                                 ;; rebooting destroys NavigationCard (including chrome div) — bypasses
@@ -280,64 +261,71 @@
                                 ;; Disable sort/search handles when a child card is visible (not just
                                 ;; selected — selection may fail to resolve). Replaces (some? *local-selection).
                                 has-child? (e/server (some? next-childT))]
-                            (binding [sort/*disabled?* has-child?] (rebooting nav-err?
-                                                                     (e/amb
-                                                                       ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
-                                                                       ;; NavigationCard renders into the display:contents div, becoming a
-                                                                       ;; direct child of .Browser alongside child cards.
-                                                                       (NavigationCard *navigation-depth* has-child?
-                                                                         (e/fn []
-                                                                           (let [is-partial? (e/server (hfql/partial? stepT))
-                                                                                 ;; Metadata pill — appears when the result carries Clojure metadata.
-                                                                                 ;; hfql/nav is memoized (mem-reader) — cache hit after RenderMatrix's Offload.
-                                                                                 has-meta? (e/server (#(try (when ((glitch-guard hfql/fullfilled?) injected)
-                                                                                                              (some? (not-empty
-                                                                                                                       (dissoc (meta ((glitch-guard hfql/nav) injected))
-                                                                                                                         :hyperfiddle.hfql2.protocols/obj))))
-                                                                                                            (catch #?(:clj Throwable :cljs :default) _ false))))
-                                                                                 ;; Row coordinate for meta selection — uses selection2 for proper identification
-                                                                                 meta-row (e/server (#(or (try (when-some [selectable (selection2/find-selectable-point injected)]
-                                                                                                                 (second (selection2/symbolic-selection-coordinates selectable nil)))
-                                                                                                               (catch #?(:clj Throwable :cljs :default) _ nil))
-                                                                                                        '(hfql/current-point))))]
-                                                                             (e/amb
-                                                                               ;; Parameter form — one field per call arg (free=editable, bound=disabled).
-                                                                               ;; Skip when % is the only param — implicit body value, not user-facing.
-                                                                               (when is-partial?
-                                                                                 (let [params (e/server (hfql/form-parameters stepT))]
-                                                                                   (when-not (e/server (and (= 1 (count params))
-                                                                                                         (= '% (:name (first params)))))
-                                                                                     (arg/ArgInput! params))))
-                                                                               ;; (i) metadata pill in card chrome — navigates to (meta value) on click.
-                                                                               ;; Dispatches [meta row-form] as selection coordinates.
-                                                                               ;; The resolve-fn detects `meta` and synthesizes a child card.
-                                                                               (when has-meta?
-                                                                                 (in utils/*card-chrome*
-                                                                                   (dom/div
-                                                                                     (dom/props {:class "meta-pill"
-                                                                                                 ;; Tooltip shows pretty-printed metadata for quick inspection
-                                                                                                 :data-tooltip (e/server (rendering/format-query-meta
-                                                                                                                           (meta ((glitch-guard hfql/nav) injected))))})
-                                                                                     (dom/text "^meta")
-                                                                                     (let [[t _err] (e/Token (dom/On "click"
-                                                                                                               (fn [^js e]
-                                                                                                                 (.stopPropagation e) ; don't toggle card collapse
-                                                                                                                 true)
-                                                                                                               nil {}))]
-                                                                                       (e/When t [t [`state/ReplaceState! assoc ::selection ['clojure.core/meta meta-row]]])))))
-                                                                               (e/call (ResolveRenderer injected)
-                                                                                 injected)))))
-                                                                       ;; Branch 2: child navigation — sibling of card, gets full viewport width.
-                                                                       ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
-                                                                       ;; this card's with-local-selection clears selection → child unmounts.
-                                                                       (e/Reconcile
-                                                                         (e/When has-child?
-                                                                           (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
-                                                                                     selection/*parent-selection selection/*local-selection
-                                                                                     *navigation-depth* (inc *navigation-depth*)]
-                                                                             (utils/InterceptCommand `selection/CloseCard!
-                                                                               (e/fn [_] [`selection/SetSelection! [nil (e/fn [])]])
-                                                                               (Navigate* sitemap next-childT))))))))))))))))))))))
+                            (binding [sort/*disabled?* has-child?]
+                              (rebooting nav-err?
+                                (e/amb
+                                  ;; Branch 1: card chrome + matrix — sibling of child, not wrapper.
+                                  ;; NavigationCard renders into the display:contents div, becoming a
+                                  ;; direct child of .Browser alongside child cards.
+                                  (NavigationCard *navigation-depth* has-child?
+                                    (e/fn []
+                                      (let [is-partial? (e/server (hfql/partial? stepT))
+                                            ;; Metadata pill — appears when the result carries Clojure metadata.
+                                            ;; hfql/nav is memoized (mem-reader) — cache hit after RenderMatrix's Offload.
+                                            has-meta? (e/server (#(try (when ((glitch-guard hfql/fullfilled?) injected)
+                                                                         (some? (not-empty
+                                                                                  (dissoc (meta ((glitch-guard hfql/nav) injected))
+                                                                                    :hyperfiddle.hfql2.protocols/obj))))
+                                                                       (catch #?(:clj Throwable :cljs :default) _ false))))
+                                            ;; Row coordinate for meta selection — uses selection2 for proper identification
+                                            meta-row (e/server (#(or (try (when-some [selectable (selection2/find-selectable-point injected)]
+                                                                            (second (selection2/symbolic-selection-coordinates selectable nil)))
+                                                                          (catch #?(:clj Throwable :cljs :default) _ nil))
+                                                                   '(hfql/current-point))))]
+                                        (e/amb
+                                          ;; Parameter form — one field per call arg (free=editable, bound=disabled).
+                                          ;; Skip when % is the only param — implicit body value, not user-facing.
+                                          (when is-partial?
+                                            (let [params (e/server (hfql/form-parameters stepT))
+                                                  ;; Defaults fn returns symbolic, serializable values (e.g. '*db*).
+                                                  ;; with-bindings* so it can access DI vars for computation.
+                                                  ;; No hydration here — symbols cross the wire as-is.
+                                                  defaults (e/server (with-bindings* (or e/*bindings* {})
+                                                                       #(try (hfql/form-defaults injected)
+                                                                             (catch Throwable _ nil))))]
+                                              (when-not (e/server (and (= 1 (count params))
+                                                                    (= '% (:name (first params)))))
+                                                (arg/ArgInput! params :defaults defaults))))
+                                          ;; (i) metadata pill in card chrome — navigates to (meta value) on click.
+                                          ;; Dispatches [meta row-form] as selection coordinates.
+                                          ;; The resolve-fn detects `meta` and synthesizes a child card.
+                                          (when has-meta?
+                                            (in utils/*card-chrome*
+                                              (dom/div
+                                                (dom/props {:class "meta-pill"
+                                                            ;; Tooltip shows pretty-printed metadata for quick inspection
+                                                            :data-tooltip (e/server (rendering/format-query-meta
+                                                                                      (meta ((glitch-guard hfql/nav) injected))))})
+                                                (dom/text "^meta")
+                                                (let [[t _err] (e/Token (dom/On "click"
+                                                                          (fn [^js e]
+                                                                            (.stopPropagation e) ; don't toggle card collapse
+                                                                            true)
+                                                                          nil {}))]
+                                                  (e/When t [t [`state/ReplaceState! assoc ::selection ['clojure.core/meta meta-row]]])))))
+                                          (e/call (ResolveRenderer injected)
+                                            injected)))))
+                                  ;; Branch 2: child navigation — sibling of card, gets full viewport width.
+                                  ;; InterceptCommand converts child's CloseCard! → SetSelection! nil so
+                                  ;; this card's with-local-selection clears selection → child unmounts.
+                                  (e/Reconcile
+                                    (e/When has-child?
+                                      (binding [selection/*parent-selection-symbolic selection/*local-selection-symbolic
+                                                selection/*parent-selection selection/*local-selection
+                                                *navigation-depth* (inc *navigation-depth*)]
+                                        (utils/InterceptCommand `selection/CloseCard!
+                                          (e/fn [_] [`selection/SetSelection! [nil (e/fn [])]])
+                                          (Navigate* sitemap next-childT))))))))))))))))))))))
 
 (e/defn NavigationCard [depth has-child? Body]
   (e/client
