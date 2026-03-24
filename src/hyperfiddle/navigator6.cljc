@@ -310,7 +310,7 @@
                                                 (let [[t _err] (e/Token (dom/On "click"
                                                                           (fn [^js e]
                                                                             (.stopPropagation e) ; don't toggle card collapse
-                                                                            true)
+                                                                            e) ; return event object — unique per click so e/Token fires each time
                                                                           nil {}))]
                                                   (e/When t [t [`state/ReplaceState! assoc ::selection ['clojure.core/meta meta-row]]])))))
                                           (e/call (ResolveRenderer injected)
