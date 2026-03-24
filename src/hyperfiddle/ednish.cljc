@@ -257,6 +257,8 @@
    reattach it as metadata so the next Unparse recovers the user's formatting."
   [s]
   (let [parsed (edn/read-string s)]
+    ;; Primitives (numbers, booleans, etc.) can't carry metadata — the original
+    ;; string is lost. Acceptable: primitives have canonical pr-str representations.
     (if (has-meta? parsed)
       (with-meta parsed {::edn s})
       parsed)))

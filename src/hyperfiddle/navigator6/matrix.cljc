@@ -60,16 +60,6 @@
     #?(:clj (instance? clojure.lang.Named x)
        :cljs (implements? INamed x))))
 
-(defn- display-edge
-  "Strip the (quote ...) wrapper from runtime-discovered map keys (e.g. aggregate
-   columns) so the UI shows (count ?x) instead of (quote (count ?x)).
-   The quote is added by disambiguate-from-hfql-syntax to prevent HFQL from
-   calling list keys as functions; this is the rendering-layer inverse."
-  [edge]
-  (if (and (seq? edge) (= 'quote (first edge)))
-    (second edge)
-    edge))
-
 (defn- name-shortener [names]
   (let [key-fn #(if (named? %) (name %) %)
         groups (group-by key-fn names)
@@ -97,13 +87,13 @@
           (dom/th (dom/props {:class "transpose-affordance matrix__diagonal" :aria-label "transpose" :title "Transpose" :style {:width "100%"}})
                   (Command (constantly [`Transpose!]) (dom/On* "click" identity nil) (constantly nil))))
         ;; shorten needs full column set to detect naming conflicts
-        (let [shorten (e/server (name-shortener (into [] (comp (take COLLECTION-LIMIT) (map (comp display-edge hfql/symbolic-edge))) columnsT)))]
+        (let [shorten (e/server (name-shortener (into [] (comp (take COLLECTION-LIMIT) (map (comp hfql/display-edge hfql/symbolic-edge))) columnsT)))]
           (e/for [col-index (IndexRing limitH offsetH)]
             ;; Nil-check on server — columnT is an HFQL tree node (unserializable),
             ;; so it must never cross to client. Only `form` (string) crosses the wire.
             (let [columnT (e/server (nth columnsT col-index nil))]
               (when (e/server (some? columnT))
-                (let [form (e/server (str (shorten (display-edge (hfql/symbolic-edge columnT)))))]
+                (let [form (e/server (str (shorten (hfql/display-edge (hfql/symbolic-edge columnT)))))]
                   (e/client
                     (dom/th (dom/props {:scope :col, :style {:--cell-index col-index, :cursor "pointer"}})
                       (dom/span (dom/props {:class "column-name"}) (dom/text form)
@@ -189,6 +179,9 @@
                 ;; Use HFQL positional index (position in original collection) instead of
                 ;; UI row-index (position in filtered/sorted view). Consistent with MatrixCell
                 ;; which uses row-positional-index-from-hfql-for-this-cell.
+                ;; Invariant: ::hfql/positional-index is always set on collection children
+                ;; by interpreter.cljc unfoldT fan-out. Nil here means a bug upstream —
+                ;; row-index is NOT a safe fallback (reflects post-sort/filter position).
                 (dispatch-event! :up dom/node (munge-str `Select!)
                   [(e/server (::hfql/positional-index (meta rowT))) GetRowT])
                 (dom/On* (munge-str `SelectAck!) (fn [_] (token) nil) nil {:capture true}))))
@@ -258,7 +251,7 @@
             ;; (capped at COLLECTION-LIMIT to avoid forcing unbounded lazy seqs),
             ;; not just the IndexRing-visible subset, to prevent width jumps during scroll.
             max-label-ch (e/server (let [edges (into [] (comp (take COLLECTION-LIMIT)
-                                                              (map (comp display-edge hfql/symbolic-edge)))
+                                                              (map (comp hfql/display-edge hfql/symbolic-edge)))
                                                         columnTs)
                                          shorten (name-shortener edges)]
                                      (transduce (map (comp count str shorten)) max 0 edges)))]
@@ -323,17 +316,17 @@
             static-columns (remove (comp ::hfql/suggested meta) childrenT)
             suggested-columns (e/Snapshot (filter (comp ::hfql/suggested meta) childrenT))
             pre-checked (#(or ((glitch-guard hfql/pull-has-star?) stepT+) (empty? static-columns)))
-            shorten (name-shortener (map (comp display-edge hfql/symbolic-edge) childrenT))
+            shorten (name-shortener (map (comp hfql/display-edge hfql/symbolic-edge) childrenT))
             from-spec (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge static-columns)]
                                   (e/When
                                       (dom/span
-                                        (forms/Checkbox* true :label (e/server (str (shorten (display-edge (hfql/symbolic-edge columnT)))))
+                                        (forms/Checkbox* true :label (e/server (str (shorten (hfql/display-edge (hfql/symbolic-edge columnT)))))
                                           :title (e/server (str (hfql/describe-formatted columnT)))))
                                     columnT)))
             suggested (e/as-vec (e/for [columnT (e/diff-by hfql/symbolic-edge suggested-columns)]
                                  (e/When
                                      (dom/span
-                                       (forms/Checkbox* pre-checked :label (e/server (str (shorten (display-edge (hfql/symbolic-edge columnT)))))
+                                       (forms/Checkbox* pre-checked :label (e/server (str (shorten (hfql/display-edge (hfql/symbolic-edge columnT)))))
                                          :title (e/server (str (hfql/describe-formatted columnT)))))
                                    columnT)))]
         (->> (mappend from-spec suggested)
@@ -389,7 +382,10 @@
   (let [_ (e/server (Offload #(do ((glitch-guard hfql/nav) stepT) nil) {:label 'run-query}))
         ;; ColumnPicker renders checkboxes into the matrix-view div
         picker-columnsT (e/server (when-not associative? (ColumnPicker stepT)))
-        ;; Batch A: single Offload for find-collection-point + augment + limit + children
+        ;; Batch A: single Offload for find-collection-point + augment + limit + children.
+        ;; When coll-data is nil (no collection point), nth defaults produce
+        ;; [nil COLLECTION-LIMIT nil] — pipeline renders an empty matrix, which is
+        ;; the correct visual for "no data".
         coll-data (e/server (e/Offload #(prepare-collection stepT associative?)))
         coll-stepT (e/server (nth coll-data 0 nil))
         limit (e/server (nth coll-data 1 COLLECTION-LIMIT))

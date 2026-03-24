@@ -24,16 +24,24 @@
 ;; Args bypass the URL path but use EDNish encoding for consistency
 ;; (and to benefit from ~edn metadata preservation).
 
+;; All sessionStorage access is wrapped in try/catch — in incognito mode,
+;; sandboxed iframes, or storage-disabled contexts, these APIs throw.
+;; Fallback: args still work via in-memory atom, just lose cross-navigation persistence.
+
 #?(:cljs
    (defn- read-session-storage [k]
-     (when-let [s (.getItem js/sessionStorage k)]
-       (try (first (ednish/parse s)) (catch :default _ nil)))))
+     (try
+       (when-let [s (.getItem js/sessionStorage k)]
+         (try (first (ednish/parse s)) (catch :default _ nil)))
+       (catch :default _ nil))))
 
 #?(:cljs
    (defn- write-session-storage [k v]
-     (if (some? v)
-       (.setItem js/sessionStorage k (ednish/serialize v))
-       (.removeItem js/sessionStorage k))))
+     (try
+       (if (some? v)
+         (.setItem js/sessionStorage k (ednish/serialize v))
+         (.removeItem js/sessionStorage k))
+       (catch :default _ nil))))
 
 #?(:cljs
    (defn- setup-session-sync!
@@ -56,7 +64,7 @@
        (when (not= prev storage-key)
          (if prev
            ;; Route changed within session — migrate value to new key, GC old.
-           (do (.removeItem js/sessionStorage prev)
+           (do (try (.removeItem js/sessionStorage prev) (catch :default _ nil))
                (write-session-storage storage-key @!arg))
            ;; First mount (or refresh) — restore from sessionStorage.
            (reset! !arg (read-session-storage storage-key)))
@@ -72,8 +80,11 @@
           !prev-key (atom nil)
           !arg (atom nil)
           arg (e/watch !arg)]
-      ;; Side effects in let body — Electric lazy let only realizes bindings
-      ;; that are referenced downstream; body expressions are sampled by implicit do.
+      ;; Electric lazy let: bindings are demand-driven, body expressions always run.
+      ;; gc-and-init! and setup-session-sync! are reactive to storage-key (which
+      ;; depends on router/route). Route changes → new storage-key → gc-and-init!
+      ;; fires migration logic, setup-session-sync! replaces the watch closure.
+      ;; Atoms (!prev-key, !arg) are stable (non-reactive, memoized once by Electric).
       (gc-and-init! !prev-key !arg storage-key)
       (setup-session-sync! !arg storage-key)
       (e/on-unmount #(teardown-session-sync! !arg))

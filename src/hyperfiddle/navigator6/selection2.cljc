@@ -783,6 +783,7 @@
               ;; interpreter when AST has hfqlp/-identify). Resolve the identity to
               ;; an object and navigate to it — e.g. clicking a db/id cell navigates
               ;; to the actual Datomic entity, not the scalar Long.
+              ;; hfql-resolve* IO is cached by the Store comonad (memoize-1 on identical? scope).
               (when (hfql/identifiable? selected-point)
                 (let [symbolic-form (hfql/identify selected-point)
                       resolved      (when symbolic-form (hfql/hfql-resolve* symbolic-form))]
@@ -977,14 +978,6 @@
 
 ;;;;; Infering a title from navigation point
 
-(defn- display-edge
-  "Strip (quote ...) wrapper from disambiguated runtime-discovered map keys
-   so the UI shows (count ?x) instead of (quote (count ?x))."
-  [edge]
-  (if (and (seq? edge) (= 'quote (first edge)))
-    (second edge)
-    edge))
-
 (defn- positional-index-name
   "Given symbolic selection coordinates [symbolic-column symbolic-constructor-form],
   produce a title string for positional (nth) addressing, or nil."
@@ -997,7 +990,7 @@
     ;; Case where we select a cell by positional index.
     (and (= `hfql/nth (first symbolic-constructor-form))
       (some? symbolic-column)
-      (let [col (display-edge symbolic-column)
+      (let [col (hfql/display-edge symbolic-column)
             row (list 'nth '% (second symbolic-constructor-form))]
         ;; For sexpr columns like (count ?x), `(count ?x) (nth % 1)` reads
         ;; ambiguously — looks like nested calls. Use arrow notation instead.
@@ -1012,7 +1005,7 @@
           (or (nil? parent-selection-coordinates) (symbolic-selection-coordinates? parent-selection-coordinates))]
     :post [(string? %)]}
    (or (and (some? current-point)
-         (or (let [symbolic-column (display-edge (symbolize-form current-point))
+         (or (let [symbolic-column (hfql/display-edge (symbolize-form current-point))
                    symbolic-constructor-form (symbolize-value current-point)]
                (or
                  ;; Case where both symbolic column and value are known at the current point.
@@ -1029,7 +1022,7 @@
                  (and (nil? symbolic-column)
                    (some? symbolic-constructor-form)
                    (let [parent (hfql/parent current-point)
-                         parent-edge (and parent (display-edge (symbolize-form parent)))
+                         parent-edge (and parent (hfql/display-edge (symbolize-form parent)))
                          parent-symbolic-value (and parent (symbolize-value parent))]
                      (or
                        ;; Edge case: both parent and the current selected *cell* are Identifiable
@@ -1066,7 +1059,7 @@
                              ;; Case where we select "hfql/current-point", a non-identifiable object only addressable by the current scope.
                              (and (= `hfql/current-point (first symbolic-constructor-form))
                                (some? symbolic-column)
-                               (pr-str (display-edge symbolic-column)))
+                               (pr-str (hfql/display-edge symbolic-column)))
                              (positional-index-name coords)))))))
                  ;; Case where the current point is anonymous (e.g. a non-identifiable row).
                  ;; So there's no selected column, and the row coordinate is unknown.
@@ -1080,7 +1073,7 @@
                  (and (::hfql/error (meta current-point)) ; error flag
                    (or (and (some? parent-selection-coordinates)
                          (or (and (some? (first parent-selection-coordinates)) ; col × row
-                               (pr-str (list (display-edge (first parent-selection-coordinates)) (second parent-selection-coordinates))))
+                               (pr-str (list (hfql/display-edge (first parent-selection-coordinates)) (second parent-selection-coordinates))))
                            (pr-str (second parent-selection-coordinates)))) ; row only
                      ;; We don't know the current point's corrdinates because there's no parent. (e.g. top-level navigation failed)
                      ;; The best title we can produce is the one of the error itself.

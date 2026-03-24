@@ -815,7 +815,9 @@ Pulling on non-maps (non associative) is perfectly fine.
    metadata via set-metadata), tag the HFQLT metadata RoseTree with a `-identify`
    record extra. This makes the HFQLT itself Identifiable via extend-via-metadata.
    The closure extracts the cell value and delegates to the AST-level function,
-   respecting three-tier precedence: value metadata > AST-level > value protocol."
+   respecting three-tier precedence: value metadata > AST-level > value protocol.
+   If tier 1+3 returns nil (value has no identity), tier 2 (AST-level) fires.
+   This is intentional — nil identity means \"I don't know, ask the column.\""
   [ast-node hfqlT]
   (if-some [ast-identify-fn (get (extract ast-node) `hfqlp/-identify)]
     (vary-meta hfqlT assoc `hfqlp/-identify

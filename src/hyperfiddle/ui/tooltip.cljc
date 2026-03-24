@@ -28,6 +28,8 @@
          [0 0])
        [0 0])))
 
+;; Singleton state — assumes exactly one (Tooltip) component in the app.
+;; !prev-anchor holds a reference to the last hovered DOM node (for anchor-name cleanup).
 #?(:cljs (def ^:private !prev-anchor (atom nil)))
 #?(:cljs (def ^:private !anchor-gen (atom 0)))
 

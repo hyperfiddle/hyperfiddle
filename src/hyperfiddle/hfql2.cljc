@@ -196,7 +196,8 @@
       (let [attributes (extract ast)
             lenv (::ast/lexical-env attributes)
             params (::ast/parameters attributes)
-            ;; ::arguments are compiled expr fns at runtime (fn [env] → value)
+            ;; ::arguments are compiled expr fns at runtime (fn [env] → value).
+            ;; Never nil for call nodes — each param gets an (expr p) fn from the analyzer.
             args (::ast/arguments attributes)]
         (into []
               (comp (filter (fn [[p _]] (simple-symbol? p)))
@@ -625,6 +626,16 @@ HFQL will disable automatic in-memory search:
   [hfqlT]
   (when hfqlT
     (symbolic-edge* (extract (meta hfqlT)))))
+
+(defn display-edge
+  "Strip the (quote ...) wrapper from runtime-discovered map keys so the UI
+   shows e.g. (count ?x) instead of (quote (count ?x)). Inverse of
+   disambiguate-from-hfql-syntax (interpreter.cljc) which quotes list/number/star
+   keys to prevent HFQL from misinterpreting them as syntax."
+  [edge]
+  (if (and (seq? edge) (= 'quote (first edge)))
+    (second edge)
+    edge))
 
 (defn- resolved-symbolic-edge*
   "Like symbolic-edge* but uses form-resolved for symbol/var/call nodes.
