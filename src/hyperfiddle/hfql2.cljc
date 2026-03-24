@@ -231,6 +231,15 @@
         (try (form-defaults-fn nil-map)
              (catch #?(:clj Throwable :cljs :default) _ nil))))))
 
+(defn has-form-defaults?
+  "True if this HFQL point declares form-defaults metadata.
+   Lightweight presence check — does not call the defaults fn."
+  [stepT]
+  (let [ast (meta stepT)
+        ;; Traversals delegate to their edge (same pattern as form-defaults, form-parameters)
+        ast (if (ast/traversal? ast) (ast/edge ast) ast)]
+    (some? (::form-defaults (extract ast)))))
+
 (defn fullfilled?
   "True if an HFQL point is ready to be navigated — all unbound parameters
    have values in scope. Non-partial steps are always fulfilled."
