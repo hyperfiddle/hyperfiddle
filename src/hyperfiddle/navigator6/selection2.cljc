@@ -975,6 +975,16 @@
 
 ;;;; Naming points
 
+;;;;; Infering a title from navigation point
+
+(defn- display-edge
+  "Strip (quote ...) wrapper from disambiguated runtime-discovered map keys
+   so the UI shows (count ?x) instead of (quote (count ?x))."
+  [edge]
+  (if (and (seq? edge) (= 'quote (first edge)))
+    (second edge)
+    edge))
+
 (defn- positional-index-name
   "Given symbolic selection coordinates [symbolic-column symbolic-constructor-form],
   produce a title string for positional (nth) addressing, or nil."
@@ -994,16 +1004,6 @@
         (if (seq? col)
           (str (pr-str row) " › " (pr-str col))
           (pr-str (list col row)))))))
-
-;;;;; Infering a title from navigation point
-
-(defn- display-edge
-  "Strip (quote ...) wrapper from disambiguated runtime-discovered map keys
-   so the UI shows (count ?x) instead of (quote (count ?x))."
-  [edge]
-  (if (and (seq? edge) (= 'quote (first edge)))
-    (second edge)
-    edge))
 
 (defn point-symbolic-name
   ([current-point] (point-symbolic-name current-point nil))
