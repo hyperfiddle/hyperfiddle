@@ -25,8 +25,8 @@
             [hyperfiddle.ct.comonad :refer [extract]]
             [hyperfiddle.ct.cofree :refer [unwrap]]
             [dustingetz.check :refer [is]]
-            #?(:clj [clojure.tools.logging :as log]))
-  #?(:cljs (:require-macros hyperfiddle.navigator6)))
+            #?(:clj [clojure.tools.logging :as log])))
+
 
 (e/declare ^:dynamic *navigation-depth*)
 
