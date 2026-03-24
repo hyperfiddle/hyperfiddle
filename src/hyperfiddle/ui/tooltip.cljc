@@ -22,14 +22,34 @@
      (if target-node
        (if-let [offset (getPageOffset target-node)]
          (if-let [target-size (getTransformedSize target-node)]
-           ;; TODO implement anchoring and smart off-screen anchor switch.
-           ;;     E.g. :top :bottom :left :right
-           ;;     If tooltip get clipped off-window on the right clipped, swap anchor for :left
            [(+ (.-x offset) #_(.-width target-size))
             (+ (.-y offset) (.-height target-size))]
            [0 0])
          [0 0])
        [0 0])))
+
+#?(:cljs (def ^:private !prev-anchor (atom nil)))
+#?(:cljs (def ^:private !anchor-gen (atom 0)))
+
+;; When true, CSS @supports block handles positioning — inline left/top would
+;; fight position-try-fallbacks, so JS must not set them.
+#?(:cljs
+   (def ^:private anchor-positioning?
+     (try (js/CSS.supports "anchor-name" "--a") (catch :default _ false))))
+
+#?(:cljs
+   (defn ^:no-doc set-anchor-name! [^js tooltip-node ^js target-node]
+     ;; Rotates anchor names so the browser re-evaluates position-try-fallbacks
+     ;; from scratch (spec says "keep last-used fallback if it still fits").
+     ;; Only updates on new target — keeps anchor on last element for fade-out.
+     (when (and target-node (isElement target-node))
+       (let [n    (swap! !anchor-gen inc)
+             name (if (odd? n) "--hf-tooltip-a" "--hf-tooltip-b")]
+         (when-some [prev @!prev-anchor]
+           (.. prev -style (removeProperty "anchor-name")))
+         (set! (.. target-node -style -anchorName) name)
+         (set! (.. tooltip-node -style -positionAnchor) name)
+         (reset! !prev-anchor target-node)))))
 
 (defn ^:no-doc reducer [rf init]
   {:pre [(ifn? rf)]}
@@ -73,11 +93,13 @@
 (e/defn Tooltip []
   "Render `data-tooltip` as plain text. To be styled with CSS."
   (AdvancedTooltip (e/fn [target-node]
-                     (let [[x y] (coordinates dom/node target-node)]
-                       (dom/props {:class [(css-slugify `Tooltip-basic) ((fn [x] (when (zero? x) (css-slugify `Tooltip-hidden))) x)]
-                                   :style {:left (str x "px") :top (str y "px")}})
-                       (basic-set-content! dom/node (get-content target-node)) ; only set text, don't unset, just hide tooltip - enabling disappear animation
-                       ))))
+                     (set-anchor-name! dom/node target-node)
+                     (dom/props {:class [(css-slugify `Tooltip-basic)
+                                         (when-not target-node (css-slugify `Tooltip-hidden))]
+                                 :style (when-not anchor-positioning?
+                                          (let [[x y] (coordinates dom/node target-node)]
+                                            {:left (str x "px") :top (str y "px")}))})
+                     (basic-set-content! dom/node (get-content target-node)))))  ; only set text, don't unset — enables disappear animation
 
 (def css
 "
@@ -110,6 +132,37 @@
   opacity: 0;
   border-color: var(--background-color);
   transition: opacity 0.1s ease, top 0.1s steps(1,end), left 0.1s steps(1, end);
+}
+
+/* ── CSS Anchor Positioning (Chrome 125+, Edge 125+) ──
+   Auto-flips tooltip to avoid viewport overflow.
+   JS skips inline left/top when supported, so position-try-fallbacks can
+   freely swap left↔right, top↔bottom without !important interference. */
+@supports (anchor-name: --a) {
+
+  /* Last resort: span viewport width when tooltip overflows all sides */
+  @position-try --full-width-below { top: anchor(bottom); left: 1rem; right: 1rem; width: auto; margin: 0; }
+  @position-try --full-width-above { bottom: anchor(top); left: 1rem; right: 1rem; width: auto; margin: 0; }
+
+  .hyperfiddle-ui-tooltip-Tooltip.hyperfiddle-ui-tooltip-Tooltip-basic {
+    position: fixed;
+    transform: none;
+    width: max-content; /* forces overflow detection instead of text wrapping */
+    overflow-wrap: break-word; /* break long tokens (e.g. Java class names) when clamped */
+    /* position-anchor set by JS (rotating names to bust stale fallback cache) */
+    top: anchor(bottom);
+    left: anchor(left);
+    margin-inline-start: 1.5em;
+    position-try-fallbacks: flip-inline, flip-block, flip-block flip-inline,
+                            --full-width-below, --full-width-above;
+  }
+}
+
+@supports not (anchor-name: --a) {
+  .hyperfiddle-ui-tooltip-Tooltip.hyperfiddle-ui-tooltip-Tooltip-basic {
+    max-width: min(40ch, calc(100vw - 2rem));
+    overflow-wrap: break-word;
+  }
 }
 "
 )
