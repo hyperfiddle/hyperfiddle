@@ -9,6 +9,10 @@
 
 (e/declare element)
 
+;; Per-tooltip-tree anchor state — bound by TooltipArea, read by Tooltip.
+;; Atoms (not values) because set-anchor-name! mutates them synchronously.
+(e/declare ^:dynamic *prev-anchor* ^:dynamic *anchor-gen*)
+
 #?(:cljs
    (defn get-content [^js tooltip-node]
      {:pre [(or (nil? tooltip-node) (isElement tooltip-node))]
@@ -28,11 +32,6 @@
          [0 0])
        [0 0])))
 
-;; Singleton state — assumes exactly one (Tooltip) component in the app.
-;; !prev-anchor holds a reference to the last hovered DOM node (for anchor-name cleanup).
-#?(:cljs (def ^:private !prev-anchor (atom nil)))
-#?(:cljs (def ^:private !anchor-gen (atom 0)))
-
 ;; When true, CSS @supports block handles positioning — inline left/top would
 ;; fight position-try-fallbacks, so JS must not set them.
 #?(:cljs
@@ -40,11 +39,11 @@
      (try (js/CSS.supports "anchor-name" "--a") (catch :default _ false))))
 
 #?(:cljs
-   (defn ^:no-doc set-anchor-name! [^js tooltip-node ^js target-node]
+   (defn ^:no-doc set-anchor-name! [!prev-anchor !anchor-gen ^js tooltip-node ^js target-node]
      ;; Rotates anchor names so the browser re-evaluates position-try-fallbacks
      ;; from scratch (spec says "keep last-used fallback if it still fits").
      ;; Only updates on new target — keeps anchor on last element for fade-out.
-     (when (and target-node (isElement target-node))
+     (when (and !prev-anchor !anchor-gen target-node (isElement target-node))
        (let [n    (swap! !anchor-gen inc)
              name (if (odd? n) "--hf-tooltip-a" "--hf-tooltip-b")]
          (when-some [prev @!prev-anchor]
@@ -77,9 +76,16 @@
      (reducer (fn [prev next] (if (is-tooltip? (.-target next)) prev (rf prev next))) nil)))
 
 (e/defn TooltipArea [Body]
-  (binding [element (e/client (->> (dom/On "mousemove" (filter-tooltip (comp find-tooltip-element {})) nil)
-                                   (dom/On "mouseleave" (constantly nil))))]
-    (Body)))
+  (e/client
+    ;; Anchor state scoped to this tooltip tree — each TooltipArea gets its own
+    ;; atoms so multiple tooltip instances don't interfere with each other.
+    (let [!prev (atom nil)
+          !gen  (atom 0)]
+      (binding [*prev-anchor* !prev
+                *anchor-gen*  !gen
+                element (->> (dom/On "mousemove" (filter-tooltip (comp find-tooltip-element {})) nil)
+                             (dom/On "mouseleave" (constantly nil)))]
+        (Body)))))
 
 (e/defn AdvancedTooltip [Body]
   (dom/div
@@ -95,7 +101,7 @@
 (e/defn Tooltip []
   "Render `data-tooltip` as plain text. To be styled with CSS."
   (AdvancedTooltip (e/fn [target-node]
-                     (set-anchor-name! dom/node target-node)
+                     (set-anchor-name! *prev-anchor* *anchor-gen* dom/node target-node)
                      (dom/props {:class [(css-slugify `Tooltip-basic)
                                          (when-not target-node (css-slugify `Tooltip-hidden))]
                                  :style (when-not anchor-positioning?
