@@ -1361,6 +1361,14 @@ it might not be serializable."
             var (::ast/var desc)]
         (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" form-resolved (some-> var meta :arglists) (some-> var meta :doc))))))
 
+;; Call nodes (e.g. `(d/query query-map)`) — without this, bare calls in
+;; sitemaps fall through to :default → "" → no tooltip.
+(defmethod describe-formatted ::ast/call [hfqlT]
+  (let [desc (describe hfqlT)
+        {::keys [symbolic-edge]} desc
+        var (::ast/var desc)]
+    (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" symbolic-edge (some-> var meta :arglists) (some-> var meta :doc))))
+
 (defmethod describe-formatted ::ast/keyword [hfqlT] (::ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/string  [hfqlT] (::ast/form (describe hfqlT)))
 (defmethod describe-formatted ::ast/lambda  [hfqlT] (symbolic-edge hfqlT))
@@ -1373,10 +1381,16 @@ it might not be serializable."
       (str (symbolic-edge hfqlT)))))
 
 (defmethod describe-formatted ::ast/traversal [hfqlT]
-  (let [desc (describe hfqlT)
-        {::keys [symbolic-edge]} desc
-        var (::ast/var desc)]
-    (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" symbolic-edge (some-> var meta :arglists) (some-> var meta :doc))))
+  ;; Bare calls like `'query (hfql (d/query query-map))` have no traversal
+  ;; structure. SuggestAndRender wraps their result in a synthetic star-traversal
+  ;; for table display. The star edge is structural — delegate to parent (the
+  ;; original call HFQLT) so the title tooltip shows the call's docstring.
+  (if (and (star-traversal? hfqlT) (parent hfqlT))
+    (describe-formatted (parent hfqlT))
+    (let [desc (describe hfqlT)
+          {::keys [symbolic-edge]} desc
+          var (::ast/var desc)]
+      (cl-format nil "~a~%~{~a~^~%~}~@[~%~a~]" symbolic-edge (some-> var meta :arglists) (some-> var meta :doc)))))
 
 ;; Tooltip text for a reflected Java method: FQN doc + arglists.
 #?(:clj
