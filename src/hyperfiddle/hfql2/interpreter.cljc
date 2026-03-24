@@ -400,11 +400,15 @@
   (cond
     (nat-int? form)    (list 'quote form)
     (#{'* '...} form)  (list 'quote form)
+    ;; List forms like (count ?x) from d/query aggregate columns are map keys,
+    ;; not function calls. Without quoting, the analyzer creates ::ast/call nodes
+    ;; and the coalgebra tries to execute them → ClassCastException.
+    (seq? form)        (list 'quote form)
     :else              form))
 (defn- undisambiguate-from-hfql-syntax [form]
   (if (and (ana/quoted? form)
            (let [inner (second form)]
-             (or (nat-int? inner) (#{'* '...} inner))))
+             (or (nat-int? inner) (#{'* '...} inner) (seq? inner))))
     (ana/unquote* form)
     form))
 

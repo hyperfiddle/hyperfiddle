@@ -77,10 +77,13 @@
   (or (ident? value)
     (string? value)
     (symbolic-constructor-form? value)
-    ;; Lambda edge forms: (fn name ...) — produced by AST symbolic-edge for ::lambda nodes.
-    ;; `fn` is unqualified so it fails symbolic-constructor-form?, but the form is
-    ;; perfectly URL-serializable and roundtrips through find-cell-by-symbolic-column.
-    (and (seq? value) (= 'fn (first value)))))
+    ;; Call-like column forms with unqualified heads:
+    ;; - Lambda edges: (fn name ...) from AST ::lambda nodes
+    ;; - Aggregate columns: (count ?x), (min ?year) from d/query find-spec
+    ;; These fail symbolic-constructor-form? (requires qualified head) but are
+    ;; valid column identifiers that survive EDN/URL roundtrip as lists.
+    ;; Excludes (var foo) — reader artifact for #'foo, not a column name.
+    (and (seq? value) (symbol? (first value)) (not= 'var (first value)))))
 
 (tests
   (symbolic-column? nil)
@@ -111,9 +114,13 @@
   := false
   (symbolic-column? [:db/ident :artist/name])
   := false
-  (symbolic-column? '(fn namespace-usages ...)) ; lambda edge form — unqualified fn is OK
+  (symbolic-column? '(fn namespace-usages ...)) ; lambda edge form
   := true
   (symbolic-column? '(fn anonymous ...))
+  := true
+  (symbolic-column? '(count ?x)) ; d/query aggregate column — list survives EDN roundtrip
+  := true
+  (symbolic-column? '(min ?year))
   := true
 
   )
@@ -980,9 +987,23 @@
     ;; Case where we select a cell by positional index.
     (and (= `hfql/nth (first symbolic-constructor-form))
       (some? symbolic-column)
-      (pr-str (list symbolic-column (list 'nth '% (second symbolic-constructor-form)))))))
+      (let [col (display-edge symbolic-column)
+            row (list 'nth '% (second symbolic-constructor-form))]
+        ;; For sexpr columns like (count ?x), `(count ?x) (nth % 1)` reads
+        ;; ambiguously — looks like nested calls. Use arrow notation instead.
+        (if (seq? col)
+          (str (pr-str row) " › " (pr-str col))
+          (pr-str (list col row)))))))
 
 ;;;;; Infering a title from navigation point
+
+(defn- display-edge
+  "Strip (quote ...) wrapper from disambiguated runtime-discovered map keys
+   so the UI shows (count ?x) instead of (quote (count ?x))."
+  [edge]
+  (if (and (seq? edge) (= 'quote (first edge)))
+    (second edge)
+    edge))
 
 (defn point-symbolic-name
   ([current-point] (point-symbolic-name current-point nil))
@@ -991,7 +1012,7 @@
           (or (nil? parent-selection-coordinates) (symbolic-selection-coordinates? parent-selection-coordinates))]
     :post [(string? %)]}
    (or (and (some? current-point)
-         (or (let [symbolic-column (symbolize-form current-point)
+         (or (let [symbolic-column (display-edge (symbolize-form current-point))
                    symbolic-constructor-form (symbolize-value current-point)]
                (or
                  ;; Case where both symbolic column and value are known at the current point.
@@ -1008,7 +1029,7 @@
                  (and (nil? symbolic-column)
                    (some? symbolic-constructor-form)
                    (let [parent (hfql/parent current-point)
-                         parent-edge (and parent (symbolize-form parent))
+                         parent-edge (and parent (display-edge (symbolize-form parent)))
                          parent-symbolic-value (and parent (symbolize-value parent))]
                      (or
                        ;; Edge case: both parent and the current selected *cell* are Identifiable
@@ -1045,7 +1066,7 @@
                              ;; Case where we select "hfql/current-point", a non-identifiable object only addressable by the current scope.
                              (and (= `hfql/current-point (first symbolic-constructor-form))
                                (some? symbolic-column)
-                               (pr-str symbolic-column))
+                               (pr-str (display-edge symbolic-column)))
                              (positional-index-name coords)))))))
                  ;; Case where the current point is anonymous (e.g. a non-identifiable row).
                  ;; So there's no selected column, and the row coordinate is unknown.
@@ -1059,7 +1080,7 @@
                  (and (::hfql/error (meta current-point)) ; error flag
                    (or (and (some? parent-selection-coordinates)
                          (or (and (some? (first parent-selection-coordinates)) ; col × row
-                               (pr-str (list* parent-selection-coordinates)))
+                               (pr-str (list (display-edge (first parent-selection-coordinates)) (second parent-selection-coordinates))))
                            (pr-str (second parent-selection-coordinates)))) ; row only
                      ;; We don't know the current point's corrdinates because there's no parent. (e.g. top-level navigation failed)
                      ;; The best title we can produce is the one of the error itself.
