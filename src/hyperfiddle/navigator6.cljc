@@ -510,6 +510,8 @@
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_vertical.css"))}))
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_horizontal.css"))}))
              (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "matrix_cards.css"))}))
+             ;; CodeMirror form inputs (e.g. ArgInput for query parameters with form-defaults)
+             (dom/link (dom/props {:rel :stylesheet, :href (e/server (str hf/*base-static-resource-path* "codemirror-forms5.css"))}))
              (forms/Checkbox* false {:class "data-loader__enabled" :style {:position :absolute, :inset-block-start "1dvw", :inset-inline-end "1dvw"}})
              #_(Index sitemap entrypoints) ;; replaced by in-band HFQL pages index
              (tooltip/TooltipArea
