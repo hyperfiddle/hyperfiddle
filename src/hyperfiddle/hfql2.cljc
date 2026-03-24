@@ -1636,7 +1636,16 @@ it might not be serializable."
           ;; Libpython-clj breaks the contract by defining all objects as Iterable.
           ;; Other types may break the contract. We decide the safest thing to
           ;; do is to return the object as-is and let users decide.
-          (seq obj)
+          (let [result (seq obj)]
+            ;; Tag seqs auto-converted from Java Maps so the suggest dispatch
+            ;; can route them to associative rendering instead of collection
+            ;; traversal. Only this :default branch is tagged — user -datafy
+            ;; protocol extensions short-circuit at line 1629, and user --datafy
+            ;; multimethod extensions dispatch before :default.
+            (if #?(:clj (and result (imap? obj))
+                   :cljs false)
+              (vary-meta result assoc ::map-entries true)
+              result))
           (catch #?(:clj Throwable, :cljs :default) _
             obj))
         ;; TODO what about records?

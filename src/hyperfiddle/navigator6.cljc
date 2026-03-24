@@ -17,7 +17,7 @@
             [hyperfiddle.navigator6.utils :as utils :refer [in rebooting glitch-guard]]
             [dustingetz.css :as cssx]
             [dustingetz.data :refer [#?(:clj array?)]]
-            [hyperfiddle.hfql2.utils :refer [imap?]]
+            [hyperfiddle.hfql2.utils :refer [has-meta? imap?]]
             [dustingetz.str :as strx]
             [dustingetz.loader :as loader :refer [Offload]]
             [hyperfiddle.ct.function :refer [flip]]
@@ -72,6 +72,11 @@
    Records implement IPersistentMap, so (imap? v) covers them."
   [v]
   (or (imap? v)
+      ;; Java Maps are datafied to lazy seqs by --datafy :default, tagged with
+      ;; ::hfql2/map-entries. The underlying value is still associative even though
+      ;; the datafied form is a seq. Without this check, SuggestAndRender passes
+      ;; :associative? false → matrix renders as a collection table, not key-value.
+      (and (has-meta? v) (:hyperfiddle.hfql2/map-entries (meta v)))
       #?@(:clj [(and (some? v) (not (instance? clojure.lang.IObj v)) (not (array? v)))])))
 
 (defn- suggest-and-graft
