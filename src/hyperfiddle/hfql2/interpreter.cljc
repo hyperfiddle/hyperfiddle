@@ -364,8 +364,16 @@
                 (let [key         (ast/form-resolved ast-node)
                       default-val (::hfql/default (extract ast-node))] ; honor ::hfql/default for keyword-fn dispatch
                   #(*navigate* %1 key (get %1 key default-val)))
-                (let [f (ast/node-value ast-node)] ; Meaning :db/id and #(:db/id %) will navigate, but #(get % :db/id) won't.
-                  #(apply f %&)))
+                ;; When a resolver is explicitly registered for this function's
+                ;; qualified symbol, delegate to it. This lets e.g. d/query provide
+                ;; enhanced behavior (reshaping, identity detection) transparently
+                ;; in HFQL expressions — without requiring a separate wrapper fn.
+                (let [f     (ast/node-value ast-node)
+                      f-sym (ast/form-resolved ast-node)]
+                  (if (and (symbol? f-sym)
+                           (contains? (methods hfqlp/-hfql-resolve) f-sym))
+                    (fn [& args] (hfqlp/-hfql-resolve (apply list f-sym args)))
+                    #(apply f %&))))
         xform (or (::hfql/xform (extract ast-node)) identity)]
     (io-operation
       (fn [args]

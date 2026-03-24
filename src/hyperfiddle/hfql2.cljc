@@ -219,7 +219,10 @@
    Returns serializable {sym value} or nil. Caller should ensure DI bindings
    are active (form-defaults fn may access DI vars for computation)."
   [stepT]
-  (let [form-defaults-fn (::form-defaults (extract (meta stepT)))]
+  (let [ast (meta stepT)
+        ;; Traversals delegate form-defaults to their edge (same as form-parameters)
+        ast (if (ast/traversal? ast) (ast/edge ast) ast)
+        form-defaults-fn (::form-defaults (extract ast))]
     (when form-defaults-fn
       ;; Pass nil for all params — form starts empty, form-defaults fills in
       ;; symbolic values (e.g. '{:args [*db*]}).
