@@ -2,10 +2,10 @@
   "CodeMirror-based EDN input with forms5 transactional semantics.
    Bridges CodeMirror's updateListener model into forms5's token/dirty/validation
    contract, so it works as a drop-in for Input! inside Form!.
-   Reuses contrib.electric-codemirror/codemirror (missionary observable) for CM
+   Reuses dustingetz.electric-codemirror/codemirror (missionary observable) for CM
    lifecycle — we add the forms5 edit lifecycle on top."
   (:require
-    [contrib.electric-codemirror :as cm]
+    [dustingetz.electric-codemirror :as cm]
     [hyperfiddle.electric3 :as e]
     [hyperfiddle.electric-dom3 :as dom]
     [hyperfiddle.electric-forms5 :as forms5 :refer [Identity tx-error?]]
