@@ -41,7 +41,7 @@ dd[data-errormessage]:has(.codemirror-forms5) {
 
 /* CM editor — compact sizing for parameter form fields */
 .codemirror-forms5 .cm-editor {
-  font-size: 0.8125em;
+  font-size: 1em;
 }
 
 /* Remove CM's default focus outline — wrapper handles focus indication */

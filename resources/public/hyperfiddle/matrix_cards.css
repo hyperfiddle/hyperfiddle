@@ -245,7 +245,7 @@
 /* Monospace labels — parameter names are code */
 .parameter-form dt label {
   font-family: 'Consolas', 'Monaco', 'Menlo', monospace;
-  font-size: 0.8125em;
+  font-size: 1em;
 }
 
 /* dd column layout — error message (dd::after) appears below input */
